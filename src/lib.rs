@@ -15,21 +15,22 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
     };
 
     // For each field generate a TokenStream representing the mapped index to the main store
-    let tokens: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
-        f.named
-            .iter()
-            .map(|f| {
-                let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-                let ty = &f.ty;
+    let lookup_table_fields: Vec<quote::__private::TokenStream> =
+        if let syn::Fields::Named(f) = &fields {
+            f.named
+                .iter()
+                .map(|f| {
+                    let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+                    let ty = &f.ty;
 
-                quote! {
-                    #index_name: rustc_hash::FxHashMap<#ty, usize>
-                }
-            })
-            .collect()
-    } else {
-        todo!()
-    };
+                    quote! {
+                        #index_name: rustc_hash::FxHashMap<#ty, usize>
+                    }
+                })
+                .collect()
+        } else {
+            todo!()
+        };
 
     let element_name = input.ident;
 
@@ -56,13 +57,12 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             .iter()
             .map(|f| {
                 let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-                let accessor_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
+                let remover_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
                 let ty = &f.ty;
 
                 quote! {
-                    fn #accessor_name(&mut self, key: &#ty) -> Option<#element_name> {
+                    pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
                         let idx = self.#index_name.remove(key)?;
-                        println!("Removing {:?} from store", idx);
                         let elem = self._store.remove(idx);
                         #(#removes)*
                         Some(elem)
@@ -82,11 +82,16 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             .map(|f| {
                 let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
                 let accessor_name = format_ident!("get_by_{}", f.ident.as_ref().unwrap());
+                let mut_accessor_name = format_ident!("get_mut_by_{}", f.ident.as_ref().unwrap());
                 let ty = &f.ty;
 
                 quote! {
-                    fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
+                    pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
                         self._store.get(*self.#index_name.get(key)?)
+                    }
+
+                    pub(super) fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
+                        self._store.get_mut(*self.#index_name.get(key)?)
                     }
 
                 }
@@ -116,25 +121,28 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
     // Generate the name of the MultiIndexMap
     let map_name = format_ident!("MultiIndex{}Map", element_name);
 
-    // Build the output, possibly using quasi-quotation
     let expanded = quote! {
-        #[derive(Debug, Default)]
-        struct #map_name {
-            _store: slab::Slab<#element_name>,
-            #(#tokens),*
-        }
+        mod multi_index {
+            use super::#element_name;
 
-        impl #map_name {
-            fn insert(&mut self, elem: #element_name) {
-                let idx = self._store.insert(elem);
-                let elem = &self._store[idx];
-
-                #(#inserts)*
+            #[derive(Debug, Default)]
+            pub(super) struct #map_name {
+                _store: slab::Slab<#element_name>,
+                #(#lookup_table_fields),*
             }
 
-            #(#accessors)*
+            impl #map_name {
+                pub(super) fn insert(&mut self, elem: #element_name) {
+                    let idx = self._store.insert(elem);
+                    let elem = &self._store[idx];
 
-            #(#removers)*
+                    #(#inserts)*
+                }
+
+                #(#accessors)*
+
+                #(#removers)*
+            }
         }
     };
 

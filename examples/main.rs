@@ -1,3 +1,4 @@
+use crate::multi_index::MultiIndexOrderMap;
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug)]
@@ -20,19 +21,23 @@ fn main() {
     };
 
     let mut map = MultiIndexOrderMap::default();
-
-    map.insert(o);
-    map.insert(o2);
-
     println!("{map:?}");
 
-    let x = map.get_by_id(&1);
+    map.insert(o);
+    println!("{map:?}");
+
+    map.insert(o2);
+    println!("{map:?}");
+
+    let w = map.get_by_id(&1);
+    println!("{w:?}");
+
+    let x = map.get_by_timestamp(&11);
     println!("{x:?}");
 
-    let y = map.get_by_timestamp(&11);
+    let y = map.remove_by_timestamp(&22);
     println!("{y:?}");
-
-    map.remove_by_timestamp(&22);
+    println!("{map:?}");
 
     let o3 = Order {
         id: 3,
@@ -40,8 +45,9 @@ fn main() {
     };
 
     map.insert(o3);
+    println!("{map:?}");
 
-    map.remove_by_id(&1);
-
+    let z = map.remove_by_id(&1);
+    println!("{z:?}");
     println!("{map:?}");
 }
