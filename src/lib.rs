@@ -23,7 +23,7 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let ty = &f.ty;
 
                 quote! {
-                    #index_name: FxHashMap<#ty, usize>
+                    #index_name: rustc_hash::FxHashMap<#ty, usize>
                 }
             })
             .collect()
@@ -62,6 +62,7 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 quote! {
                     fn #accessor_name(&mut self, key: &#ty) -> Option<#element_name> {
                         let idx = self.#index_name.remove(key)?;
+                        println!("Removing {:?} from store", idx);
                         let elem = self._store.remove(idx);
                         #(#removes)*
                         Some(elem)
@@ -119,17 +120,18 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #[derive(Debug, Default)]
         struct #map_name {
-            _store: Vec<#element_name>,
+            _store: slab::Slab<#element_name>,
             #(#tokens),*
         }
 
         impl #map_name {
             fn insert(&mut self, elem: #element_name) {
-                let idx = self._store.len();
+                let idx = self._store.insert(elem);
+                let elem = &self._store[idx];
 
                 #(#inserts)*
 
-                self._store.push(elem);
+
             }
 
             #(#accessors)*

@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 rustc-hash = { version = "^1.1"}
+slab = { version = "0.4" }
 proc-macro2 = { version = "^1.0"}
 syn = { version = "^1.0", features = ["full"] }
 quote = { version = "^1.0" }
