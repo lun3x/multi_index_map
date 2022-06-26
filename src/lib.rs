@@ -3,7 +3,7 @@ use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
 
-#[proc_macro_derive(MultiIndexMap)]
+#[proc_macro_derive(MultiIndexMap, attributes(multi_index))]
 #[proc_macro_error]
 pub fn multi_index_map(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
@@ -25,9 +25,16 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 .map(|f| {
                     let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
                     let ty = &f.ty;
-
-                    quote! {
-                        #index_name: rustc_hash::FxHashMap<#ty, usize>
+                    if let Some(attr) = f.attrs.first() {
+                        if attr.path.is_ident("multi_index") {
+                            quote! {
+                                #index_name: rustc_hash::FxHashMap<#ty, usize>,
+                            }
+                        } else {
+                            quote! {}
+                        }
+                    } else {
+                        quote! {}
                     }
                 })
                 .collect()
@@ -47,8 +54,16 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let field_name = f.ident.as_ref().unwrap();
                 let index_name = format_ident!("_{}_index", field_name);
 
-                quote! {
-                    self.#index_name.remove(&elem.#field_name);
+                if let Some(attr) = f.attrs.first() {
+                    if attr.path.is_ident("multi_index") {
+                        quote! {
+                            self.#index_name.remove(&elem.#field_name);
+                        }
+                    } else {
+                        quote! {}
+                    }
+                } else {
+                    quote! {}
                 }
             })
             .collect()
@@ -67,14 +82,21 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let remover_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
                 let ty = &f.ty;
 
-                quote! {
-                    pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                        let idx = self.#index_name.remove(key)?;
-                        let elem = self._store.remove(idx);
-                        #(#removes)*
-                        Some(elem)
+                if let Some(attr) = f.attrs.first() {
+                    if attr.path.is_ident("multi_index") {
+                        quote! {
+                            pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
+                                let idx = self.#index_name.remove(key)?;
+                                let elem = self._store.remove(idx);
+                                #(#removes)*
+                                Some(elem)
+                            }
+                        }
+                    } else {
+                        quote! {}
                     }
-
+                } else {
+                    quote! {}
                 }
             })
             .collect()
@@ -94,16 +116,26 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let mut_accessor_name = format_ident!("get_mut_by_{}", f.ident.as_ref().unwrap());
                 let ty = &f.ty;
 
-                quote! {
-                    pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
-                        self._store.get(*self.#index_name.get(key)?)
+                if let Some(attr) = f.attrs.first() {
+                    if attr.path.is_ident("multi_index") {
+                        quote! {
+                            pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
+                                self._store.get(*self.#index_name.get(key)?)
+                            }
+        
+                            pub(super) fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
+                                self._store.get_mut(*self.#index_name.get(key)?)
+                            }
+        
+                        }
+                    } else {
+                        quote! {}
                     }
-
-                    pub(super) fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
-                        self._store.get_mut(*self.#index_name.get(key)?)
-                    }
-
+                } else {
+                    quote! {}
                 }
+
+
             })
             .collect()
     } else {
@@ -120,8 +152,16 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let field_name = f.ident.as_ref().unwrap();
                 let index_name = format_ident!("_{}_index", field_name);
 
-                quote! {
-                    self.#index_name.insert(elem.#field_name, idx);
+                if let Some(attr) = f.attrs.first() {
+                    if attr.path.is_ident("multi_index") {
+                        quote! {
+                            self.#index_name.insert(elem.#field_name, idx);
+                        }
+                    } else {
+                        quote! {}
+                    }
+                } else {
+                    quote! {}
                 }
             })
             .collect()
@@ -141,7 +181,7 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             #[derive(Debug, Default)]
             pub(super) struct #map_name {
                 _store: slab::Slab<#element_name>,
-                #(#lookup_table_fields),*
+                #(#lookup_table_fields)*
             }
 
             impl #map_name {
