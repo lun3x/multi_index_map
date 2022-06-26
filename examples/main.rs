@@ -28,4 +28,10 @@ fn main() {
 
     let y = map.get_by_timestamp(&69);
     println!("{y:?}");
+
+    let z = map.remove_by_id(&1);
+
+    println!("{z:?}");
+
+    println!("{map:?}");
 }

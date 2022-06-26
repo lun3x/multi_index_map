@@ -33,6 +33,47 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
 
     let element_name = input.ident;
 
+    // For each field generate a TokenStream representing the remove from that field's lookup table
+    let removes: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
+        f.named
+            .iter()
+            .map(|f| {
+                let field_name = f.ident.as_ref().unwrap();
+                let index_name = format_ident!("_{}_index", field_name);
+
+                quote! {
+                    self.#index_name.remove(&elem.#field_name);
+                }
+            })
+            .collect()
+    } else {
+        todo!()
+    };
+
+    // For each field generate a TokenStream representing the remover for the underlying storage via that field's lookup table
+    let removers: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
+        f.named
+            .iter()
+            .map(|f| {
+                let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+                let accessor_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
+                let ty = &f.ty;
+
+                quote! {
+                    fn #accessor_name(&mut self, key: &#ty) -> Option<#element_name> {
+                        let idx = self.#index_name.remove(key)?;
+                        let elem = self._store.remove(idx);
+                        #(#removes)*
+                        Some(elem)
+                    }
+
+                }
+            })
+            .collect()
+    } else {
+        todo!()
+    };
+
     // For each field generate a TokenStream representing the accessor for the underlying storage via that field's lookup table
     let accessors: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
         f.named
@@ -92,6 +133,8 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             }
 
             #(#accessors)*
+
+            #(#removers)*
         }
     };
 
