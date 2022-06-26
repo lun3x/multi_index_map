@@ -130,8 +130,6 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let elem = &self._store[idx];
 
                 #(#inserts)*
-
-
             }
 
             #(#accessors)*

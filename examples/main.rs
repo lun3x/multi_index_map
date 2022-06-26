@@ -32,11 +32,16 @@ fn main() {
     let y = map.get_by_timestamp(&11);
     println!("{y:?}");
 
-    let zz = map.remove_by_timestamp(&22);
+    map.remove_by_timestamp(&22);
 
-    let z = map.remove_by_id(&1);
+    let o3 = Order {
+        id: 3,
+        timestamp: 33,
+    };
 
-    println!("{z:?}");
+    map.insert(o3);
+
+    map.remove_by_id(&1);
 
     println!("{map:?}");
 }
