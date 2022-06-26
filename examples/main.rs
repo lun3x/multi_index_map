@@ -1,7 +1,7 @@
 use multi_index_map::MultiIndexMap;
 use rustc_hash::FxHashMap;
 
-#[derive(MultiIndexMap)]
+#[derive(MultiIndexMap, Debug)]
 struct Order {
     // #[multi_index(hashed_unique)]
     id: u32,
@@ -20,4 +20,6 @@ fn main() {
         id_index: Default::default(),
         timestamp_index: Default::default(),
     };
+
+    print!("{map:?}");
 }
