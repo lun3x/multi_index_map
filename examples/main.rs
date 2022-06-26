@@ -15,11 +15,10 @@ fn main() {
         timestamp: 0,
     };
 
-    let map = MultiIndexOrderMap {
-        store: Default::default(),
-        id_index: Default::default(),
-        timestamp_index: Default::default(),
-    };
+    let map = MultiIndexOrderMap::default();
 
-    print!("{map:?}");
+    println!("{map:?}");
+
+    let x = map.get_by_id(&0);
+    println!("{x:?}")
 }

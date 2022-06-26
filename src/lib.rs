@@ -19,11 +19,34 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
         f.named
             .iter()
             .map(|f| {
-                let index = format_ident!("{}_index", f.ident.as_ref().unwrap());
+                let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
                 let ty = &f.ty;
 
                 quote! {
-                    #index: FxHashMap<#ty, u64>
+                    #index_name: FxHashMap<#ty, u64>
+                }
+            })
+            .collect()
+    } else {
+        todo!()
+    };
+
+    let name = input.ident;
+
+    // For each field generate a TokenStream representing the accessor for the index
+    let accessors: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
+        f.named
+            .iter()
+            .map(|f| {
+                let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+                let accessor_name = format_ident!("get_by_{}", f.ident.as_ref().unwrap());
+                let ty = &f.ty;
+
+                quote! {
+                    fn #accessor_name(&self, key: &#ty) -> Option<&#name> {
+                        self._store.get(self.#index_name.get(key)?)
+                    }
+
                 }
             })
             .collect()
@@ -32,15 +55,18 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
     };
 
     // Generate the name of the MultiIndexMap
-    let name = input.ident;
     let map_name = format_ident!("MultiIndex{}Map", name);
 
     // Build the output, possibly using quasi-quotation
     let expanded = quote! {
-        #[derive(Debug)]
+        #[derive(Debug, Default)]
         struct #map_name {
-            store: FxHashMap<u64, #name>,
+            _store: FxHashMap<u64, #name>,
             #(#tokens),*
+        }
+
+        impl #map_name {
+            #(#accessors)*
         }
     };
 
