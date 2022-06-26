@@ -1,8 +1,10 @@
 use proc_macro::TokenStream;
+use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(MultiIndexMap)]
+#[proc_macro_error]
 pub fn multi_index_map(input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
     let input = parse_macro_input!(input as DeriveInput);
@@ -10,8 +12,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
     // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
-        syn::Data::Enum(_) => todo!(),
-        syn::Data::Union(_) => todo!(),
+        _ => {
+            abort_call_site!("MultiIndexMap only support structs as elements")
+        }
     };
 
     // For each field generate a TokenStream representing the mapped index to the main store
@@ -29,7 +32,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 })
                 .collect()
         } else {
-            todo!()
+            abort_call_site!(
+                "MultiIndexMap only support named struct fields, not unnamed tuple structs"
+            )
         };
 
     let element_name = input.ident;
@@ -48,7 +53,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             })
             .collect()
     } else {
-        todo!()
+        abort_call_site!(
+            "MultiIndexMap only support named struct fields, not unnamed tuple structs"
+        )
     };
 
     // For each field generate a TokenStream representing the remover for the underlying storage via that field's lookup table
@@ -72,7 +79,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             })
             .collect()
     } else {
-        todo!()
+        abort_call_site!(
+            "MultiIndexMap only support named struct fields, not unnamed tuple structs"
+        )
     };
 
     // For each field generate a TokenStream representing the accessor for the underlying storage via that field's lookup table
@@ -98,7 +107,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             })
             .collect()
     } else {
-        todo!()
+        abort_call_site!(
+            "MultiIndexMap only support named struct fields, not unnamed tuple structs"
+        )
     };
 
     // For each field generate a TokenStream representing the insert to that field's lookup table
@@ -115,7 +126,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
             })
             .collect()
     } else {
-        todo!()
+        abort_call_site!(
+            "MultiIndexMap only support named struct fields, not unnamed tuple structs"
+        )
     };
 
     // Generate the name of the MultiIndexMap
