@@ -23,7 +23,7 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let ty = &f.ty;
 
                 quote! {
-                    #index_name: FxHashMap<#ty, u64>
+                    #index_name: FxHashMap<#ty, usize>
                 }
             })
             .collect()
@@ -31,9 +31,9 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
         todo!()
     };
 
-    let name = input.ident;
+    let element_name = input.ident;
 
-    // For each field generate a TokenStream representing the accessor for the index
+    // For each field generate a TokenStream representing the accessor for the underlying storage via that field's lookup table
     let accessors: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
         f.named
             .iter()
@@ -43,8 +43,8 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
                 let ty = &f.ty;
 
                 quote! {
-                    fn #accessor_name(&self, key: &#ty) -> Option<&#name> {
-                        self._store.get(self.#index_name.get(key)?)
+                    fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
+                        self._store.get(*self.#index_name.get(key)?)
                     }
 
                 }
@@ -54,18 +54,43 @@ pub fn multi_index_map(input: TokenStream) -> TokenStream {
         todo!()
     };
 
+    // For each field generate a TokenStream representing the insert to that field's lookup table
+    let inserts: Vec<quote::__private::TokenStream> = if let syn::Fields::Named(f) = &fields {
+        f.named
+            .iter()
+            .map(|f| {
+                let field_name = f.ident.as_ref().unwrap();
+                let index_name = format_ident!("_{}_index", field_name);
+
+                quote! {
+                    self.#index_name.insert(elem.#field_name, idx);
+                }
+            })
+            .collect()
+    } else {
+        todo!()
+    };
+
     // Generate the name of the MultiIndexMap
-    let map_name = format_ident!("MultiIndex{}Map", name);
+    let map_name = format_ident!("MultiIndex{}Map", element_name);
 
     // Build the output, possibly using quasi-quotation
     let expanded = quote! {
         #[derive(Debug, Default)]
         struct #map_name {
-            _store: FxHashMap<u64, #name>,
+            _store: Vec<#element_name>,
             #(#tokens),*
         }
 
         impl #map_name {
+            fn insert(&mut self, elem: #element_name) {
+                let idx = self._store.len();
+
+                #(#inserts)*
+
+                self._store.push(elem);
+            }
+
             #(#accessors)*
         }
     };

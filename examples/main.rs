@@ -11,14 +11,21 @@ struct Order {
 
 fn main() {
     let o = Order {
-        id: 0,
-        timestamp: 0,
+        id: 1,
+        timestamp: 69,
     };
 
-    let map = MultiIndexOrderMap::default();
+    let mut map = MultiIndexOrderMap::default();
+
+    // map._id_index.insert(o.id, 0);
+    // map._timestamp_index.insert(o.timestamp, 0);
+    map.insert(o);
 
     println!("{map:?}");
 
-    let x = map.get_by_id(&0);
-    println!("{x:?}")
+    let x = map.get_by_id(&1);
+    println!("{x:?}");
+
+    let y = map.get_by_timestamp(&69);
+    println!("{y:?}");
 }
