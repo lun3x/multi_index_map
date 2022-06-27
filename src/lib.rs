@@ -1,5 +1,3 @@
-use std::ops::Index;
-
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
@@ -13,12 +11,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
-        _ => abort_call_site!("MultiIndexMap only support structs as elements"),
+        _ => abort_call_site!("MultiIndexMap only supports structs as elements"),
     };
 
     let named_fields = match fields {
         syn::Fields::Named(f) => f,
-        _ => abort_call_site!("MultiIndexMap only support named struct fields, not unnamed tuple structs or unit structs")
+        _ => abort_call_site!(
+            "Struct fields must be named, unnamed tuple structs and unit structs are not supported"
+        ),
     };
 
     let fields_to_index = || {
