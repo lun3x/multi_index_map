@@ -10,16 +10,6 @@ struct Order {
     trader_name: String,
 }
 
-struct IdIndex {
-    index: rustc_hash::FxHashMap<u32, usize>,
-}
-
-impl Iterator for IdIndex {
-    fn next(&mut self) -> Option<usize> {
-        self.index.iter()
-    }
-}
-
 fn main() {
     let o = Order {
         id: 1,
