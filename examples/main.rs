@@ -3,9 +3,9 @@ use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug)]
 struct Order {
-    #[multi_index]
+    #[multi_index(hashed_unique)]
     id: u32,
-    #[multi_index]
+    #[multi_index(ordered_unique)]
     timestamp: u64,
     trader_name: String,
 }

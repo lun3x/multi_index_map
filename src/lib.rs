@@ -1,3 +1,5 @@
+use std::ops::Index;
+
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
@@ -11,17 +13,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
-        _ => {
-            abort_call_site!("MultiIndexMap only support structs as elements")
-        }
+        _ => abort_call_site!("MultiIndexMap only support structs as elements"),
     };
 
-    let named_fields = if let syn::Fields::Named(f) = fields {
-        f
-    } else {
-        abort_call_site!(
-            "MultiIndexMap only support named struct fields, not unnamed tuple structs or unit structs"
-        )
+    let named_fields = match fields {
+        syn::Fields::Named(f) => f,
+        _ => abort_call_site!("MultiIndexMap only support named struct fields, not unnamed tuple structs or unit structs")
     };
 
     let fields_to_index = || {
@@ -34,8 +31,22 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let lookup_table_fields = fields_to_index().map(|f| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
-        quote! {
-            #index_name: rustc_hash::FxHashMap<#ty, usize>,
+
+        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        match index_kind {
+            IndexKind::HashedUnique => {
+                quote! {
+                    #index_name: rustc_hash::FxHashMap<#ty, usize>,
+                }
+            }
+            IndexKind::OrderedUnique => {
+                quote! {
+                    #index_name: std::collections::BTreeMap<#ty, usize>,
+                }
+            }
         }
     });
 
@@ -115,4 +126,31 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // Hand the output tokens back to the compiler
     proc_macro::TokenStream::from(expanded)
+}
+
+enum IndexKind {
+    HashedUnique,
+    OrderedUnique,
+}
+
+fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
+    let meta_list = match f.attrs.first()?.parse_meta() {
+        Ok(syn::Meta::List(l)) => l,
+        _ => return None,
+    };
+
+    let nested = meta_list.nested.first()?;
+
+    let nested_path = match nested {
+        syn::NestedMeta::Meta(syn::Meta::Path(p)) => p,
+        _ => return None,
+    };
+
+    if nested_path.is_ident("hashed_unique") {
+        Some(IndexKind::HashedUnique)
+    } else if nested_path.is_ident("ordered_unique") {
+        Some(IndexKind::OrderedUnique)
+    } else {
+        None
+    }
 }
