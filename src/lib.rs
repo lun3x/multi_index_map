@@ -30,6 +30,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
     };
 
+    // For each indexed field generate a TokenStream representing the lookup table for that field
     let lookup_table_fields = fields_to_index().map(|f| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
@@ -60,26 +61,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let element_name = input.ident;
 
-    // For each indexed field generate a TokenStream representing a remover from the underlying storage via that field's lookup table
-    let removers = fields_to_index().map(|f| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-        let remover_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
-        let ty = &f.ty;
-        quote! {
-            pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                let idx = self.#index_name.remove(key)?;
-                let elem = self._store.remove(idx);
-                #(#removes)*
-                Some(elem)
-            }
-        }
-    });
-
     // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
     let accessors = fields_to_index().map(|f| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let accessor_name = format_ident!("get_by_{}", f.ident.as_ref().unwrap());
         let mut_accessor_name = format_ident!("get_mut_by_{}", f.ident.as_ref().unwrap());
+        let remover_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
         let ty = &f.ty;
         quote! {
             pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
@@ -88,6 +75,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             pub(super) fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                 self._store.get_mut(*self.#index_name.get(key)?)
+            }
+
+            pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
+                let idx = self.#index_name.remove(key)?;
+                let elem = self._store.remove(idx);
+                #(#removes)*
+                Some(elem)
             }
         }
     });
@@ -115,8 +109,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 }
 
                 #(#accessors)*
-
-                #(#removers)*
             }
         }
     };
