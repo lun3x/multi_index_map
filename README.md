@@ -7,7 +7,16 @@ Initial implementation supports:
 * Sorted indexes using BTreeMap from [std::collections](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html)
 * Unindexed fields.
 * Iterators for each indexed field.
-* Iterators for the underlying storage.
+* Iterators for the underlying backing storage (Slab).
+
+# Performance characteristics
+* Hashed indexes are constant-time retrieval. (FxHashMap + Slab).
+* Sorted indexes are logarithmic time retrieval. (BTreeMap + Slab).
+* Iteration over hashed index is same as FxHashMap, plus a retrieval from the backing storage for each element.
+* Iteration over ordered index is same as BTreeMap, plus a retrieval from the backing storage for each element.
+* Iteration over the backing store is the same as Slab, so contiguous memory but with potentially vacant slots.
+* Insertion, removal, and modification complexity grows as the number of indexed fields grow. All fields must be inserted into / removed from / reinserted into during these operations so these are slower.
+* Modification of unindexed fields through unsafe mut methods is the same as regular retrieval time.
 
 # How to use
 
@@ -110,3 +119,8 @@ impl MultiIndexOrderMap {
     fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;  
 }
 ```
+
+
+# Future work
+* More index kinds, `ordered_non_unique` is very useful for retrieving all elements matching the given index key.
+* Implement [clever tricks](https://www.boost.org/doc/libs/1_36_0/libs/multi_index/doc/performance.html) used in boost::multi_index_containers to improve performance.
