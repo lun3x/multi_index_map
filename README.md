@@ -50,14 +50,14 @@ impl MultiIndexOrderMap {
     fn insert(&mut self, elem: Order);
     fn get_by_order_id(&self) -> Option<&Order>;
     fn get_by_timestamp(&self) -> Option<&Order>;
-    unsafe fn get_mut_by_order_id(&self) -> Option<&Order>;
-    unsafe fn get_mut_by_timestamp(&self) -> Option<&Order>;
-    fn modify_by_order_id(&self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_timestamp(&self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn remove_by_order_id(&self) -> Option<Order>;
-    fn remove_by_timestamp(&self) -> Option<Order>;
+    unsafe fn get_mut_by_order_id(&mut self) -> Option<&Order>;
+    unsafe fn get_mut_by_timestamp(&mut self) -> Option<&Order>;
+    fn modify_by_order_id(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    fn remove_by_order_id(&mut self) -> Option<Order>;
+    fn remove_by_timestamp(&mut self) -> Option<Order>;
     fn iter(&self) -> slab::Iter<Order>;
-    unsafe fn iter_mut(&self) -> slab::IterMut<Order>;
+    unsafe fn iter_mut(&mut self) -> slab::IterMut<Order>;
     fn iter_by_order_id(&self) -> MultiIndexOrderMapOrderIdIter;
     fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;  
 }
