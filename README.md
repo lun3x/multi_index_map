@@ -67,11 +67,11 @@ The `Order`s are stored in a `Slab`, in contiguous memory, which allows for fast
 A lookup table is created for each indexed field, which maps the index key to a index in the `Slab`.
 The exact type used for these depends on the annotations.
 For `hashed_unique` a `FxHashMap` is used, for `ordered_unique` a BTreeMap is used.
-When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
-When retrieving elements for a given key, we lookup the key in the lookup table, then retrieve the item at that index in the backing store.
-When removing an element for a given key, we do the same, but we then must also remove keys from all the other lookup tables before returning the element.
-When iterating over an index, we use the default iterators for the lookup table, then simply retrieve the element at the given index in the backing store.
-When modifying an element, we lookup the element through the given key, then apply the closure to modify the element in-place.
+* When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
+* When retrieving elements for a given key, we lookup the key in the lookup table, then retrieve the item at that index in the backing store.
+* When removing an element for a given key, we do the same, but we then must also remove keys from all the other lookup tables before returning the element.
+* When iterating over an index, we use the default iterators for the lookup table, then simply retrieve the element at the given index in the backing store.
+* When modifying an element, we lookup the element through the given key, then apply the closure to modify the element in-place. We then return a reference to the modified element.
 We must then update all the lookup tables to account for any changes to indexed fields.
 If we only want to modify an unindexed field then it is much faster to just mutate that field directly.
 This is why the unsafe methods are provided. These can be used to modify unindexed fields quickly, but must not be used to modify indexed fields.
@@ -98,8 +98,8 @@ impl MultiIndexOrderMap {
     fn insert(&mut self, elem: Order);
     fn get_by_order_id(&self) -> Option<&Order>;
     fn get_by_timestamp(&self) -> Option<&Order>;
-    unsafe fn get_mut_by_order_id(&mut self) -> Option<&Order>;
-    unsafe fn get_mut_by_timestamp(&mut self) -> Option<&Order>;
+    unsafe fn get_mut_by_order_id(&mut self) -> Option<&mut Order>;
+    unsafe fn get_mut_by_timestamp(&mut self) -> Option<&mut Order>;
     fn modify_by_order_id(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn remove_by_order_id(&mut self) -> Option<Order>;
