@@ -66,8 +66,6 @@ fn main() {
     );
     println!("{map:?}");
 
-    // for order in map.iter_by_timestamp() {}
-
     let o3 = Order {
         order_id: 3,
         timestamp: 33,
