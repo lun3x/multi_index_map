@@ -1,3 +1,4 @@
+use convert_case::Casing;
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
@@ -85,7 +86,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let mut_accessor_name = format_ident!("get_mut_by_{}", field_name);
         let remover_name = format_ident!("remove_by_{}", field_name);
         let modifier_name = format_ident!("modify_by_{}", field_name);
-        let iter_name = format_ident!("{}{}Iter", map_name, field_name);
+        let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
         quote! {
@@ -131,7 +132,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
     let iterators = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
-        let iter_name = format_ident!("{}{}Iter", map_name, field_name);
+        let iter_name = format_ident!(
+            "{}{}Iter",
+            map_name,
+            field_name
+                .to_string()
+                .to_case(convert_case::Case::UpperCamel)
+        );
         let ty = &f.ty;
 
         let index_kind = get_index_kind(f).unwrap_or_else(|| {
