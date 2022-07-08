@@ -1,7 +1,7 @@
 use crate::multi_index::MultiIndexOrderMap;
 use multi_index_map::MultiIndexMap;
 
-#[derive(MultiIndexMap, Debug)]
+#[derive(MultiIndexMap, Debug, Clone)]
 struct Order {
     #[multi_index(hashed_unique)]
     id: u32,
@@ -35,8 +35,13 @@ fn main() {
     let w = map.get_by_id(&1).unwrap();
     println!("Got {}'s order by id {}", w.trader_name, w.id);
 
-    let x = map.get_by_timestamp(&11).unwrap();
-    println!("Got {}'s order by timestamp {}", x.trader_name, x.timestamp);
+    let x = map
+        .modify_by_id(&1, |o| {
+            o.id = 7;
+            o.timestamp = 77
+        })
+        .unwrap();
+    println!("Modified {}'s order by id, to {:?}", x.trader_name, x);
 
     let y = map.remove_by_timestamp(&22).unwrap();
     println!(
@@ -56,7 +61,10 @@ fn main() {
     map.insert(o3);
     println!("{map:?}");
 
-    let z = map.remove_by_id(&1).unwrap();
-    println!("Removed {}'s order by id {}", z.trader_name, z.id);
+    let z = map.remove_by_timestamp(&77).unwrap();
+    println!(
+        "Removed {}'s order by timestamp {}",
+        z.trader_name, z.timestamp
+    );
     println!("{map:?}");
 }

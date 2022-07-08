@@ -51,13 +51,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     });
 
     // For each indexed field generate a TokenStream representing the insert to that field's lookup table
-    let inserts = fields_to_index().map(|f| {
-        let field_name = f.ident.as_ref().unwrap();
-        let index_name = format_ident!("_{}_index", field_name);
-        quote! {
-            self.#index_name.insert(elem.#field_name, idx);
-        }
-    });
+    let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
+        .map(|f| {
+            let field_name = f.ident.as_ref().unwrap();
+            let index_name = format_ident!("_{}_index", field_name);
+            quote! {
+                self.#index_name.insert(elem.#field_name, idx);
+            }
+        })
+        .collect();
 
     // For each indexed field generate a TokenStream representing the remove from that field's lookup table
     let removes: Vec<proc_macro2::TokenStream> = fields_to_index()
@@ -65,7 +67,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             let field_name = f.ident.as_ref().unwrap();
             let index_name = format_ident!("_{}_index", field_name);
             quote! {
-                self.#index_name.remove(&elem.#field_name);
+                self.#index_name.remove(&elem_orig.#field_name);
             }
         })
         .collect();
@@ -74,24 +76,41 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
     let accessors = fields_to_index().map(|f| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-        let accessor_name = format_ident!("get_by_{}", f.ident.as_ref().unwrap());
-        let mut_accessor_name = format_ident!("get_mut_by_{}", f.ident.as_ref().unwrap());
-        let remover_name = format_ident!("remove_by_{}", f.ident.as_ref().unwrap());
+        let field_name = f.ident.as_ref().unwrap();
+        let index_name = format_ident!("_{}_index", field_name);
+        let accessor_name = format_ident!("get_by_{}", field_name);
+        let mut_accessor_name = format_ident!("get_mut_by_{}", field_name);
+        let remover_name = format_ident!("remove_by_{}", field_name);
+        let modifier_name = format_ident!("modify_by_{}", field_name);
         let ty = &f.ty;
         quote! {
             pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
-                self._store.get(*self.#index_name.get(key)?)
+                Some(&self._store[*self.#index_name.get(key)?])
             }
 
-            pub(super) fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
-                self._store.get_mut(*self.#index_name.get(key)?)
+            // SAFETY:
+            // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+            // If the indexed fields need to be changed, the modify() method must be used.
+            pub(super) unsafe fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
+                Some(&mut self._store[*self.#index_name.get(key)?])
             }
 
             pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
                 let idx = self.#index_name.remove(key)?;
-                let elem = self._store.remove(idx);
+                let elem_orig = self._store.remove(idx);
                 #(#removes)*
+                Some(elem_orig)
+            }
+
+            pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
+                let idx = *self.#index_name.get(key)?;
+                let elem = &mut self._store[idx];
+                let elem_orig = elem.clone();
+                f(elem);
+
+                #(#removes)*
+                #(#inserts)*
+
                 Some(elem)
             }
         }
