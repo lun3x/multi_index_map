@@ -39,12 +39,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         match index_kind {
             IndexKind::HashedUnique => {
                 quote! {
-                    pub(super) #index_name: rustc_hash::FxHashMap<#ty, usize>,
+                    #index_name: rustc_hash::FxHashMap<#ty, usize>,
                 }
             }
             IndexKind::OrderedUnique => {
                 quote! {
-                    pub(super) #index_name: std::collections::BTreeMap<#ty, usize>,
+                    #index_name: std::collections::BTreeMap<#ty, usize>,
                 }
             }
         }
@@ -121,8 +121,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             pub(super) fn #iter_getter_name(&mut self) -> #iter_name {
                 #iter_name {
-                    store_ref: &self._store,
-                    iter: self.#index_name.iter()
+                    _store_ref: &self._store,
+                    _iter: self.#index_name.iter()
                 }
             }
         }
@@ -149,15 +149,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         quote! {
             pub(super) struct #iter_name<'a> {
-                store_ref: &'a slab::Slab<#element_name>,
-                iter: #iter_type,
+                _store_ref: &'a slab::Slab<#element_name>,
+                _iter: #iter_type,
             }
 
             impl<'a> Iterator for #iter_name<'a> {
                 type Item = &'a #element_name;
 
                 fn next(&mut self) -> Option<Self::Item> {
-                    Some(&self.store_ref[*self.iter.next()?.1])
+                    Some(&self._store_ref[*self._iter.next()?.1])
                 }
             }
         }
@@ -170,7 +170,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             #[derive(Debug, Default)]
             pub(super) struct #map_name {
-                pub(super) _store: slab::Slab<#element_name>,
+                _store: slab::Slab<#element_name>,
                 #(#lookup_table_fields)*
             }
 
