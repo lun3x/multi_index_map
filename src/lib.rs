@@ -182,6 +182,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     #(#inserts)*
                 }
 
+                pub(super) fn iter(&self) -> slab::Iter<#element_name> {
+                    self._store.iter()
+                }
+
+                // SAFETY:
+                // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                // If the indexed fields need to be changed, the modify() method must be used.
+                pub(super) unsafe fn iter_mut(&mut self) -> slab::IterMut<#element_name> {
+                    self._store.iter_mut()
+                }
+
                 #(#accessors)*
             }
 

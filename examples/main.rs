@@ -40,6 +40,14 @@ fn main() {
         println!("iter_by_id: {i:?}")
     }
 
+    for i in map.iter() {
+        println!("iter: {i:?}")
+    }
+
+    for i in unsafe { map.iter_mut() } {
+        println!("iter_mut: {i:?}")
+    }
+
     let w = map.get_by_id(&1).unwrap();
     println!("Got {}'s order by id {}", w.trader_name, w.id);
 
