@@ -13,7 +13,7 @@ struct Order {
 fn main() {
     let o = Order {
         id: 1,
-        timestamp: 11,
+        timestamp: 111,
         trader_name: "John".to_string(),
     };
 
@@ -31,6 +31,14 @@ fn main() {
 
     map.insert(o2);
     println!("{map:?}");
+
+    for i in map.iter_by_timestamp() {
+        println!("iter_by_timestamp: {i:?}")
+    }
+
+    for i in map.iter_by_id() {
+        println!("iter_by_id: {i:?}")
+    }
 
     let w = map.get_by_id(&1).unwrap();
     println!("Got {}'s order by id {}", w.trader_name, w.id);

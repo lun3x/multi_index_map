@@ -39,12 +39,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         match index_kind {
             IndexKind::HashedUnique => {
                 quote! {
-                    #index_name: rustc_hash::FxHashMap<#ty, usize>,
+                    pub(super) #index_name: rustc_hash::FxHashMap<#ty, usize>,
                 }
             }
             IndexKind::OrderedUnique => {
                 quote! {
-                    #index_name: std::collections::BTreeMap<#ty, usize>,
+                    pub(super) #index_name: std::collections::BTreeMap<#ty, usize>,
                 }
             }
         }
@@ -74,6 +74,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let element_name = input.ident;
 
+    // Generate the name of the MultiIndexMap
+    let map_name = format_ident!("MultiIndex{}Map", element_name);
+
     // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
@@ -82,6 +85,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let mut_accessor_name = format_ident!("get_mut_by_{}", field_name);
         let remover_name = format_ident!("remove_by_{}", field_name);
         let modifier_name = format_ident!("modify_by_{}", field_name);
+        let iter_name = format_ident!("{}{}Iter", map_name, field_name);
+        let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
         quote! {
             pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
@@ -113,11 +118,50 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
                 Some(elem)
             }
+
+            pub(super) fn #iter_getter_name(&mut self) -> #iter_name {
+                #iter_name {
+                    store_ref: &self._store,
+                    iter: self.#index_name.iter()
+                }
+            }
         }
     });
 
-    // Generate the name of the MultiIndexMap
-    let map_name = format_ident!("MultiIndex{}Map", element_name);
+    // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
+    let iterators = fields_to_index().map(|f| {
+        let field_name = f.ident.as_ref().unwrap();
+        let iter_name = format_ident!("{}{}Iter", map_name, field_name);
+        let ty = &f.ty;
+
+        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        let iter_type = match index_kind {
+            IndexKind::HashedUnique => {
+                quote! {std::collections::hash_map::Iter<'a, #ty, usize>}
+            }
+            IndexKind::OrderedUnique => {
+                quote! {std::collections::btree_map::Iter<'a, #ty, usize>}
+            }
+        };
+
+        quote! {
+            pub(super) struct #iter_name<'a> {
+                store_ref: &'a slab::Slab<#element_name>,
+                iter: #iter_type,
+            }
+
+            impl<'a> Iterator for #iter_name<'a> {
+                type Item = &'a #element_name;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    Some(&self.store_ref[*self.iter.next()?.1])
+                }
+            }
+        }
+    });
 
     // Build the final output using quasi-quoting
     let expanded = quote! {
@@ -126,7 +170,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             #[derive(Debug, Default)]
             pub(super) struct #map_name {
-                _store: slab::Slab<#element_name>,
+                pub(super) _store: slab::Slab<#element_name>,
                 #(#lookup_table_fields)*
             }
 
@@ -140,6 +184,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
                 #(#accessors)*
             }
+
+            #(#iterators)*
         }
     };
 
