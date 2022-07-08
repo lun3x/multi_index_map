@@ -2,6 +2,14 @@
 name = "multi_index_map"
 version = "0.1.0"
 edition = "2021"
+authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
+rust-version = "1.62"
+license = "MIT"
+description = "MultiIndexMap: A generic multi index map inspired by boost multi index containers"
+repository = "https://github.com/lun3x/multi_index_map"
+keywords = ["multi_index", "container", "map", "boost"]
+categories = ["data-structures"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
