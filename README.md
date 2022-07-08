@@ -122,5 +122,5 @@ impl MultiIndexOrderMap {
 
 
 # Future work
-* More index kinds, `ordered_non_unique` is very useful for retrieving all elements matching the given index key.
+* More index kinds, `ordered_non_unique` is very useful for retrieving all elements matching the given index key. Potentially a vector-map style lookup table would be very quick for small tables with integer indexes.
 * Implement [clever tricks](https://www.boost.org/doc/libs/1_36_0/libs/multi_index/doc/performance.html) used in boost::multi_index_containers to improve performance.
