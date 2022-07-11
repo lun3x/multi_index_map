@@ -24,13 +24,9 @@ fn main() {
     };
 
     let mut map = MultiIndexOrderMap::default();
-    println!("{map:?}");
 
     map.insert(o);
-    println!("{map:?}");
-
     map.insert(o2);
-    println!("{map:?}");
 
     for i in map.iter_by_timestamp() {
         println!("iter_by_timestamp: {i:?}")
@@ -64,7 +60,6 @@ fn main() {
         "Removed {}'s order by timestamp {}",
         y.trader_name, y.timestamp
     );
-    println!("{map:?}");
 
     let o3 = Order {
         order_id: 3,
@@ -73,12 +68,9 @@ fn main() {
     };
 
     map.insert(o3);
-    println!("{map:?}");
-
     let z = map.remove_by_timestamp(&77).unwrap();
     println!(
         "Removed {}'s order by timestamp {}",
         z.trader_name, z.timestamp
     );
-    println!("{map:?}");
 }

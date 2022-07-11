@@ -173,15 +173,23 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Build the final output using quasi-quoting
     let expanded = quote! {
         mod multi_index {
-            use super::#element_name;
+            use super::*;
 
-            #[derive(Debug, Default)]
+            #[derive(Default)]
             pub(super) struct #map_name {
                 _store: slab::Slab<#element_name>,
                 #(#lookup_table_fields)*
             }
 
             impl #map_name {
+                pub(super) fn len(&self) -> usize {
+                    self._store.len()
+                }
+
+                pub(super) fn is_empty(&self) -> bool {
+                    self._store.is_empty()
+                }
+
                 pub(super) fn insert(&mut self, elem: #element_name) {
                     let idx = self._store.insert(elem);
                     let elem = &self._store[idx];
