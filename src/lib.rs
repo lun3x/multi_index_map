@@ -48,6 +48,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     #index_name: std::collections::BTreeMap<#ty, usize>,
                 }
             }
+            IndexKind::HashedNonUnique => {
+                quote! {
+                    #index_name: rustc_hash::FxHashMap<#ty, Vec<usize>>,
+                }
+            }
         }
     });
 
@@ -56,8 +61,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
             let index_name = format_ident!("_{}_index", field_name);
-            quote! {
-                self.#index_name.insert(elem.#field_name, idx);
+            let index_kind = get_index_kind(f).unwrap_or_else(|| {
+                abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+            });
+
+            match index_kind {
+                IndexKind::HashedNonUnique => {
+                    quote! { self.#index_name.entry(elem.#field_name).or_insert(Vec::with_capacity(1)).push(idx); }
+                }
+                _ => quote! { self.#index_name.insert(elem.#field_name, idx); },
             }
         })
         .collect();
@@ -82,48 +94,81 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
-        let accessor_name = format_ident!("get_by_{}", field_name);
-        let mut_accessor_name = format_ident!("get_mut_by_{}", field_name);
+        let getter_name = format_ident!("get_by_{}", field_name);
+        let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
         let remover_name = format_ident!("remove_by_{}", field_name);
         let modifier_name = format_ident!("modify_by_{}", field_name);
         let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
+        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        let getter = match index_kind {
+            IndexKind::HashedNonUnique => quote!{},
+            _ => quote!{
+                pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
+                    Some(&self._store[*self.#index_name.get(key)?])
+                }
+            }
+        };
+
+        let mut_getter = match index_kind {
+            IndexKind::HashedNonUnique => quote!{},
+            _ => quote!{
+                // SAFETY:
+                // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                // If the indexed fields need to be changed, the modify() method must be used.
+                pub(super) unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
+                    Some(&mut self._store[*self.#index_name.get(key)?])
+                }
+            }
+        };
+
+        let remover = match index_kind {
+            IndexKind::HashedNonUnique => quote!{},
+            _ => quote!{
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
+                    let idx = self.#index_name.remove(key)?;
+                    let elem_orig = self._store.remove(idx);
+                    #(#removes)*
+                    Some(elem_orig)
+                }
+            }
+        };
+
+        let modifier = match index_kind {
+            IndexKind::HashedNonUnique => quote!{},
+            _ => quote!{
+                pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
+                    let idx = *self.#index_name.get(key)?;
+                    let elem = &mut self._store[idx];
+                    let elem_orig = elem.clone();
+                    f(elem);
+    
+                    #(#removes)*
+                    #(#inserts)*
+    
+                    Some(elem)
+                }
+            }
+        };
+
         quote! {
-            pub(super) fn #accessor_name(&self, key: &#ty) -> Option<&#element_name> {
-                Some(&self._store[*self.#index_name.get(key)?])
-            }
+            #getter
 
-            // SAFETY:
-            // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
-            // If the indexed fields need to be changed, the modify() method must be used.
-            pub(super) unsafe fn #mut_accessor_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
-                Some(&mut self._store[*self.#index_name.get(key)?])
-            }
+            #mut_getter
 
-            pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                let idx = self.#index_name.remove(key)?;
-                let elem_orig = self._store.remove(idx);
-                #(#removes)*
-                Some(elem_orig)
-            }
+            #remover
 
-            pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
-                let idx = *self.#index_name.get(key)?;
-                let elem = &mut self._store[idx];
-                let elem_orig = elem.clone();
-                f(elem);
-
-                #(#removes)*
-                #(#inserts)*
-
-                Some(elem)
-            }
+            #modifier
 
             pub(super) fn #iter_getter_name(&mut self) -> #iter_name {
                 #iter_name {
                     _store_ref: &self._store,
-                    _iter: self.#index_name.iter()
+                    _iter: self.#index_name.iter(),
+                    _inner_iter: None,
                 }
             }
         }
@@ -152,19 +197,44 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             IndexKind::OrderedUnique => {
                 quote! {std::collections::btree_map::Iter<'a, #ty, usize>}
             }
+            IndexKind::HashedNonUnique => {
+                quote! {std::collections::hash_map::Iter<'a, #ty, Vec<usize>>}
+            }
+        };
+
+        let iter_action = match index_kind {
+            IndexKind::HashedNonUnique => quote! {
+                // If we have an inner_iter already, then get the next (optional) value from it.
+                let inner_next = if let Some(inner_iter) = &mut self._inner_iter {
+                    inner_iter.next()
+                } else {
+                    None
+                };
+
+                // If we have the next value, find it in the backing store.
+                if let Some(next_index) = inner_next {
+                    Some(&self._store_ref[*next_index])
+                } else {
+                    let hashmap_next = self._iter.next()?;
+                    self._inner_iter = Some(hashmap_next.1.iter());
+                    Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect("Internal invariants broken, found empty slice in non_unique lookup table.")])
+                }
+            },
+            _ => quote! { Some(&self._store_ref[*self._iter.next()?.1]) },
         };
 
         quote! {
             pub(super) struct #iter_name<'a> {
                 _store_ref: &'a slab::Slab<#element_name>,
                 _iter: #iter_type,
+                _inner_iter: Option<core::slice::Iter<'a, usize>>,
             }
 
             impl<'a> Iterator for #iter_name<'a> {
                 type Item = &'a #element_name;
 
                 fn next(&mut self) -> Option<Self::Item> {
-                    Some(&self._store_ref[*self._iter.next()?.1])
+                    #iter_action
                 }
             }
         }
@@ -219,9 +289,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     proc_macro::TokenStream::from(expanded)
 }
 
+// All these variants end in Unique, even "NonUnique", remove this warning.
+#[allow(clippy::enum_variant_names)]
 enum IndexKind {
     HashedUnique,
     OrderedUnique,
+    HashedNonUnique,
 }
 
 fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
@@ -241,6 +314,8 @@ fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
         Some(IndexKind::HashedUnique)
     } else if nested_path.is_ident("ordered_unique") {
         Some(IndexKind::OrderedUnique)
+    } else if nested_path.is_ident("hashed_non_unique") {
+        Some(IndexKind::HashedNonUnique)
     } else {
         None
     }
