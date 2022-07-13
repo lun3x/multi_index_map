@@ -11,7 +11,7 @@ struct Order {
 }
 
 fn main() {
-    let o = Order {
+    let o1 = Order {
         order_id: 1,
         timestamp: 111,
         trader_name: "John".to_string(),
@@ -25,40 +25,53 @@ fn main() {
 
     let mut map = MultiIndexOrderMap::default();
 
-    map.insert(o);
+    map.insert(o1);
     map.insert(o2);
 
-    for i in map.iter_by_timestamp() {
-        println!("iter_by_timestamp: {i:?}")
+    for o in map.iter_by_timestamp() {
+        println!("iter_by_timestamp: {o:?}")
     }
 
-    for i in map.iter_by_order_id() {
-        println!("iter_by_order_id: {i:?}")
+    for o in map.iter_by_order_id() {
+        println!("iter_by_order_id: {o:?}")
     }
 
-    for i in map.iter() {
-        println!("iter: {i:?}")
+    for (_, o) in map.iter() {
+        println!("iter: {o:?}")
     }
 
-    for i in unsafe { map.iter_mut() } {
-        println!("iter_mut: {i:?}")
+    for (_, o) in unsafe { map.iter_mut() } {
+        println!("iter_mut: {o:?}")
     }
 
-    let w = map.get_by_order_id(&1).unwrap();
-    println!("Got {}'s order by id {}", w.trader_name, w.order_id);
+    let o1_ref = map.get_by_order_id(&1).unwrap();
+    println!(
+        "Got {}'s order by id {}",
+        o1_ref.trader_name, o1_ref.order_id
+    );
 
-    let x = map
+    let o1_ref = map
         .modify_by_order_id(&1, |o| {
             o.order_id = 7;
             o.timestamp = 77
         })
         .unwrap();
-    println!("Modified {}'s order by id, to {:?}", x.trader_name, x);
+    println!(
+        "Modified {}'s order by id, to {:?}",
+        o1_ref.trader_name, o1_ref
+    );
 
-    let y = map.remove_by_timestamp(&22).unwrap();
+    let o1_mut_ref = unsafe { map.get_mut_by_order_id(&7).unwrap() };
+    o1_mut_ref.trader_name = "Tom".to_string();
+    println!(
+        "Changed trader name of order {o1_mut_ref:?}, to {:?}",
+        o1_mut_ref.trader_name,
+    );
+
+    let o2_ref = map.remove_by_timestamp(&22).unwrap();
     println!(
         "Removed {}'s order by timestamp {}",
-        y.trader_name, y.timestamp
+        o2_ref.trader_name, o2_ref.timestamp
     );
 
     let o3 = Order {
@@ -68,9 +81,9 @@ fn main() {
     };
 
     map.insert(o3);
-    let z = map.remove_by_timestamp(&77).unwrap();
+    let o3 = map.remove_by_timestamp(&77).unwrap();
     println!(
         "Removed {}'s order by timestamp {}",
-        z.trader_name, z.timestamp
+        o3.trader_name, o3.timestamp
     );
 }
