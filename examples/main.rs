@@ -7,6 +7,7 @@ struct Order {
     order_id: u32,
     #[multi_index(ordered_unique)]
     timestamp: u64,
+    #[multi_index(hashed_non_unique)]
     trader_name: String,
 }
 

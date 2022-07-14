@@ -67,9 +67,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             match index_kind {
                 IndexKind::HashedNonUnique => {
-                    quote! { self.#index_name.entry(elem.#field_name).or_insert(Vec::with_capacity(1)).push(idx); }
+                    quote! { self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); }
                 }
-                _ => quote! { self.#index_name.insert(elem.#field_name, idx); },
+                _ => quote! { self.#index_name.insert(elem.#field_name.clone(), idx); },
             }
         })
         .collect();
@@ -245,7 +245,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         mod multi_index {
             use super::*;
 
-            #[derive(Default)]
+            #[derive(Default, Clone)]
             pub(super) struct #map_name {
                 _store: slab::Slab<#element_name>,
                 #(#lookup_table_fields)*
