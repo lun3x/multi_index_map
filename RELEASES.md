@@ -1,3 +1,9 @@
+Version 0.2.1 (2022-07-14)
+==========================
+
+- Remove requirement for all field indexes to implement `Copy`.
+- Derive `Clone` on the resulting map, in order to give better error messages that all fields need to implement `Clone`.
+
 Version 0.2.0 (2022-07-14)
 ==========================
 
