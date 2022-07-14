@@ -75,7 +75,7 @@ The above example will generate the following MultiIndexMap and associated Itera
 The `Order`s are stored in a `Slab`, in contiguous memory, which allows for fast lookup and quick iteration. 
 A lookup table is created for each indexed field, which maps the index key to a index in the `Slab`.
 The exact type used for these depends on the annotations.
-For `hashed_unique` a `FxHashMap` is used, for `ordered_unique` a BTreeMap is used.
+For `hashed_unique` and `hashed_non_unique` a `FxHashMap` is used, for `ordered_unique` a BTreeMap is used.
 * When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
 * When retrieving elements for a given key, we lookup the key in the lookup table, then retrieve the item at that index in the backing store.
 * When removing an element for a given key, we do the same, but we then must also remove keys from all the other lookup tables before returning the element.
