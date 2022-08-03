@@ -28,4 +28,7 @@ fn test_iter_by_field1() {
     for elem in map.iter_by_field1() {
         println!("{}", elem.field2);
     }
+
+    let elems = map.remove_by_field1(&TestNonPrimitiveType(42));
+    println!("{elems:?}");
 }
