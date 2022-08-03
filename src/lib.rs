@@ -1,5 +1,3 @@
-use std::{collections::HashMap, hash::{Hash, BuildHasher}};
-
 use convert_case::Casing;
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
