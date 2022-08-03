@@ -1,3 +1,5 @@
+use std::{collections::HashMap, hash::{Hash, BuildHasher}};
+
 use convert_case::Casing;
 use proc_macro_error::{abort_call_site, proc_macro_error};
 use quote::{format_ident, quote};
@@ -106,7 +108,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         });
 
         let getter = match index_kind {
-            IndexKind::HashedNonUnique => quote!{},
+            IndexKind::HashedNonUnique => quote!{
+            },
             _ => quote!{
                 pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
                     Some(&self._store[*self.#index_name.get(key)?])
@@ -127,7 +130,21 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         let remover = match index_kind {
-            IndexKind::HashedNonUnique => quote!{},
+            IndexKind::HashedNonUnique => quote!{
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
+                    let idxs = match self.#index_name.remove(key) {
+                        None => Vec::new(),
+                        Some(vs) => vs,
+                    };
+                    let mut elems = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        let elem_orig = self._store.remove(idx);
+                        #(#removes)*
+                        elems.push(elem_orig)
+                    }
+                    elems
+                }  
+            },
             _ => quote!{
                 pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
                     let idx = self.#index_name.remove(key)?;
