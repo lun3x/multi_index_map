@@ -33,6 +33,7 @@ struct Order {
     order_id: u32,
     #[multi_index(ordered_unique)]
     timestamp: u64,
+    #[multi_index(hashed_non_unique)]
     trader_name: String,
 }
 
@@ -40,11 +41,13 @@ fn main() {
     let order1 = Order {
         order_id: 1,
         timestamp: 1656145181,
+        trader_name: "JohnDoe".into(),
     };
 
     let order2 = Order {
         order_id: 2,
         timestamp: 1656145182,
+        trader_name: "JohnDoe".into(),
     };
 
     let mut map = MultiIndexOrderMap::default();
@@ -61,9 +64,11 @@ fn main() {
     }).unwrap();
     assert_eq!(order2_ref.timestamp, 1656145183);
     assert_eq!(order2_ref.order_id, 42);
+    assert_eq!(order2_ref.trader_name, "JohnDoe".into());
 
-    let order1 = map.remove_by_order_id(&1).unwrap();
-    let order2 = map.remove_by_order_id(&42).unwrap();
+    let orders = map.remove_by_trader_name("JohnDoe".into());
+    assert_eq!(orders.len(), 2);
+    
 
     // See examples directory for more in depth usage.
 }
@@ -91,9 +96,15 @@ struct MultiIndexOrderMap {
     _store: slab::Slab<Order>,
     _order_id_index: rustc_hash::FxHashMap<u32, usize>,
     _timestamp_index: std::collections::BTreeMap<u64, usize>,
+    _trader_name_index: rustc_hash::FxHashMap<u32, usize>,
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {
+    _store_ref: &'a slab::Slab<Order>,
+    _iter: std::collections::hash_map::Iter<'a, u32, usize>,
+}
+
+struct MultiIndexOrderMapTraderNameIter<'a> {
     _store_ref: &'a slab::Slab<Order>,
     _iter: std::collections::hash_map::Iter<'a, u32, usize>,
 }
@@ -113,10 +124,12 @@ impl MultiIndexOrderMap {
     fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn remove_by_order_id(&mut self) -> Option<Order>;
     fn remove_by_timestamp(&mut self) -> Option<Order>;
+    fn remove_by_trader_name(&mut self) -> Vec<Order>;
     fn iter(&self) -> slab::Iter<Order>;
     unsafe fn iter_mut(&mut self) -> slab::IterMut<Order>;
     fn iter_by_order_id(&self) -> MultiIndexOrderMapOrderIdIter;
-    fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;  
+    fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;
+    fn iter_by_trader_name(&self) -> MultiIndexOrderMapTraderNameIter;
 }
 ```
 
