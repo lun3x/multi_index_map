@@ -29,6 +29,12 @@ fn test_iter_by_field1() {
         println!("{}", elem.field2);
     }
 
+    let elems = map.get_by_field1(&TestNonPrimitiveType(42));
+    assert_eq!(elems.len(), 2);
+    println!("{elems:?}");
+
     let elems = map.remove_by_field1(&TestNonPrimitiveType(42));
     println!("{elems:?}");
+
+    assert!(map.is_empty());
 }
