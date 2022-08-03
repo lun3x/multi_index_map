@@ -27,7 +27,10 @@ The element must implement `Clone`.
 ## Example
 
 ```rust
-#[derive(MultiIndexMap, Clone)]
+use crate::multi_index::MultiIndexOrderMap;
+use multi_index_map::MultiIndexMap;
+
+#[derive(MultiIndexMap, Clone, Debug)]
 struct Order {
     #[multi_index(hashed_unique)]
     order_id: u32,
@@ -55,20 +58,32 @@ fn main() {
     map.insert(order1);
     map.insert(order2);
 
+    let orders = map.get_by_trader_name(&"JohnDoe".to_string());
+    assert_eq!(orders.len(), 2);
+    println!("Found 2 orders for JohnDoe: [{orders:?}]");
+
     let order1_ref = map.get_by_order_id(&1).unwrap();
     assert_eq!(order1_ref.timestamp, 1656145181);
 
-    let order2_ref = map.modify_by_order_id(&2, |o| {
-        o.timestamp = 1656145183;
-        o.order_id = 42;
-    }).unwrap();
+    let order2_ref = map
+        .modify_by_order_id(&2, |o| {
+            o.timestamp = 1656145183;
+            o.order_id = 42;
+        })
+        .unwrap();
     assert_eq!(order2_ref.timestamp, 1656145183);
     assert_eq!(order2_ref.order_id, 42);
-    assert_eq!(order2_ref.trader_name, "JohnDoe".into());
+    assert_eq!(order2_ref.trader_name, "JohnDoe".to_string());
 
-    let orders = map.remove_by_trader_name("JohnDoe".into());
+    let orders = map.get_by_trader_name(&"JohnDoe".to_string());
     assert_eq!(orders.len(), 2);
-    
+    println!("Found 2 orders for JohnDoe: [{orders:?}]");
+
+    let orders = map.remove_by_trader_name(&"JohnDoe".to_string());
+    for (_idx, order) in map.iter() {
+        assert_eq!(order.trader_name, "JohnDoe");
+    }
+    assert_eq!(orders.len(), 2);
 
     // See examples directory for more in depth usage.
 }

@@ -67,9 +67,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             match index_kind {
                 IndexKind::HashedNonUnique => {
-                    quote! { self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); }
+                    quote! {
+                        self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
+                    }
                 }
-                _ => quote! { self.#index_name.insert(elem.#field_name.clone(), idx); },
+                _ => quote! { 
+                    self.#index_name.insert(elem.#field_name.clone(), idx);
+                },
             }
         })
         .collect();
@@ -84,6 +88,30 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
         })
         .collect();
+
+
+    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table
+    let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
+        let field_name = f.ident.as_ref().unwrap();
+        let index_name = format_ident!("_{}_index", field_name);
+        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        match index_kind {
+            IndexKind::HashedNonUnique => {
+                quote! {
+                    let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
+                }
+            }
+            _ => quote! {
+                let idx = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
+                self.#index_name.insert(elem.#field_name.clone(), idx);
+            }
+        }
+
+    }).collect();
 
     let element_name = input.ident;
 
@@ -168,13 +196,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             IndexKind::HashedNonUnique => quote!{},
             _ => quote!{
                 pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
-                    let idx = *self.#index_name.get(key)?;
-                    let elem = &mut self._store[idx];
+                    let elem = &mut self._store[*self.#index_name.get(key)?];
                     let elem_orig = elem.clone();
                     f(elem);
     
-                    #(#removes)*
-                    #(#inserts)*
+                    #(#modifies)*
     
                     Some(elem)
                 }
