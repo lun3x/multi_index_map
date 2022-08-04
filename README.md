@@ -118,7 +118,7 @@ struct MultiIndexOrderMap {
     _store: slab::Slab<Order>,
     _order_id_index: rustc_hash::FxHashMap<u32, usize>,
     _timestamp_index: std::collections::BTreeMap<u64, usize>,
-    _trader_name_index: rustc_hash::FxHashMap<String, usize>,
+    _trader_name_index: rustc_hash::FxHashMap<String, Vec<usize>>,
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {
@@ -126,29 +126,37 @@ struct MultiIndexOrderMapOrderIdIter<'a> {
     _iter: std::collections::hash_map::Iter<'a, u32, usize>,
 }
 
-struct MultiIndexOrderMapTraderNameIter<'a> {
-    _store_ref: &'a slab::Slab<Order>,
-    _iter: std::collections::hash_map::Iter<'a, String, usize>,
-}
-
 struct MultiIndexOrderMapTimestampIter<'a> {
     _store_ref: &'a slab::Slab<Order>,
     _iter: std::collections::btree_map::Iter<'a, u64, usize>,
 }
 
+struct MultiIndexOrderMapTraderNameIter<'a> {
+    _store_ref: &'a slab::Slab<Order>,
+    _iter: std::collections::hash_map::Iter<'a, String, Vec<usize>>,
+}
+
 impl MultiIndexOrderMap {
     fn insert(&mut self, elem: Order);
+    
     fn get_by_order_id(&self) -> Option<&Order>;
     fn get_by_timestamp(&self) -> Option<&Order>;
+    fn get_by_trader_name(&self) -> Vec<&Order>;
+    
     unsafe fn get_mut_by_order_id(&mut self) -> Option<&mut Order>;
     unsafe fn get_mut_by_timestamp(&mut self) -> Option<&mut Order>;
+    unsafe fn get_mut_by_trader_name(&mut self) -> Vec<&mut Order>;
+    
     fn modify_by_order_id(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    
     fn remove_by_order_id(&mut self) -> Option<Order>;
     fn remove_by_timestamp(&mut self) -> Option<Order>;
     fn remove_by_trader_name(&mut self) -> Vec<Order>;
+    
     fn iter(&self) -> slab::Iter<Order>;
     unsafe fn iter_mut(&mut self) -> slab::IterMut<Order>;
+    
     fn iter_by_order_id(&self) -> MultiIndexOrderMapOrderIdIter;
     fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;
     fn iter_by_trader_name(&self) -> MultiIndexOrderMapTraderNameIter;
