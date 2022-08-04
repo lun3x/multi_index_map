@@ -6,15 +6,16 @@ use syn::{parse_macro_input, DeriveInput};
 #[proc_macro_derive(MultiIndexMap, attributes(multi_index))]
 #[proc_macro_error]
 pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    // Parse the input tokens into a syntax tree
+    // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
 
-    // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions
+    // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions.
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
         _ => abort_call_site!("MultiIndexMap only supports structs as elements"),
     };
 
+    // Verify the struct fields are named fields, otherwise throw an error as we do not support Unnamed of Unit structs.
     let named_fields = match fields {
         syn::Fields::Named(f) => f,
         _ => abort_call_site!(
@@ -22,6 +23,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         ),
     };
 
+    // Filter out all the fields that do not have a multi_index attribute, so we can ignore the non-indexed fields.
     let fields_to_index = || {
         named_fields.named.iter().filter(|f| {
             f.attrs.first().is_some() && f.attrs.first().unwrap().path.is_ident("multi_index")
@@ -29,6 +31,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     };
 
     // For each indexed field generate a TokenStream representing the lookup table for that field
+    // Each lookup table maps it's index to a position in the backing storage,
+    // or multiple positions in the backing storage in the non-unique indexes.
     let lookup_table_fields = fields_to_index().map(|f| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
@@ -57,7 +61,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
-    // For each indexed field generate a TokenStream representing the insert to that field's lookup table
+    // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
+    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require appending to the Vec of positions,
+    // creating a new Vec if necessary.
     let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
@@ -77,7 +83,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing the remove from that field's lookup table
+    // For each indexed field generate a TokenStream representing the remove from that field's lookup table.
     let removes: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
@@ -89,7 +95,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .collect();
 
 
-    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table
+    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table.
     let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
@@ -114,7 +120,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Generate the name of the MultiIndexMap
     let map_name = format_ident!("MultiIndex{}Map", element_name);
 
-    // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
+    // For each indexed field generate a TokenStream representing all the accessors for the underlying storage via that field's lookup table.
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
@@ -129,6 +135,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
+        // TokenStream representing the get_by_ accessor for this field.
+        // For non-unique indexes we must go through all matching elements and find their positions,
+        // in order to return a Vec of references to the backing storage.
         let getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
@@ -150,6 +159,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        // TokenStream representing the get_mut_by_ accessor for this field.
         let mut_getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 // SAFETY:
@@ -162,6 +172,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             Uniqueness::NonUnique => quote! {},
         };
 
+        // TokenStream representing the remove_by_ accessor for this field.
+        // For non-unique indexes we must go through all matching elements and find their positions,
+        // in order to return a Vec elements from the backing storage.
         let remover = match uniqueness {
             Uniqueness::Unique => quote! {
                 pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
@@ -188,6 +201,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        // TokenStream representing the modify_by_ accessor for this field.
         let modifier = match uniqueness {
             Uniqueness::Unique => quote! {
                 pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
@@ -203,6 +217,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             Uniqueness::NonUnique => quote! {},
         };
 
+        // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor on the end.
         quote! {
             #getter
 
@@ -222,7 +237,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
-    // For each indexed field generate a TokenStream representing an accessor for the underlying storage via that field's lookup table
+    // For each indexed field generate a TokenStream representing the Iterator over the backing storage via that field,
+    // such that the elements are accessed in an order defined by the index rather than the backing storage.
     let iterators = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let iter_name = format_ident!(
@@ -238,6 +254,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
+        // TokenStream representing the actual type of the iterator
         let iter_type = match uniqueness {
             Uniqueness::Unique => match ordering {
                 Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, usize>},
@@ -249,6 +266,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
         };
 
+        // TokenStream representing the logic for performing iteration.
         let iter_action = match uniqueness {
             Uniqueness::Unique => quote! { Some(&self._store_ref[*self._iter.next()?.1]) },
             Uniqueness::NonUnique => quote! {
@@ -270,6 +288,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        // TokenStream representing the iterator over each indexed field.
+        // We have a different iterator type for each indexed field. Each one wraps the standard Iterator for that lookup table, but adds in a couple of things:
+        // First we maintain a reference to the backing store, so we can return references to the elements we are interested in.
+        // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to iterate through the Vec of matching elements for a given index value.
         quote! {
             pub(super) struct #iter_name<'a> {
                 _store_ref: &'a slab::Slab<#element_name>,
@@ -289,6 +311,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // Build the final output using quasi-quoting
     let expanded = quote! {
+        // Put the whole MultiIndexMap into a module to avoid polluting the namespace.
         mod multi_index {
             use super::*;
 
@@ -314,6 +337,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     #(#inserts)*
                 }
 
+                // Allow iteration directly over the backing storage
                 pub(super) fn iter(&self) -> slab::Iter<#element_name> {
                     self._store.iter()
                 }
@@ -332,15 +356,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     };
 
-    // Hand the output tokens back to the compiler
+    // Hand the output tokens back to the compiler.
     proc_macro::TokenStream::from(expanded)
 }
 
+// Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap as the lookup table.
 enum Ordering {
     Hashed,
     Ordered,
 }
 
+// Represents whether the index is Unique or NonUnique, ie. whether we allow multiple elements with the same value in this index.
 // All these variants end in Unique, even "NonUnique", remove this warning.
 #[allow(clippy::enum_variant_names)]
 enum Uniqueness {
@@ -348,6 +374,7 @@ enum Uniqueness {
     NonUnique,
 }
 
+// Get the Ordering and Uniqueness for a given field attribute.
 fn get_index_kind(f: &syn::Field) -> Option<(Ordering, Uniqueness)> {
     let meta_list = match f.attrs.first()?.parse_meta() {
         Ok(syn::Meta::List(l)) => l,
