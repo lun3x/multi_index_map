@@ -2,21 +2,28 @@
 
 Rust library useful for storing structs that needs to be accessed through various different indexes of the fields of the struct. Inspired by [C++/Boost Multi-index Containers](https://www.boost.org/doc/libs/1_79_0/libs/multi_index/doc/index.html) but redesigned for a more idiomatic Rust API.
 
-Initial implementation supports:
-* Hashed indexes using FxHashMap from [rustc-hash](https://github.com/rust-lang/rustc-hash)
-* Sorted indexes using BTreeMap from [std::collections](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html)
+Current implementation supports:
+* Hashed indexes using FxHashMap from [rustc-hash](https://github.com/rust-lang/rustc-hash).
+* Sorted indexes using BTreeMap from [std::collections](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html).
+* Unique and non-unique indexes.
 * Unindexed fields.
 * Iterators for each indexed field.
-* Iterators for the underlying backing storage (Slab).
+* Iterators for the underlying backing storage.
 
 # Performance characteristics
-* Hashed indexes are constant-time retrieval. (FxHashMap + Slab).
-* Sorted indexes are logarithmic time retrieval. (BTreeMap + Slab).
+## Unique Indexes
+* Hashed index retrievals are constant-time. (FxHashMap + Slab).
+* Sorted indexes retrievals are logarithmic-time. (BTreeMap + Slab).
 * Iteration over hashed index is same as FxHashMap, plus a retrieval from the backing storage for each element.
 * Iteration over ordered index is same as BTreeMap, plus a retrieval from the backing storage for each element.
 * Iteration over the backing store is the same as Slab, so contiguous memory but with potentially vacant slots.
-* Insertion, removal, and modification complexity grows as the number of indexed fields grow. All fields must be inserted into / removed from / reinserted into during these operations so these are slower.
+* Insertion, removal, and modification complexity grows as the number of indexed fields grow. All indexes must be updated during these operations so these are slower.
 * Modification of unindexed fields through unsafe mut methods is the same as regular retrieval time.
+
+## Non-Unique Indexes
+* Hashed index retrievals are still constant-time with the total number of elements, but linear-time with the number of matching elements. (FxHashMap + (Slab * num_matches)).
+* Sorted indexes retrievals are still logarithmic-time with total number of elements, but linear-time with the number of matching elements. (BTreeMap + (Slab * num_matches)).
+* Iteration within an equal range of a non-unique index is fast, as the matching elements are stored contiguously in memory. Otherwise iteration is the same as unique indexes.
 
 # How to use
 
