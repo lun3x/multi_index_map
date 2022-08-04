@@ -33,24 +33,25 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
 
-        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
-        match index_kind {
-            IndexKind::HashedUnique => {
-                quote! {
+        match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => quote! {
                     #index_name: rustc_hash::FxHashMap<#ty, usize>,
-                }
-            }
-            IndexKind::OrderedUnique => {
-                quote! {
+                },
+                Ordering::Ordered => quote! {
                     #index_name: std::collections::BTreeMap<#ty, usize>,
                 }
             }
-            IndexKind::HashedNonUnique => {
-                quote! {
+            Uniqueness::NonUnique => match ordering {
+                Ordering::Hashed => quote! {
                     #index_name: rustc_hash::FxHashMap<#ty, Vec<usize>>,
+                },
+                Ordering::Ordered => quote! {
+                    #index_name: std::collections::BTreeMap<#ty, Vec<usize>>,
                 }
             }
         }
@@ -61,18 +62,16 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
             let index_name = format_ident!("_{}_index", field_name);
-            let index_kind = get_index_kind(f).unwrap_or_else(|| {
+            let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
                 abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
             });
 
-            match index_kind {
-                IndexKind::HashedNonUnique => {
-                    quote! {
-                        self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
-                    }
-                }
-                _ => quote! { 
+            match uniqueness {
+                Uniqueness::Unique => quote! { 
                     self.#index_name.insert(elem.#field_name.clone(), idx);
+                },
+                Uniqueness::NonUnique => quote! {
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
                 },
             }
         })
@@ -94,23 +93,20 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
-        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+        let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
-        match index_kind {
-            IndexKind::HashedNonUnique => {
-                quote! {
-                    let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
-                }
-            }
-            _ => quote! {
+        match uniqueness {
+            Uniqueness::Unique => quote! {
                 let idx = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
                 self.#index_name.insert(elem.#field_name.clone(), idx);
-            }
+            },
+            Uniqueness::NonUnique => quote! {
+                let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
+                self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
+            },
         }
-
     }).collect();
 
     let element_name = input.ident;
@@ -129,12 +125,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
-        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+        let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
-        let getter = match index_kind {
-            IndexKind::HashedNonUnique => quote!{
+        let getter = match uniqueness {
+            Uniqueness::Unique => quote! {
+                pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
+                    Some(&self._store[*self.#index_name.get(key)?])
+                }
+            },
+            Uniqueness::NonUnique => quote! {
                 pub(super) fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
                         let mut elem_refs = Vec::with_capacity(idxs.len());
@@ -147,27 +148,30 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     }
                 }
             },
-            _ => quote!{
-                pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
-                    Some(&self._store[*self.#index_name.get(key)?])
-                }
-            }
         };
 
-        let mut_getter = match index_kind {
-            IndexKind::HashedNonUnique => quote!{},
-            _ => quote!{
+        let mut_getter = match uniqueness {
+            Uniqueness::Unique => quote! {
                 // SAFETY:
                 // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
                 // If the indexed fields need to be changed, the modify() method must be used.
                 pub(super) unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
-            }
+            },
+            Uniqueness::NonUnique => quote! {},
         };
 
-        let remover = match index_kind {
-            IndexKind::HashedNonUnique => quote!{
+        let remover = match uniqueness {
+            Uniqueness::Unique => quote! {
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
+                    let idx = self.#index_name.remove(key)?;
+                    let elem_orig = self._store.remove(idx);
+                    #(#removes)*
+                    Some(elem_orig)
+                }
+            },
+            Uniqueness::NonUnique => quote! {
                 pub(super) fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
                     if let Some(idxs) = self.#index_name.remove(key) {
                         let mut elems = Vec::with_capacity(idxs.len());
@@ -182,19 +186,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     }
                 }  
             },
-            _ => quote!{
-                pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                    let idx = self.#index_name.remove(key)?;
-                    let elem_orig = self._store.remove(idx);
-                    #(#removes)*
-                    Some(elem_orig)
-                }
-            }
         };
 
-        let modifier = match index_kind {
-            IndexKind::HashedNonUnique => quote!{},
-            _ => quote!{
+        let modifier = match uniqueness {
+            Uniqueness::Unique => quote! {
                 pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
                     let elem = &mut self._store[*self.#index_name.get(key)?];
                     let elem_orig = elem.clone();
@@ -204,7 +199,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     
                     Some(elem)
                 }
-            }
+            },
+            Uniqueness::NonUnique => quote! {},
         };
 
         quote! {
@@ -238,24 +234,24 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         );
         let ty = &f.ty;
 
-        let index_kind = get_index_kind(f).unwrap_or_else(|| {
+        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
-        let iter_type = match index_kind {
-            IndexKind::HashedUnique => {
-                quote! {std::collections::hash_map::Iter<'a, #ty, usize>}
+        let iter_type = match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, usize>},
+                Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, usize>},
             }
-            IndexKind::OrderedUnique => {
-                quote! {std::collections::btree_map::Iter<'a, #ty, usize>}
-            }
-            IndexKind::HashedNonUnique => {
-                quote! {std::collections::hash_map::Iter<'a, #ty, Vec<usize>>}
+            Uniqueness::NonUnique => match ordering {
+                Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, Vec<usize>>},
+                Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, Vec<usize>>},
             }
         };
 
-        let iter_action = match index_kind {
-            IndexKind::HashedNonUnique => quote! {
+        let iter_action = match uniqueness {
+            Uniqueness::Unique => quote! { Some(&self._store_ref[*self._iter.next()?.1]) },
+            Uniqueness::NonUnique => quote! {
                 // If we have an inner_iter already, then get the next (optional) value from it.
                 let inner_next = if let Some(inner_iter) = &mut self._inner_iter {
                     inner_iter.next()
@@ -272,7 +268,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect("Internal invariants broken, found empty slice in non_unique lookup table.")])
                 }
             },
-            _ => quote! { Some(&self._store_ref[*self._iter.next()?.1]) },
         };
 
         quote! {
@@ -341,15 +336,19 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     proc_macro::TokenStream::from(expanded)
 }
 
-// All these variants end in Unique, even "NonUnique", remove this warning.
-#[allow(clippy::enum_variant_names)]
-enum IndexKind {
-    HashedUnique,
-    OrderedUnique,
-    HashedNonUnique,
+enum Ordering {
+    Hashed,
+    Ordered,
 }
 
-fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
+// All these variants end in Unique, even "NonUnique", remove this warning.
+#[allow(clippy::enum_variant_names)]
+enum Uniqueness {
+    Unique,
+    NonUnique,
+}
+
+fn get_index_kind(f: &syn::Field) -> Option<(Ordering, Uniqueness)> {
     let meta_list = match f.attrs.first()?.parse_meta() {
         Ok(syn::Meta::List(l)) => l,
         _ => return None,
@@ -363,11 +362,13 @@ fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
     };
 
     if nested_path.is_ident("hashed_unique") {
-        Some(IndexKind::HashedUnique)
+        Some((Ordering::Hashed, Uniqueness::Unique))
     } else if nested_path.is_ident("ordered_unique") {
-        Some(IndexKind::OrderedUnique)
+        Some((Ordering::Ordered, Uniqueness::Unique))
     } else if nested_path.is_ident("hashed_non_unique") {
-        Some(IndexKind::HashedNonUnique)
+        Some((Ordering::Hashed, Uniqueness::NonUnique))
+    } else if nested_path.is_ident("ordered_non_unique") {
+        Some((Ordering::Ordered, Uniqueness::NonUnique))
     } else {
         None
     }
