@@ -1,4 +1,4 @@
-# MultiIndexMap
+# MultiIndexMap [![Tests](https://github.com/lun3x/multi_index_map/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/lun3x/multi_index_map/actions/workflows/rust.yml)
 
 Rust library useful for storing structs that needs to be accessed through various different indexes of the fields of the struct. Inspired by [C++/Boost Multi-index Containers](https://www.boost.org/doc/libs/1_79_0/libs/multi_index/doc/index.html) but redesigned for a more idiomatic Rust API.
 
