@@ -53,6 +53,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     #index_name: rustc_hash::FxHashMap<#ty, Vec<usize>>,
                 }
             }
+            IndexKind::OrderedNonUnique => {
+                quote! {
+                    #index_name: std::collections::BTreeMap<#ty, Vec<usize>>,
+                }
+            }
         }
     });
 
@@ -67,6 +72,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             match index_kind {
                 IndexKind::HashedNonUnique => {
+                    quote! {
+                        self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
+                    }
+                }
+                IndexKind::OrderedNonUnique => {
                     quote! {
                         self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
                     }
@@ -100,6 +110,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         match index_kind {
             IndexKind::HashedNonUnique => {
+                quote! {
+                    let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
+                }
+            }
+            IndexKind::OrderedNonUnique => {
                 quote! {
                     let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
                     self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
@@ -147,6 +163,19 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     }
                 }
             },
+            IndexKind::OrderedNonUnique => quote!{
+                pub(super) fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
+                    if let Some(idxs) = self.#index_name.get(key) {
+                        let mut elem_refs = Vec::with_capacity(idxs.len());
+                        for idx in idxs {
+                            elem_refs.push(&self._store[*idx])
+                        }
+                        elem_refs
+                    } else {
+                        Vec::new()
+                    }
+                }
+            },
             _ => quote!{
                 pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
                     Some(&self._store[*self.#index_name.get(key)?])
@@ -156,6 +185,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         let mut_getter = match index_kind {
             IndexKind::HashedNonUnique => quote!{},
+            IndexKind::OrderedNonUnique => quote!{},
             _ => quote!{
                 // SAFETY:
                 // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
@@ -182,6 +212,21 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     }
                 }  
             },
+            IndexKind::OrderedNonUnique => quote!{
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
+                    if let Some(idxs) = self.#index_name.remove(key) {
+                        let mut elems = Vec::with_capacity(idxs.len());
+                        for idx in idxs {
+                            let elem_orig = self._store.remove(idx);
+                            #(#removes)*
+                            elems.push(elem_orig)
+                        }
+                        elems
+                    } else {
+                        Vec::new()
+                    }
+                }  
+            },
             _ => quote!{
                 pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
                     let idx = self.#index_name.remove(key)?;
@@ -194,6 +239,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         let modifier = match index_kind {
             IndexKind::HashedNonUnique => quote!{},
+            IndexKind::OrderedNonUnique => quote!{},
             _ => quote!{
                 pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
                     let elem = &mut self._store[*self.#index_name.get(key)?];
@@ -252,10 +298,30 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             IndexKind::HashedNonUnique => {
                 quote! {std::collections::hash_map::Iter<'a, #ty, Vec<usize>>}
             }
+            IndexKind::OrderedNonUnique => {
+                quote! {std::collections::btree_map::Iter<'a, #ty, Vec<usize>>}
+            }
         };
 
         let iter_action = match index_kind {
             IndexKind::HashedNonUnique => quote! {
+                // If we have an inner_iter already, then get the next (optional) value from it.
+                let inner_next = if let Some(inner_iter) = &mut self._inner_iter {
+                    inner_iter.next()
+                } else {
+                    None
+                };
+
+                // If we have the next value, find it in the backing store.
+                if let Some(next_index) = inner_next {
+                    Some(&self._store_ref[*next_index])
+                } else {
+                    let hashmap_next = self._iter.next()?;
+                    self._inner_iter = Some(hashmap_next.1.iter());
+                    Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect("Internal invariants broken, found empty slice in non_unique lookup table.")])
+                }
+            },
+            IndexKind::OrderedNonUnique => quote! {
                 // If we have an inner_iter already, then get the next (optional) value from it.
                 let inner_next = if let Some(inner_iter) = &mut self._inner_iter {
                     inner_iter.next()
@@ -347,6 +413,7 @@ enum IndexKind {
     HashedUnique,
     OrderedUnique,
     HashedNonUnique,
+    OrderedNonUnique,
 }
 
 fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
@@ -368,6 +435,8 @@ fn get_index_kind(f: &syn::Field) -> Option<IndexKind> {
         Some(IndexKind::OrderedUnique)
     } else if nested_path.is_ident("hashed_non_unique") {
         Some(IndexKind::HashedNonUnique)
+    } else if nested_path.is_ident("ordered_non_unique") {
+        Some(IndexKind::OrderedNonUnique)
     } else {
         None
     }
