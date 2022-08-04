@@ -118,7 +118,7 @@ struct MultiIndexOrderMap {
     _store: slab::Slab<Order>,
     _order_id_index: rustc_hash::FxHashMap<u32, usize>,
     _timestamp_index: std::collections::BTreeMap<u64, usize>,
-    _trader_name_index: rustc_hash::FxHashMap<u32, usize>,
+    _trader_name_index: rustc_hash::FxHashMap<String, usize>,
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {
@@ -128,7 +128,7 @@ struct MultiIndexOrderMapOrderIdIter<'a> {
 
 struct MultiIndexOrderMapTraderNameIter<'a> {
     _store_ref: &'a slab::Slab<Order>,
-    _iter: std::collections::hash_map::Iter<'a, u32, usize>,
+    _iter: std::collections::hash_map::Iter<'a, String, usize>,
 }
 
 struct MultiIndexOrderMapTimestampIter<'a> {
