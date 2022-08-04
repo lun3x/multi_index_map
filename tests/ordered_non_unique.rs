@@ -69,8 +69,8 @@ fn test_insert_and_modify_by_field3_and_get_by_field1() {
 
     map.modify_by_field3(&0, |e| e.field1 = TestNonPrimitiveType(43));
 
-    let elems = map.get_by_field1(&TestNonPrimitiveType(43));
-    assert_eq!(elems.len(), 2);
+    let elems = map.get_by_field1(&TestNonPrimitiveType(42));
+    assert_eq!(elems.len(), 1);
     assert_eq!(map.len(), 2);
 }
 
@@ -92,8 +92,8 @@ fn test_insert_and_modify_by_field3_and_remove_by_field1() {
     map.modify_by_field3(&0, |e| e.field1 = TestNonPrimitiveType(43));
 
     let elems = map.remove_by_field1(&TestNonPrimitiveType(43));
-    assert_eq!(elems.len(), 2);
-    assert!(map.is_empty());
+    assert_eq!(elems.len(), 1);
+    assert_eq!(map.len(), 1);
 }
 
 #[test]

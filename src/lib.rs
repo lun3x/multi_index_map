@@ -105,12 +105,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                let idx = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
+                let idx = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in a unique index despite being present in another");
                 self.#index_name.insert(elem.#field_name.clone(), idx);
             },
             Uniqueness::NonUnique => quote! {
-                let idxs = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in one index despite being present in other");
-                self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).extend(idxs); 
+                let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
+                let pos = idxs.iter().position(|x| *x == idx).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
+                idxs.remove(pos);
+                self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
             },
         }
     }).collect();
@@ -160,6 +162,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         // TokenStream representing the get_mut_by_ accessor for this field.
+        // Unavailable for NonUnique fields for now, because this would require returning multiple mutable references to the same backing storage.
+        // This is not impossible to do safely, just requires some unsafe code and a thought out approach similar to split_at_mut.
         let mut_getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 // SAFETY:
@@ -202,10 +206,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         // TokenStream representing the modify_by_ accessor for this field.
+        // Unavailable for NonUnique fields for now, because the modification logic gets quite complicated.
         let modifier = match uniqueness {
             Uniqueness::Unique => quote! {
                 pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
-                    let elem = &mut self._store[*self.#index_name.get(key)?];
+                    let idx = *self.#index_name.get(key)?;
+                    let elem = &mut self._store[idx];
                     let elem_orig = elem.clone();
                     f(elem);
     
