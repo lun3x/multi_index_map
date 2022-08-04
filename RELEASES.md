@@ -1,3 +1,9 @@
+Version 0.3.0 (2022-08-04)
+==========================
+
+- Implement `ordered_non_unique` and provide `get_mut_by_` accessors for both `non_unique` indexes.
+- Clean up `IndexKind` enum to orthogonally represent Uniqueness and Ordering.
+
 Version 0.2.1 (2022-07-14)
 ==========================
 
