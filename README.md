@@ -30,7 +30,7 @@ Current implementation supports:
 # How to use
 
 This crate provides a derive macro `MultiIndexMap`, which when applied to the struct representing an element will generate a map to store and access these elements.
-Annotations are used to specify which fields to index. Currently `hashed_unique` and `ordered_unique` are supported.
+Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
 The element must implement `Clone`.
 
 ## Example
@@ -94,7 +94,7 @@ fn main() {
     }
     assert_eq!(orders.len(), 2);
 
-    // See examples directory for more in depth usage.
+    // See examples and tests directories for more in depth usage.
 }
 ```
 
@@ -104,7 +104,7 @@ The above example will generate the following MultiIndexMap and associated Itera
 The `Order`s are stored in a `Slab`, in contiguous memory, which allows for fast lookup and quick iteration. 
 A lookup table is created for each indexed field, which maps the index key to a index in the `Slab`.
 The exact type used for these depends on the annotations.
-For `hashed_unique` and `hashed_non_unique` a `FxHashMap` is used, for `ordered_unique` a BTreeMap is used.
+For `hashed_unique` and `hashed_non_unique` a `FxHashMap` is used, for `ordered_unique` and `ordered_non_unique` a BTreeMap is used.
 * When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
 * When retrieving elements for a given key, we lookup the key in the lookup table, then retrieve the item at that index in the backing store.
 * When removing an element for a given key, we do the same, but we then must also remove keys from all the other lookup tables before returning the element.
@@ -124,18 +124,15 @@ struct MultiIndexOrderMap {
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {
-    _store_ref: &'a slab::Slab<Order>,
-    _iter: std::collections::hash_map::Iter<'a, u32, usize>,
+    ...
 }
 
 struct MultiIndexOrderMapTimestampIter<'a> {
-    _store_ref: &'a slab::Slab<Order>,
-    _iter: std::collections::btree_map::Iter<'a, u64, usize>,
+    ...
 }
 
 struct MultiIndexOrderMapTraderNameIter<'a> {
-    _store_ref: &'a slab::Slab<Order>,
-    _iter: std::collections::hash_map::Iter<'a, String, Vec<usize>>,
+    ...
 }
 
 impl MultiIndexOrderMap {
@@ -165,7 +162,10 @@ impl MultiIndexOrderMap {
 }
 ```
 
+# Dependencies
+See [Cargo.toml](Cargo.toml) for information on each dependency.
 
 # Future work
-* More index kinds, `ordered_non_unique` is very useful for retrieving all elements matching the given index key. Potentially a vector-map style lookup table would be very quick for small tables with integer indexes.
+* Allow users to specify which hash function to use, rather than always using an FxHashMap.
+* Potentially a vector-map style lookup table would be very quick for small tables with integer indexes.
 * Implement [clever tricks](https://www.boost.org/doc/libs/1_36_0/libs/multi_index/doc/performance.html) used in boost::multi_index_containers to improve performance.

@@ -14,12 +14,25 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustc-hash = { version = "1.1"}
+# Used as the backing store of all the elements.
 slab = { version = "0.4" }
-proc-macro2 = { version = "1.0"}
+
+# Used for the hashed indexes. Provides a faster (non-cryptographically secure) hash function than the standard library.
+rustc-hash = { version = "1.1"}
+
+# Library for parsing rust tokens, used by most proc macro crates
 syn = { version = "1.0", features = ["full"] }
+
+# Library for parsing syntax trees into rust tokens, used by most proc macro crates
 quote = { version = "1.0" }
+
+# Necessary for syn and quote
+proc-macro2 = { version = "1.0"}
+
+# Better error handling in proc macros, avoids using panic!
 proc-macro-error = { version = "1.0" }
+
+# Used to convert the field names into UpperCamelCase for the Iterator names.
 convert_case = { version = "0.5" }
 
 [lib]
