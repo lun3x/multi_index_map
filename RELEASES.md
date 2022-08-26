@@ -1,3 +1,9 @@
+Version 0.4.0 (2022-08-26)
+==========================
+
+- Fix bug with multiple non-unique indexes, whereby removal from one non-unique index could cause elements to become inaccessible through other non-unique indexes.
+- Rename `multi_index` namespace to `multi_index_<element_name>` to avoid clashes when defining multiple MultiIndexMaps in a single namespace.
+
 Version 0.3.0 (2022-08-04)
 ==========================
 
