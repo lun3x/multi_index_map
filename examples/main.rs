@@ -1,4 +1,4 @@
-use crate::multi_index::MultiIndexOrderMap;
+use crate::multi_index_order::MultiIndexOrderMap;
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug, Clone)]

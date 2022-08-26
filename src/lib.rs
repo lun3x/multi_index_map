@@ -88,9 +88,28 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
             let index_name = format_ident!("_{}_index", field_name);
-            quote! {
-                self.#index_name.remove(&elem_orig.#field_name);
+            let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+                abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+            });
+
+            match uniqueness {
+                Uniqueness::Unique => quote! {
+                    // For unique indexes we know that removing an element will not affect any other elements
+                    self.#index_name.remove(&elem_orig.#field_name);
+                },
+                Uniqueness::NonUnique => quote! {
+                    // For non-unique indexes we must verify that we have not affected any other elements
+                    if let Some(mut elems) = self.#index_name.remove(&elem_orig.#field_name) {
+                        // If any other elements share the same non-unique index, we must reinsert them into this index
+                        if elems.len() > 1 {
+                            let pos = elems.iter().position(|e| *e == idx).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
+                            elems.remove(pos);
+                            self.#index_name.insert(elem_orig.#field_name.clone(), elems);
+                        }
+                    }
+                }
             }
+
         })
         .collect();
 
@@ -315,10 +334,18 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
+    // Put Iterators and MultiIndexMap into a separate module to avoid polluting the namespace.
+    // Ensure this module has a name based upon the element name to allow multiple MultiIndexMaps in the same namespace.
+    let mod_name = format_ident!(
+        "multi_index_{}",
+        element_name
+            .to_string()
+            .to_case(convert_case::Case::Snake)
+    );
+
     // Build the final output using quasi-quoting
     let expanded = quote! {
-        // Put the whole MultiIndexMap into a module to avoid polluting the namespace.
-        mod multi_index {
+        mod #mod_name {
             use super::*;
 
             #[derive(Default, Clone)]
