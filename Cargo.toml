@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"
@@ -32,7 +32,7 @@ proc-macro2 = { version = "1.0"}
 # Better error handling in proc macros, avoids using panic!
 proc-macro-error = { version = "1.0" }
 
-# Used to convert the field names into UpperCamelCase for the Iterator names.
+# Used to convert the field names into UpperCamelCase for the Iterator names, and to snake_case for the module namespace.
 convert_case = { version = "0.5" }
 
 [lib]
