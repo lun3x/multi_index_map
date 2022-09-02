@@ -67,6 +67,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
+            let field_name_string = field_name.to_string();
             let index_name = format_ident!("_{}_index", field_name);
             let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
                 abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
@@ -74,7 +75,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             match uniqueness {
                 Uniqueness::Unique => quote! { 
-                    self.#index_name.insert(elem.#field_name.clone(), idx);
+                    let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
+                    if orig_elem_idx.is_some() {
+                        panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
+                    }
                 },
                 Uniqueness::NonUnique => quote! {
                     self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
@@ -88,6 +92,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
             let index_name = format_ident!("_{}_index", field_name);
+            let field_name_string = field_name.to_string();
+            let error_msg = format!("Internal invariants broken, unable to find element in index '{field_name_string}' despite being present in another");
             let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
                 abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
             });
@@ -95,14 +101,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             match uniqueness {
                 Uniqueness::Unique => quote! {
                     // For unique indexes we know that removing an element will not affect any other elements
-                    self.#index_name.remove(&elem_orig.#field_name);
+                    let removed_elem = self.#index_name.remove(&elem_orig.#field_name);
                 },
                 Uniqueness::NonUnique => quote! {
                     // For non-unique indexes we must verify that we have not affected any other elements
                     if let Some(mut elems) = self.#index_name.remove(&elem_orig.#field_name) {
                         // If any other elements share the same non-unique index, we must reinsert them into this index
                         if elems.len() > 1 {
-                            let pos = elems.iter().position(|e| *e == idx).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
+                            let pos = elems.iter().position(|e| *e == idx).expect(#error_msg);
                             elems.remove(pos);
                             self.#index_name.insert(elem_orig.#field_name.clone(), elems);
                         }
@@ -117,19 +123,24 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table.
     let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
+        let field_name_string = field_name.to_string();
         let index_name = format_ident!("_{}_index", field_name);
+        let error_msg = format!("Internal invariants broken, unable to find element in index '{field_name_string}' despite being present in another");
         let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                let idx = self.#index_name.remove(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in a unique index despite being present in another");
-                self.#index_name.insert(elem.#field_name.clone(), idx);
+                let idx = self.#index_name.remove(&elem_orig.#field_name).expect(#error_msg);
+                let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
+                if orig_elem_idx.is_some() {
+                    panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
+                }
             },
             Uniqueness::NonUnique => quote! {
-                let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
-                let pos = idxs.iter().position(|x| *x == idx).expect("Internal invariants broken, unable to find element in a non-unique index despite being present in another");
+                let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect(#error_msg);
+                let pos = idxs.iter().position(|x| *x == idx).expect(#error_msg);
                 idxs.remove(pos);
                 self.#index_name.entry(elem.#field_name.clone()).or_insert(Vec::with_capacity(1)).push(idx); 
             },
@@ -266,6 +277,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // such that the elements are accessed in an order defined by the index rather than the backing storage.
     let iterators = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
+        let field_name_string = field_name.to_string();
+        let error_msg = format!("Internal invariants broken, found empty slice in non_unique index '{field_name_string}'");
         let iter_name = format_ident!(
             "{}{}Iter",
             map_name,
@@ -308,7 +321,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 } else {
                     let hashmap_next = self._iter.next()?;
                     self._inner_iter = Some(hashmap_next.1.iter());
-                    Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect("Internal invariants broken, found empty slice in non_unique lookup table.")])
+                    Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect(#error_msg)])
                 }
             },
         };
