@@ -1,3 +1,8 @@
+Version 0.4.1 (2022-09-02)
+==========================
+
+- Prevent uniqueness constraints being violated by panicking upon any `insert` or `modify` that would result in violation. Previously to this version violations would result in overwriting the indexes to point to the new element, but the old element would remain in the backing storage, accessible only through the general `iter()` / `iter_mut()` methods, and visible in the `is_empty()` and `len()` methods.
+
 Version 0.4.0 (2022-08-26)
 ==========================
 

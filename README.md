@@ -21,6 +21,7 @@ Current implementation supports:
 * Iteration over the backing store is the same as Slab, so contiguous memory but with potentially vacant slots.
 * Insertion, removal, and modification complexity grows as the number of indexed fields grow. All indexes must be updated during these operations so these are slower.
 * Modification of unindexed fields through unsafe mut methods is the same as regular retrieval time.
+* Insertion or modification such that uniqueness is violated, will result in a `panic`.
 
 ## Non-Unique Indexes
 * Hashed index retrievals are still constant-time with the total number of elements, but linear-time with the number of matching elements. (FxHashMap + (Slab * num_matches)).
@@ -168,4 +169,5 @@ See [Cargo.toml](Cargo.toml) for information on each dependency.
 # Future work
 * Allow users to specify which hash function to use, rather than always using an FxHashMap.
 * Potentially a vector-map style lookup table would be very quick for small tables with integer indexes.
+* Allow overwriting behaviour upon inserting a duplicate unique index, returning a Vec of the overwritten elements.
 * Implement [clever tricks](https://www.boost.org/doc/libs/1_36_0/libs/multi_index/doc/performance.html) used in boost::multi_index_containers to improve performance.
