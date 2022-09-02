@@ -85,3 +85,49 @@ fn test_modify_by_field1() {
     let elem_at_index_2 = field_1_iter.next().unwrap();
     assert_eq!(&elem_at_index_2.field2, "ElementOne");
 }
+
+#[test]
+fn test_insert_violate_uniqueness() {
+    let mut map = MultiIndexTestElementMap::default();
+    let elem1 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field2: "ElementOne".into(),
+    };
+    map.insert(elem1);
+
+    let elem2 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field2: "ElementTwo".into(),
+    };
+
+    let res = std::panic::catch_unwind(move || {
+        map.insert(elem2);
+    });
+
+    res.expect_err("Expected to violate uniqueness constraint");
+}
+
+#[test]
+fn test_modify_violate_uniqueness() {
+    let mut map = MultiIndexTestElementMap::default();
+    let elem1 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field2: "ElementOne".into(),
+    };
+    map.insert(elem1);
+
+    let elem2 = TestElement {
+        field1: TestNonPrimitiveType(43),
+        field2: "ElementTwo".into(),
+    };
+
+    map.insert(elem2);
+
+    let res = std::panic::catch_unwind(move || {
+        map.modify_by_field1(&TestNonPrimitiveType(43), |e| {
+            e.field1 = TestNonPrimitiveType(42)
+        });
+    });
+
+    res.expect_err("Expected to violate uniqueness constraint");
+}
