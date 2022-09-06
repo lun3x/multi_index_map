@@ -173,6 +173,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let modifier_name = format_ident!("modify_by_{}", field_name);
         let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
+        let iter_mut_name = format_ident!("{}{}IterMut", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
+        let iter_mut_getter_name = format_ident!("iter_mut_by_{}", field_name);
         let ty = &f.ty;
         let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
@@ -274,10 +276,18 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             #modifier
 
-            pub(super) fn #iter_getter_name(&mut self) -> #iter_name {
+            pub(super) fn #iter_getter_name(&self) -> #iter_name {
                 #iter_name {
                     _store_ref: &self._store,
                     _iter: self.#index_name.iter(),
+                    _inner_iter: None,
+                }
+            }
+
+            pub(super) fn #iter_mut_getter_name(&mut self) -> #iter_mut_name {
+                #iter_mut_name {
+                    _store_ref: &mut self._store,
+                    _iter: self.#index_name.iter_mut(),
                     _inner_iter: None,
                 }
             }
@@ -292,6 +302,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let error_msg = format!("Internal invariants broken, found empty slice in non_unique index '{field_name_string}'");
         let iter_name = format_ident!(
             "{}{}Iter",
+            map_name,
+            field_name
+                .to_string()
+                .to_case(convert_case::Case::UpperCamel)
+        );
+        let iter_mut_name = format_ident!(
+            "{}{}IterMut",
             map_name,
             field_name
                 .to_string()
@@ -312,6 +329,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, Vec<usize>>},
                 Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, Vec<usize>>},
+            }
+        };
+        
+        let iter_mut_type = match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => quote! {std::collections::hash_map::IterMut<'a, #ty, usize>},
+                Ordering::Ordered => quote! {std::collections::btree_map::IterMut<'a, #ty, usize>},
+            }
+            Uniqueness::NonUnique => match ordering {
+                Ordering::Hashed => quote! {std::collections::hash_map::IterMut<'a, #ty, Vec<usize>>},
+                Ordering::Ordered => quote! {std::collections::btree_map::IterMut<'a, #ty, Vec<usize>>},
             }
         };
 
@@ -337,6 +365,27 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        let iter_mut_action = match uniqueness {
+            Uniqueness::Unique => quote! { Some(&mut self._store_ref[*self._iter.next()?.1]) },
+            Uniqueness::NonUnique => quote! {
+                // If we have an inner_iter already, then get the next (optional) value from it.
+                let inner_next = if let Some(inner_iter) = &mut self._inner_iter {
+                    inner_iter.next()
+                } else {
+                    None
+                };
+
+                // If we have the next value, find it in the backing store.
+                if let Some(next_index) = inner_next {
+                    Some(&mut self._store_ref[*next_index])
+                } else {
+                    let hashmap_next = self._iter.next()?;
+                    self._inner_iter = Some(hashmap_next.1.iter_mut());
+                    Some(&mut self._store_ref[*self._inner_iter.as_mut().unwrap().next().expect(#error_msg)])
+                }
+            },
+        };
+
         // TokenStream representing the iterator over each indexed field.
         // We have a different iterator type for each indexed field. Each one wraps the standard Iterator for that lookup table, but adds in a couple of things:
         // First we maintain a reference to the backing store, so we can return references to the elements we are interested in.
@@ -353,6 +402,20 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
                 fn next(&mut self) -> Option<Self::Item> {
                     #iter_action
+                }
+            }
+
+            pub(super) struct #iter_mut_name<'a> {
+                _store_ref: &'a mut slab::Slab<#element_name>,
+                _iter: #iter_mut_type,
+                _inner_iter: Option<core::slice::IterMut<'a, usize>>,
+            }
+
+            impl<'a> Iterator for #iter_mut_name<'a> {
+                type Item = &'a mut #element_name;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    #iter_mut_action
                 }
             }
         }
