@@ -138,3 +138,28 @@ fn test_modify_violate_uniqueness() {
 
     res.expect_err("Expected to violate uniqueness constraint");
 }
+
+#[test]
+fn test_clear() {
+    let mut map = MultiIndexTestElementMap::default();
+    let elem1 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field2: "ElementOne".into(),
+    };
+    map.insert(elem1);
+
+    let elem2 = TestElement {
+        field1: TestNonPrimitiveType(43),
+        field2: "ElementTwo".into(),
+    };
+    map.insert(elem2);
+    assert_eq!(map.len(), 2);
+
+    map.clear();
+    assert!(map.is_empty());
+
+    let a = map.remove_by_field1(&TestNonPrimitiveType(42));
+    let b = map.remove_by_field1(&TestNonPrimitiveType(43));
+    assert!(a.is_none());
+    assert!(b.is_none());
+}

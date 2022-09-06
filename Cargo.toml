@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"

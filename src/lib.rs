@@ -147,6 +147,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     }).collect();
 
+    let clears: Vec<proc_macro2::TokenStream> = fields_to_index()
+        .map(|f| {
+            let field_name = f.ident.as_ref().unwrap();
+            let index_name = format_ident!("_{}_index", field_name);
+            
+            quote!{
+                self.#index_name.clear();
+            }
+        })
+        .collect();
+
     let element_name = input.ident;
 
     // Generate the name of the MultiIndexMap
@@ -381,6 +392,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     let elem = &self._store[idx];
 
                     #(#inserts)*
+                }
+
+                pub(super) fn clear(&mut self) {
+                    self._store.clear();
+                    #(#clears)*
                 }
 
                 // Allow iteration directly over the backing storage

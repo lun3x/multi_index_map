@@ -139,6 +139,10 @@ struct MultiIndexOrderMapTraderNameIter<'a> {
 impl MultiIndexOrderMap {
     fn insert(&mut self, elem: Order);
     
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn clear(&mut self);
+    
     fn get_by_order_id(&self) -> Option<&Order>;
     fn get_by_timestamp(&self) -> Option<&Order>;
     fn get_by_trader_name(&self) -> Vec<&Order>;

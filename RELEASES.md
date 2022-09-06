@@ -1,3 +1,8 @@
+Version 0.4.2 (2022-09-06)
+==========================
+
+- Add `clear()` method to clear the backing storage and all indexes.
+
 Version 0.4.1 (2022-09-02)
 ==========================
 

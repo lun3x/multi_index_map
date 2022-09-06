@@ -152,3 +152,28 @@ fn test_remove_hashed_non_unique_field2_get_hashed_non_unique_field1() {
     assert_eq!(b.len(), 0);
     assert_eq!(c.len(), 0);
 }
+
+#[test]
+fn test_clear() {
+    let mut map = MultiIndexMultipleOrderedNonUniqueStructMap::default();
+
+    map.insert(MultipleOrderedNonUniqueStruct {
+        field1: 1,
+        field2: 999,
+    });
+    map.insert(MultipleOrderedNonUniqueStruct {
+        field1: 2,
+        field2: 999,
+    });
+    assert_eq!(map.len(), 2);
+
+    map.clear();
+    assert!(map.is_empty());
+
+    let a = map.remove_by_field2(&999);
+    let b = map.remove_by_field1(&1);
+    let c = map.remove_by_field1(&2);
+    assert!(a.is_empty());
+    assert!(b.is_empty());
+    assert!(c.is_empty());
+}
