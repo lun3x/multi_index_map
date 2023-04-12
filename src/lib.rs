@@ -369,7 +369,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // Build the final output using quasi-quoting
     let expanded = quote! {
-        mod #mod_name {
+        pub(super) mod #mod_name {
             use super::*;
 
             #[derive(Default, Clone)]
