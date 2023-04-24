@@ -3,6 +3,7 @@ Version 0.5.0 (2024-04-24)
 
 - Set MultiIndexMap to same visibility as provided Element. Set each field's relevant methods to the visibility of that field. This allows finer-grained control of method visibility/privacy.
 - Remove inner `multi_index_<element_name>` module. Previously this was used to avoid polluting the outer namespace with the Iterators for each field, however now users can now control the visibility per-field, so can create their own inner module if necessary to avoid polluting namespace.
+- Change `iter_by_` methods. Now they take `&self`, previously they required `&mut self` but this is not necessary.
 
 Version 0.4.2 (2022-09-06)
 ==========================
