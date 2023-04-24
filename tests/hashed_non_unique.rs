@@ -1,5 +1,4 @@
 use multi_index_map::MultiIndexMap;
-use multi_index_test_element::MultiIndexTestElementMap;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u64);
