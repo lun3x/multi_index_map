@@ -275,7 +275,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             #modifier
 
-            #field_vis fn #iter_getter_name(&mut self) -> #iter_name {
+            #field_vis fn #iter_getter_name(&self) -> #iter_name {
                 #iter_name {
                     _store_ref: &self._store,
                     _iter: self.#index_name.iter(),
