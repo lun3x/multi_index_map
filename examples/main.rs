@@ -32,6 +32,9 @@ fn main() {
     map.insert(o1);
     map.insert(o2);
 
+    // Set non-mutable, non mutating iter methods still work.
+    let map = map;
+
     for o in map.iter_by_timestamp() {
         println!("iter_by_timestamp: {o:?}")
     }
@@ -44,15 +47,18 @@ fn main() {
         println!("iter: {o:?}")
     }
 
-    for (_, o) in unsafe { map.iter_mut() } {
-        println!("iter_mut: {o:?}")
-    }
-
     let o1_ref = map.get_by_order_id(&1).unwrap();
     println!(
         "Got {}'s order by id {}",
         o1_ref.trader_name, o1_ref.order_id
     );
+
+    // Set mutable so we can mutate the map.
+    let mut map = map;
+
+    for (_, o) in unsafe { map.iter_mut() } {
+        println!("iter_mut: {o:?}")
+    }
 
     let o1_ref = map
         .modify_by_order_id(&1, |o| {
