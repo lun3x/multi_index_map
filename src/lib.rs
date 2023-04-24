@@ -166,7 +166,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // For each indexed field generate a TokenStream representing all the accessors for the underlying storage via that field's lookup table.
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
-        let field_vis = &f.vis;
         let index_name = format_ident!("_{}_index", field_name);
         let getter_name = format_ident!("get_by_{}", field_name);
         let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
@@ -184,12 +183,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         // in order to return a Vec of references to the backing storage.
         let getter = match uniqueness {
             Uniqueness::Unique => quote! {
-                #field_vis fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
+                pub(super) fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
                     Some(&self._store[*self.#index_name.get(key)?])
                 }
             },
             Uniqueness::NonUnique => quote! {
-                #field_vis fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
+                pub(super) fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
                         let mut elem_refs = Vec::with_capacity(idxs.len());
                         for idx in idxs {
@@ -211,7 +210,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 // SAFETY:
                 // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
                 // If the indexed fields need to be changed, the modify() method must be used.
-                #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
+                pub(super) unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
             },
@@ -223,7 +222,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         // in order to return a Vec elements from the backing storage.
         let remover = match uniqueness {
             Uniqueness::Unique => quote! {
-                #field_vis fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
                     let idx = self.#index_name.remove(key)?;
                     let elem_orig = self._store.remove(idx);
                     #(#removes)*
@@ -231,7 +230,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 }
             },
             Uniqueness::NonUnique => quote! {
-                #field_vis fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
+                pub(super) fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
                     if let Some(idxs) = self.#index_name.remove(key) {
                         let mut elems = Vec::with_capacity(idxs.len());
                         for idx in idxs {
@@ -251,7 +250,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         // Unavailable for NonUnique fields for now, because the modification logic gets quite complicated.
         let modifier = match uniqueness {
             Uniqueness::Unique => quote! {
-                #field_vis fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
+                pub(super) fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
                     let idx = *self.#index_name.get(key)?;
                     let elem = &mut self._store[idx];
                     let elem_orig = elem.clone();
@@ -275,7 +274,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             #modifier
 
-            #field_vis fn #iter_getter_name(&mut self) -> #iter_name {
+            pub(super) fn #iter_getter_name(&mut self) -> #iter_name {
                 #iter_name {
                     _store_ref: &self._store,
                     _iter: self.#index_name.iter(),
@@ -289,7 +288,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // such that the elements are accessed in an order defined by the index rather than the backing storage.
     let iterators = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
-        let field_vis = &f.vis;
         let field_name_string = field_name.to_string();
         let error_msg = format!("Internal invariants broken, found empty slice in non_unique index '{field_name_string}'");
         let iter_name = format_ident!(
@@ -344,7 +342,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         // First we maintain a reference to the backing store, so we can return references to the elements we are interested in.
         // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to iterate through the Vec of matching elements for a given index value.
         quote! {
-            #field_vis struct #iter_name<'a> {
+            pub(super) struct #iter_name<'a> {
                 _store_ref: &'a slab::Slab<#element_name>,
                 _iter: #iter_type,
                 _inner_iter: Option<core::slice::Iter<'a, usize>>,
@@ -360,54 +358,64 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
-    let element_vis = input.vis;
+    // Put Iterators and MultiIndexMap into a separate module to avoid polluting the namespace.
+    // Ensure this module has a name based upon the element name to allow multiple MultiIndexMaps in the same namespace.
+    let mod_name = format_ident!(
+        "multi_index_{}",
+        element_name
+            .to_string()
+            .to_case(convert_case::Case::Snake)
+    );
 
     // Build the final output using quasi-quoting
     let expanded = quote! {
-        #[derive(Default, Clone)]
-        #element_vis struct #map_name {
-            _store: slab::Slab<#element_name>,
-            #(#lookup_table_fields)*
+        mod #mod_name {
+            use super::*;
+
+            #[derive(Default, Clone)]
+            pub(super) struct #map_name {
+                _store: slab::Slab<#element_name>,
+                #(#lookup_table_fields)*
+            }
+
+            impl #map_name {
+                pub(super) fn len(&self) -> usize {
+                    self._store.len()
+                }
+
+                pub(super) fn is_empty(&self) -> bool {
+                    self._store.is_empty()
+                }
+
+                pub(super) fn insert(&mut self, elem: #element_name) {
+                    let idx = self._store.insert(elem);
+                    let elem = &self._store[idx];
+
+                    #(#inserts)*
+                }
+
+                pub(super) fn clear(&mut self) {
+                    self._store.clear();
+                    #(#clears)*
+                }
+
+                // Allow iteration directly over the backing storage
+                pub(super) fn iter(&self) -> slab::Iter<#element_name> {
+                    self._store.iter()
+                }
+
+                // SAFETY:
+                // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                // If the indexed fields need to be changed, the modify() method must be used.
+                pub(super) unsafe fn iter_mut(&mut self) -> slab::IterMut<#element_name> {
+                    self._store.iter_mut()
+                }
+
+                #(#accessors)*
+            }
+
+            #(#iterators)*
         }
-
-        impl #map_name {
-            #element_vis fn len(&self) -> usize {
-                self._store.len()
-            }
-
-            #element_vis fn is_empty(&self) -> bool {
-                self._store.is_empty()
-            }
-
-            #element_vis fn insert(&mut self, elem: #element_name) {
-                let idx = self._store.insert(elem);
-                let elem = &self._store[idx];
-
-                #(#inserts)*
-            }
-
-            #element_vis fn clear(&mut self) {
-                self._store.clear();
-                #(#clears)*
-            }
-
-            // Allow iteration directly over the backing storage
-            #element_vis fn iter(&self) -> slab::Iter<#element_name> {
-                self._store.iter()
-            }
-
-            // SAFETY:
-            // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
-            // If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis unsafe fn iter_mut(&mut self) -> slab::IterMut<#element_name> {
-                self._store.iter_mut()
-            }
-
-            #(#accessors)*
-        }
-
-        #(#iterators)*
-        
     };
 
     // Hand the output tokens back to the compiler.

@@ -1,4 +1,7 @@
 use multi_index_map::MultiIndexMap;
+use multi_index_multiple_hashed_non_unique_struct::MultiIndexMultipleHashedNonUniqueStructMap;
+use multi_index_multiple_ordered_non_unique_struct::MultiIndexMultipleOrderedNonUniqueStructMap;
+use multi_index_ordered_non_unique_and_hashed_non_unique_struct::MultiIndexOrderedNonUniqueAndHashedNonUniqueStructMap;
 
 #[derive(MultiIndexMap, Clone)]
 struct MultipleOrderedNonUniqueStruct {
