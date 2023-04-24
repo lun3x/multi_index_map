@@ -37,7 +37,6 @@ The element must implement `Clone`.
 ## Example
 
 ```rust
-use crate::multi_index::MultiIndexOrderMap;
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Clone, Debug)]

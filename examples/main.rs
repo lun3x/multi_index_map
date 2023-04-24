@@ -1,15 +1,18 @@
-use crate::multi_index_order::MultiIndexOrderMap;
-use multi_index_map::MultiIndexMap;
+use crate::inner::MultiIndexOrderMap;
+use crate::inner::Order;
 
-#[derive(MultiIndexMap, Debug, Clone)]
-struct Order {
-    #[multi_index(hashed_unique)]
-    order_id: u32,
-    #[multi_index(ordered_unique)]
-    timestamp: u64,
-    #[multi_index(hashed_non_unique)]
-    trader_name: String,
-    note: String,
+mod inner {
+    use multi_index_map::MultiIndexMap;
+    #[derive(MultiIndexMap, Debug, Clone)]
+    pub(crate) struct Order {
+        #[multi_index(hashed_unique)]
+        pub(crate) order_id: u32,
+        #[multi_index(ordered_unique)]
+        pub(crate) timestamp: u64,
+        #[multi_index(hashed_non_unique)]
+        pub(crate) trader_name: String,
+        pub(crate) note: String,
+    }
 }
 
 fn main() {
