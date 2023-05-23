@@ -52,10 +52,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => quote! {
-                    #index_name: rustc_hash::FxHashMap<#ty, im::HashSet<usize>>,
+                    #index_name: rustc_hash::FxHashMap<#ty, std::collections::BTreeSet<usize>>,
                 },
                 Ordering::Ordered => quote! {
-                    #index_name: std::collections::BTreeMap<#ty, im::HashSet<usize>>,
+                    #index_name: std::collections::BTreeMap<#ty, std::collections::BTreeSet<usize>>,
                 }
             }
         }
@@ -81,7 +81,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     }
                 },
                 Uniqueness::NonUnique => quote! {
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(im::HashSet::new()).insert(idx); 
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx); 
                 },
             }
         })
@@ -116,7 +116,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 if let Some(mut elems) = self.#index_name.get_mut(key_to_remove) {
                     if elems.len() > 1 {
                         // If there are more than one indices in the HashSet, remove idx from it
-                        elems.remove(&idx).expect(#error_msg);
+                        if !elems.remove(&idx){
+                            panic!(#error_msg);
+                        }
                     } else {
                         // If there are exactly one index in the HashSet, then the index has to be idx, remove key and the entire HashSet
                         self.#index_name.remove(key_to_remove);
@@ -166,7 +168,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     // remove idx from the HashSet
                     idxs.remove(&idx);
                     // insert idx to the new key
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(im::HashSet::new()).insert(idx); 
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx); 
                 }
             },
         }
@@ -369,8 +371,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, usize>},
             }
             Uniqueness::NonUnique => match ordering {
-                Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, im::HashSet::<usize>>},
-                Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, im::HashSet::<usize>>},
+                Ordering::Hashed => quote! {std::collections::hash_map::Iter<'a, #ty, std::collections::BTreeSet::<usize>>},
+                Ordering::Ordered => quote! {std::collections::btree_map::Iter<'a, #ty, std::collections::BTreeSet::<usize>>},
             }
         };
 
