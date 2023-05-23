@@ -35,8 +35,13 @@ proc-macro-error = { version = "1.0" }
 # Used to convert the field names into UpperCamelCase for the Iterator names, and to snake_case for the module namespace.
 convert_case = { version = "0.6" }
 
-# Used HashSet for faster deletion of non-unique keys
-im = { version = "15.1.0" }
+[dev-dependencies]
+# Used for benchmarking
+criterion = "0.5.0"
+
+[[bench]]
+name = "performance"
+harness = false
 
 [lib]
 proc-macro = true

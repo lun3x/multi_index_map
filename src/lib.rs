@@ -91,9 +91,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         remove a given index from all fields, a reference to the element that is already deleted is given (elem_orig), the index of elem_orig in the backing storage before its removal is also given (idx)
 
         - when the field is unique, check that the index is indeed idx, then delete the corresponding key (elem_orig.#field_name) from the field
-        - when the field is non-unique, get a reference to the HashSet that contains all back storage indices under the same key (elem_orig.#field_name), 
-            - If there are more than one indices in the HashSet, remove idx from it
-            - If there are exactly one index in the HashSet, then the index has to be idx, remove key and the entire HashSet
+        - when the field is non-unique, get a reference to the Set that contains all back storage indices under the same key (elem_orig.#field_name), 
+            - If there are more than one indices in the Set, remove idx from it
+            - If there are exactly one index in the Set, then the index has to be idx, remove key and the entire Set
      */
     let removes: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
@@ -115,12 +115,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 let key_to_remove = &elem_orig.#field_name;
                 if let Some(mut elems) = self.#index_name.get_mut(key_to_remove) {
                     if elems.len() > 1 {
-                        // If there are more than one indices in the HashSet, remove idx from it
+                        // If there are more than one indices in the Set, remove idx from it
                         if !elems.remove(&idx){
                             panic!(#error_msg);
                         }
                     } else {
-                        // If there are exactly one index in the HashSet, then the index has to be idx, remove key and the entire HashSet
+                        // If there are exactly one index in the Set, then the index has to be idx, remove key and the entire Set
                         self.#index_name.remove(key_to_remove);
                     }
                 }
@@ -136,7 +136,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         for each field, only make changes if elem.#field_name and elem_orig.#field_name are not equal
             - when the field is unique, remove the old key and insert idx to the new key (if new key already exists, panic!)
-            - when the field is non-unique, remove idx from the HashSet associaetd with the old key (if the HashSet is empty after removal, remove the old key), and insert idx to the new key
+            - when the field is non-unique, remove idx from the Set associaetd with the old key (if the Set is empty after removal, remove the old key), and insert idx to the new key
 
      */
     let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
@@ -163,9 +163,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             Uniqueness::NonUnique => quote! {
                 // only make changes if elem.#field_name and elem_orig.#field_name are not equal
                 if elem.#field_name != elem_orig.#field_name {
-                    // get the HashSet associated with the old key
+                    // get the Set associated with the old key
                     let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect(#error_msg);
-                    // remove idx from the HashSet
+                    // remove idx from the Set
                     idxs.remove(&idx);
                     // insert idx to the new key
                     self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx); 
