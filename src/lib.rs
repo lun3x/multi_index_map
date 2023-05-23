@@ -60,6 +60,33 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
         }
     });
+
+    // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
+    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require appending to the Vec of positions,
+    // creating a new Vec if necessary.
+    let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
+        .map(|f| {
+            let field_name = f.ident.as_ref().unwrap();
+            let field_name_string = field_name.to_string();
+            let index_name = format_ident!("_{}_index", field_name);
+            let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+                abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+            });
+
+            match uniqueness {
+                Uniqueness::Unique => quote! { 
+                    let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
+                    if orig_elem_idx.is_some() {
+                        panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
+                    }
+                },
+                Uniqueness::NonUnique => quote! {
+                    self.#index_name.entry(elem.#field_name.clone()).or_insert(im::HashSet::new()).insert(idx); 
+                },
+            }
+        })
+        .collect();
+
     /* 
         remove a given index from all fields, a reference to the element that is already deleted is given (elem_orig), the index of elem_orig in the backing storage before its removal is also given (idx)
 
@@ -68,7 +95,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             - If there are more than one indices in the HashSet, remove idx from it
             - If there are exactly one index in the HashSet, then the index has to be idx, remove key and the entire HashSet
      */
-    let removes_new: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
+    let removes: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
         let index_name = format_ident!("_{}_index", field_name);
@@ -99,64 +126,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
         }
     }).collect();
-
-    // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
-    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require appending to the Vec of positions,
-    // creating a new Vec if necessary.
-    let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
-        .map(|f| {
-            let field_name = f.ident.as_ref().unwrap();
-            let field_name_string = field_name.to_string();
-            let index_name = format_ident!("_{}_index", field_name);
-            let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
-                abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
-            });
-
-            match uniqueness {
-                Uniqueness::Unique => quote! { 
-                    let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
-                    if orig_elem_idx.is_some() {
-                        panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
-                    }
-                },
-                Uniqueness::NonUnique => quote! {
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(im::HashSet::new()).insert(idx); 
-                },
-            }
-        })
-        .collect();
-
-    // For each indexed field generate a TokenStream representing the remove from that field's lookup table.
-    // let removes: Vec<proc_macro2::TokenStream> = fields_to_index()
-    //     .map(|f| {
-    //         let field_name = f.ident.as_ref().unwrap();
-    //         let index_name = format_ident!("_{}_index", field_name);
-    //         let field_name_string = field_name.to_string();
-    //         let error_msg = format!("Internal invariants broken, unable to find element in index '{field_name_string}' despite being present in another");
-    //         let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
-    //             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
-    //         });
-
-    //         match uniqueness {
-    //             Uniqueness::Unique => quote! {
-    //                 // For unique indexes we know that removing an element will not affect any other elements
-    //                 let removed_elem = self.#index_name.remove(&elem_orig.#field_name);
-    //             },
-    //             Uniqueness::NonUnique => quote! {
-    //                 // For non-unique indexes we must verify that we have not affected any other elements
-    //                 if let Some(mut elems) = self.#index_name.remove(&elem_orig.#field_name) {
-    //                     // If any other elements share the same non-unique index, we must reinsert them into this index
-    //                     if elems.len() > 1 {
-    //                         let pos = elems.iter().position(|e| *e == idx).expect(#error_msg);
-    //                         elems.remove(&pos);
-    //                         self.#index_name.insert(elem_orig.#field_name.clone(), elems);
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //     })
-    //     .collect();
 
 
     // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table.
@@ -292,7 +261,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     // mark the index as unused in back storage
                     let elem_orig = self._store.remove(idx);
                     // remove the index from all fields
-                    #(#removes_new)*
+                    #(#removes)*
                     // return the element
                     Some(elem_orig)
                 }
@@ -313,7 +282,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                             // mark all indices as unused in back storage
                             let elem_orig = self._store.remove(idx);
                             // remove the all indices from all fields
-                            #(#removes_new)*
+                            #(#removes)*
                             // push element into a Vec
                             elems.push(elem_orig)
                         }
