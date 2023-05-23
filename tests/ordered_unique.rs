@@ -63,7 +63,7 @@ fn test_modify_by_field1() {
     };
     map.insert(elem1);
     map.insert(elem2);
-
+    {
     let mut field_1_iter = map.iter_by_field1();
 
     let elem_at_index_1 = field_1_iter.next().unwrap();
@@ -71,7 +71,7 @@ fn test_modify_by_field1() {
 
     let elem_at_index_2 = field_1_iter.next().unwrap();
     assert_eq!(&elem_at_index_2.field2, "ElementTwo");
-
+    }
     map.modify_by_field1(&TestNonPrimitiveType(42), |test_elem| {
         test_elem.field1 = TestNonPrimitiveType(44)
     });
