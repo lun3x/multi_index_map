@@ -344,9 +344,9 @@ fn unique_key_iter_benchmark(c: &mut Criterion) {
             });
             map.clear();
         }
-        c.bench_function(&format!("hashed_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
-            for _ in map.iter_by_field_hashed_unique() {}
-            for _ in map.iter_by_field_ordered_unique() {}
+        c.bench_function(&format!("unique_key_iter_bench_{}", n), |b|{b.iter(|| {
+            for _ in map.iter_by_field_hashed_unique() {()}
+            for _ in map.iter_by_field_ordered_unique() {()}
         })}); 
     }
 
@@ -368,8 +368,8 @@ fn non_unique_key_iter_benchmark(c: &mut Criterion) {
             map.clear();
         }
         c.bench_function(&format!("non_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
-            for _ in map.iter_by_field_hashed_non_unique() {}
-            for _ in map.iter_by_field_ordered_non_unique() {}
+            for _ in map.iter_by_field_hashed_non_unique() {()}
+            for _ in map.iter_by_field_ordered_non_unique() {()}
         })}); 
     }
     
@@ -378,14 +378,9 @@ fn non_unique_key_iter_benchmark(c: &mut Criterion) {
     } 
 }
 
-// fn non_unique_key_iter_benchmark(c: &mut Criterion) {
-//     c.bench_function("insert_and_delete_bench", |b|{b.iter(|| {
-
-//     })}); 
-// }
-
 criterion_group!(
-    benches, insert_benchmark, 
+    benches, 
+    insert_benchmark, 
     delete_by_hashed_non_unique_key_benchmark, 
     delete_by_hashed_unique_key_benchmark, 
     delete_by_ordered_non_unique_key_benchmark, 

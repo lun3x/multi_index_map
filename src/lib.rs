@@ -61,6 +61,32 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
+    let lookup_table_fields_init: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f|{
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => quote! {
+                    #index_name: rustc_hash::FxHashMap::default(),
+                },
+                Ordering::Ordered => quote! {
+                    #index_name: std::collections::BTreeMap::new(),
+                }
+            }
+            Uniqueness::NonUnique => match ordering {
+                Ordering::Hashed => quote! {
+                    #index_name: rustc_hash::FxHashMap::default(),
+                },
+                Ordering::Ordered => quote! {
+                    #index_name: std::collections::BTreeMap::new(),
+                }
+            }
+        }
+    }).collect();
+
     // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
     // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require appending to the Vec of positions,
     // creating a new Vec if necessary.
@@ -430,6 +456,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
 
         impl #map_name {
+            #element_vis fn new(n: usize) -> #map_name {
+                #map_name {
+                    _store: slab::Slab::with_capacity(n),
+                    #(#lookup_table_fields_init)*
+                }
+            }
+
             #element_vis fn len(&self) -> usize {
                 self._store.len()
             }
