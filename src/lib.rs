@@ -238,6 +238,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // For each indexed field generate a TokenStream representing all the accessors for the underlying storage via that field's lookup table.
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
+        let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
         let index_name = format_ident!("_{}_index", field_name);
         let getter_name = format_ident!("get_by_{}", field_name);
@@ -276,8 +277,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         // TokenStream representing the get_mut_by_ accessor for this field.
-        // Unavailable for NonUnique fields for now, because this would require returning multiple mutable references to the same backing storage.
-        // This is not impossible to do safely, just requires some unsafe code and a thought out approach similar to split_at_mut.
         let mut_getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 // SAFETY:
@@ -287,7 +286,29 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
             },
-            Uniqueness::NonUnique => quote! {},
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
+                    if let Some(idxs) = self.#index_name.get(key) {
+                        let mut refs = Vec::with_capacity(idxs.len());
+                        let mut mut_iter = self._store.iter_mut();
+                        let mut last_idx: usize = 0;
+                        for idx in idxs.iter() {
+                            match mut_iter.nth(*idx - last_idx) {
+                                Some(val) => {
+                                    refs.push(val.1)
+                                },
+                                _ => {
+                                    panic!("Error getting mutable reference of non-unique field `{}`.", #field_name_string);
+                                }
+                            }
+                            last_idx = *idx + 1;
+                        }
+                        refs
+                    } else {
+                        Vec::new()
+                    } 
+                }
+            },
         };
 
         // TokenStream representing the remove_by_ accessor for this field.
