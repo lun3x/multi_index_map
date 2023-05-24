@@ -63,28 +63,47 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let lookup_table_fields_init: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f|{
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+        let (ordering, _uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+        match ordering {
+            Ordering::Hashed => quote! {
+                #index_name: rustc_hash::FxHashMap::default(),
+            },
+            Ordering::Ordered => quote! {
+                #index_name: std::collections::BTreeMap::new(),
+            }
+        }
+    }).collect();
+
+    let lookup_table_fields_reserve: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f|{
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, _uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
-        match uniqueness {
-            Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: rustc_hash::FxHashMap::default(),
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: std::collections::BTreeMap::new(),
-                }
-            }
-            Uniqueness::NonUnique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: rustc_hash::FxHashMap::default(),
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: std::collections::BTreeMap::new(),
-                }
-            }
+        match ordering {
+            Ordering::Hashed => quote! {
+                self.#index_name.reserve(additional);
+            },
+            Ordering::Ordered => quote! {}
         }
+
+    }).collect();
+
+    let lookup_table_fields_shrink: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f|{
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, _uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
+        });
+
+        match ordering {
+            Ordering::Hashed => quote! {
+                self.#index_name.shrink_to_fit();
+            },
+            Ordering::Ordered => quote! {}
+        }
+
     }).collect();
 
     // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
@@ -463,12 +482,28 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 }
             }
 
+            #element_vis fn capacity(&self) -> usize {
+                self._store.capacity()
+            }
+
             #element_vis fn len(&self) -> usize {
                 self._store.len()
             }
 
             #element_vis fn is_empty(&self) -> bool {
                 self._store.is_empty()
+            }
+
+            #element_vis fn reserve(&mut self, additional: usize) {
+                // reserving is slow. users are in control of when to reserve
+                self._store.reserve(additional);
+                #(#lookup_table_fields_reserve)* 
+            }
+
+            #element_vis fn shrink_to_fit(&mut self) {
+                // shrinking is slow. users are in control of when to shrink
+                self._store.shrink_to_fit();
+                #(#lookup_table_fields_shrink)* 
             }
 
             #element_vis fn insert(&mut self, elem: #element_name) {
