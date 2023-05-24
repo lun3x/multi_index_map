@@ -88,8 +88,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     }).collect();
 
     // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
-    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require appending to the Vec of positions,
-    // creating a new Vec if necessary.
+    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require inserting to the Set of positions,
+    // creating a new Set if necessary.
     let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
@@ -456,7 +456,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
 
         impl #map_name {
-            #element_vis fn new(n: usize) -> #map_name {
+            #element_vis fn with_capacity(n: usize) -> #map_name {
                 #map_name {
                     _store: slab::Slab::with_capacity(n),
                     #(#lookup_table_fields_init)*

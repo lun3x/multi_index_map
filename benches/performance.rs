@@ -217,7 +217,7 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
                 field_ordered_unique: i, 
                 field_ordered_non_unique: i/5 
             });}
-        c.bench_function(&format!("modify_ordered_unique_key_by_hashed_unique_key_bench_{}", n), |b|{b.iter(||{
+        c.bench_function(&format!("modify_ordered_non_unique_key_by_hashed_unique_key_bench_{}", n), |b|{b.iter(||{
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
@@ -317,7 +317,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
                 field_ordered_unique: i, 
                 field_ordered_non_unique: i/5 
             });}
-        c.bench_function(&format!("modify_ordered_unique_key_by_ordered_unique_key_bench_{}", n), |b|{b.iter(||{
+        c.bench_function(&format!("modify_ordered_non_unique_key_by_ordered_unique_key_bench_{}", n), |b|{b.iter(||{
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_ordered_unique(&i, |e| {
