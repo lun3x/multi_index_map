@@ -332,7 +332,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
     } 
 }
 
-fn unique_key_iter_benchmark(c: &mut Criterion) {
+fn hashed_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
@@ -344,9 +344,11 @@ fn unique_key_iter_benchmark(c: &mut Criterion) {
             });
             map.clear();
         }
-        c.bench_function(&format!("unique_key_iter_bench_{}", n), |b|{b.iter(|| {
-            for _ in map.iter_by_field_hashed_unique() {()}
-            for _ in map.iter_by_field_ordered_unique() {()}
+        c.bench_function(&format!("hashed_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
+            let mut a = map.iter_by_field_hashed_unique();
+            for _ in 0..n {
+                a.next();
+            }
         })}); 
     }
 
@@ -355,7 +357,7 @@ fn unique_key_iter_benchmark(c: &mut Criterion) {
     } 
 }
 
-fn non_unique_key_iter_benchmark(c: &mut Criterion) {
+fn hashed_non_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
@@ -367,9 +369,61 @@ fn non_unique_key_iter_benchmark(c: &mut Criterion) {
             });
             map.clear();
         }
-        c.bench_function(&format!("non_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
-            for _ in map.iter_by_field_hashed_non_unique() {()}
-            for _ in map.iter_by_field_ordered_non_unique() {()}
+        c.bench_function(&format!("hashed_non_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
+            let mut a = map.iter_by_field_hashed_non_unique();
+            for _ in 0..n {
+                a.next();
+            }
+        })}); 
+    }
+    
+    for n in BENCH_SIZES {
+        inner(c, *n);
+    } 
+}
+
+fn ordered_unique_key_iter_benchmark(c: &mut Criterion) {
+    fn inner(c: &mut Criterion, n: u32) {
+        let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
+        for i in 0..n {
+            map.insert(TestElementWithOnlyIndexedFields { 
+                field_hashed_unique: TestNonPrimitiveType(i), 
+                field_hashed_non_unique: TestNonPrimitiveType(42), 
+                field_ordered_unique: i, 
+                field_ordered_non_unique: i/5 
+            });
+            map.clear();
+        }
+        c.bench_function(&format!("ordered_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
+            let mut a = map.iter_by_field_ordered_unique();
+            for _ in 0..n {
+                a.next();
+            }
+        })}); 
+    }
+
+    for n in BENCH_SIZES {
+        inner(c, *n);
+    } 
+}
+
+fn ordered_non_unique_key_iter_benchmark(c: &mut Criterion) {
+    fn inner(c: &mut Criterion, n: u32) {
+        let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
+        for i in 0..n {
+            map.insert(TestElementWithOnlyIndexedFields { 
+                field_hashed_unique: TestNonPrimitiveType(i), 
+                field_hashed_non_unique: TestNonPrimitiveType(42), 
+                field_ordered_unique: i, 
+                field_ordered_non_unique: i/5 
+            });
+            map.clear();
+        }
+        c.bench_function(&format!("ordered_non_unique_key_iter_bench_{}", n), |b|{b.iter(|| {
+            let mut a = map.iter_by_field_ordered_non_unique();
+            for _ in 0..n {
+                a.next();
+            }
         })}); 
     }
     
@@ -393,8 +447,10 @@ criterion_group!(
     modify_hashed_non_unique_key_by_ordered_unique_key_benchmark,
     modify_ordered_unique_key_by_ordered_unique_key_benchmark,
     modify_ordered_non_unique_key_by_ordered_unique_key_benchmark,
-    unique_key_iter_benchmark,
-    non_unique_key_iter_benchmark,
+    hashed_unique_key_iter_benchmark,
+    hashed_non_unique_key_iter_benchmark,
+    ordered_unique_key_iter_benchmark,
+    ordered_non_unique_key_iter_benchmark,
 );
 
 criterion_main!(benches);
