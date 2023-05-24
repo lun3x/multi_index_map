@@ -99,7 +99,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         match ordering {
             Ordering::Hashed => quote! {
-                self.#index_name.shrink_to_fit();
+                self.#index_name.shrink_to(self._store.capacity());
             },
             Ordering::Ordered => quote! {}
         }
