@@ -298,7 +298,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                                     refs.push(val.1)
                                 },
                                 _ => {
-                                    panic!("Error getting mutable reference of non-unique field `{}`.", #field_name_string);
+                                    panic!("Error getting mutable reference of non-unique field `{}` in getter.", #field_name_string);
                                 }
                             }
                             last_idx = *idx + 1;
@@ -364,7 +364,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         // TokenStream representing the modify_by_ accessor for this field.
-        // Unavailable for NonUnique fields for now, because the modification logic gets quite complicated.
         /*
             Given a key, update any field of the associated element
             - obtain a mutable reference of the element
@@ -387,7 +386,33 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     Some(elem)
                 }
             },
-            Uniqueness::NonUnique => quote! {},
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #modifier_name(&mut self, key: &#ty, f: impl Fn(&mut #element_name)) -> Vec<&#element_name> {
+                    let idxs = match self.#index_name.get(key) {
+                        Some(container) => container.clone(),
+                        _ => std::collections::BTreeSet::<usize>::new()
+                    };
+                    let mut refs = Vec::with_capacity(idxs.len());
+                    let mut mut_iter = self._store.iter_mut();
+                    let mut last_idx: usize = 0;
+                    for idx in idxs {
+                        match mut_iter.nth(idx - last_idx) {
+                            Some(val) => {
+                                let elem = val.1;
+                                let elem_orig = elem.clone();
+                                f(elem);
+                                #(#modifies)* 
+                                refs.push(&*elem);
+                            },
+                            _ => {
+                                panic!("Error getting mutable reference of non-unique field `{}` in modifier.", #field_name_string);
+                            }
+                        }
+                        last_idx = idx + 1;
+                    }
+                    refs
+                } 
+            },
         };
 
         // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor on the end.
