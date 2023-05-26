@@ -157,11 +157,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                let removed_elem = self.#index_name.remove(&elem_orig.#field_name);
+                let _removed_elem = self.#index_name.remove(&elem_orig.#field_name);
             },
             Uniqueness::NonUnique => quote! {
                 let key_to_remove = &elem_orig.#field_name;
-                if let Some(mut elems) = self.#index_name.get_mut(key_to_remove) {
+                if let Some(elems) = self.#index_name.get_mut(key_to_remove) {
                     if elems.len() > 1 {
                         if !elems.remove(&idx){
                             panic!(#error_msg);
@@ -271,15 +271,18 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         // TokenStream representing the get_mut_by_ accessor for this field.
         let mut_getter = match uniqueness {
             Uniqueness::Unique => quote! {
-                // SAFETY:
-                // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
-                // If the indexed fields need to be changed, the modify() method must be used.
+                /// SAFETY:
+                /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                /// If the indexed fields need to be changed, the modify() method must be used.
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
             },
             Uniqueness::NonUnique => quote! {
-                #field_vis fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
+                /// SAFETY:
+                /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                /// If the indexed fields need to be changed, the modify() method must be used.
+                #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
                         let mut refs = Vec::with_capacity(idxs.len());
                         let mut mut_iter = self._store.iter_mut();
@@ -536,9 +539,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 self._store.iter()
             }
 
-            // SAFETY:
-            // It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
-            // If the indexed fields need to be changed, the modify() method must be used.
+            /// SAFETY:
+            /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+            /// If the indexed fields need to be changed, the modify() method must be used.
             #element_vis unsafe fn iter_mut(&mut self) -> slab::IterMut<#element_name> {
                 self._store.iter_mut()
             }

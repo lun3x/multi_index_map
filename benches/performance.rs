@@ -17,7 +17,7 @@ pub struct TestElementWithOnlyIndexedFields {
     field_ordered_non_unique: u32,
 }
 
-const BENCH_SIZES: &'static[u32] = &[100u32, 1000u32, 10000u32, 100000u32];
+const BENCH_SIZES: &[u32] = &[100u32, 1000u32, 10000u32, 100000u32];
 
 fn insert_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
@@ -196,7 +196,7 @@ fn modify_ordered_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                    e.field_ordered_unique = e.field_ordered_unique + n;
+                    e.field_ordered_unique += n;
                 });
             }
         })});
@@ -221,7 +221,7 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                    e.field_ordered_non_unique = e.field_ordered_non_unique + 1;
+                    e.field_ordered_non_unique += 1;
                 });
             }
         })});
@@ -296,7 +296,7 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_ordered_unique(&i, |e| {
-                    e.field_ordered_unique = e.field_ordered_unique + n;
+                    e.field_ordered_unique += n;
                 });
             }
         })});
@@ -321,7 +321,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
             let mut map_clone = map.clone();
             for i in 0..n {
                 map_clone.modify_by_field_ordered_unique(&i, |e| {
-                    e.field_ordered_non_unique = e.field_ordered_non_unique + 1;
+                    e.field_ordered_non_unique += 1;
                 });
             }
         })});
