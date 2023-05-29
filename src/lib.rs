@@ -204,7 +204,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             Uniqueness::NonUnique => quote! {
                 if elem.#field_name != elem_orig.#field_name {
                     let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect(#error_msg);
-                    idxs.remove(&idx);
+                    if idxs.len() > 1 {
+                        if !(idxs.remove(&idx)) {
+                            panic!(#error_msg);
+                        }
+                    } else {
+                        self.#index_name.remove(&elem_orig.#field_name);
+                    }
                     self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx); 
                 }
             },
