@@ -43,16 +43,23 @@ fn iter_after_modify() {
     map.insert(o3);
     map.insert(o4);
 
-    for o in map.iter_by_timestamp() {
-        eprintln!("iter_by_timestamp: {o:?}")
+    {
+    let mut it = map.iter_by_timestamp();
+    assert_eq!(it.next().unwrap().order_id, 2);
+    assert_eq!(it.next().unwrap().order_id, 3);
+    assert_eq!(it.next().unwrap().order_id, 4);
+    assert_eq!(it.next().unwrap().order_id, 1);
     }
 
     map.modify_by_order_id(&1, |o| {
         o.timestamp = 0;
     });
 
-    eprintln!("===========");
-    for o in map.iter_by_timestamp() {
-        eprintln!("iter_by_timestamp: {o:?}");
+    {
+        let mut it = map.iter_by_timestamp();
+        assert_eq!(it.next().unwrap().order_id, 1);
+        assert_eq!(it.next().unwrap().order_id, 2);
+        assert_eq!(it.next().unwrap().order_id, 3);
+        assert_eq!(it.next().unwrap().order_id, 4);
     }
 }

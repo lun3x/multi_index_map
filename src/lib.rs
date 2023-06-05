@@ -246,7 +246,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
-        let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
 
@@ -391,6 +391,24 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        let iterator_def = match ordering {
+            Ordering::Hashed => quote! {
+                #iter_name {
+                    _store_ref: &self._store,
+                    _iter: self.#index_name.iter(),
+                    _inner_iter: None,
+                }
+            },
+            Ordering::Ordered => quote! {
+                #iter_name {
+                    _store_ref: &self._store,
+                    _iter: self.#index_name.iter(),
+                    _iter_rev: self.#index_name.iter().rev(),
+                    _inner_iter: None,
+                }
+            },
+        };
+
         // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor on the end.
         quote! {
             #getter
@@ -402,11 +420,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             #modifier
 
             #field_vis fn #iter_getter_name(&self) -> #iter_name {
-                #iter_name {
-                    _store_ref: &self._store,
-                    _iter: self.#index_name.iter(),
-                    _inner_iter: None,
-                }
+                #iterator_def
             }
         }
     });
@@ -465,22 +479,68 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
+        let rev_iter_action = match uniqueness {
+            Uniqueness::Unique => quote! {
+                Some(&self._store_ref[*self._iter_rev.next()?.1]) 
+            },
+            Uniqueness::NonUnique => quote! {
+                let inner_back = if let Some(inner_iter) = &mut self._inner_iter {
+                    inner_iter.next_back()
+                } else {
+                    None
+                };
+
+                if let Some(back_index) = inner_back {
+                    Some(&self._store_ref[*back_index])
+                } else {
+                    let hashmap_back = self._iter_rev.next()?;
+                    self._inner_iter = Some(Box::new(hashmap_back.1.iter()));
+                    Some(&self._store_ref[*self._inner_iter.as_mut().unwrap().next_back().expect(#error_msg)])
+                }
+            },
+        };
+
         // TokenStream representing the iterator over each indexed field.
         // We have a different iterator type for each indexed field. Each one wraps the standard Iterator for that lookup table, but adds in a couple of things:
         // First we maintain a reference to the backing store, so we can return references to the elements we are interested in.
         // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to iterate through the container of matching elements for a given index value.
-        quote! {
-            #field_vis struct #iter_name<'a> {
-                _store_ref: &'a slab::Slab<#element_name>,
-                _iter: #iter_type,
-                _inner_iter: Option<Box<dyn std::iter::Iterator<Item=&'a usize> +'a>>,
-            }
+        match ordering {
+            // HashMap does not implement the DoubleEndedIterator trait, 
+            Ordering::Hashed => quote! {
+                #field_vis struct #iter_name<'a> {
+                    _store_ref: &'a slab::Slab<#element_name>,
+                    _iter: #iter_type,
+                    _inner_iter: Option<Box<dyn std::iter::Iterator<Item=&'a usize> +'a>>,
+                }
+    
+                impl<'a> Iterator for #iter_name<'a> {
+                    type Item = &'a #element_name;
+    
+                    fn next(&mut self) -> Option<Self::Item> {
+                        #iter_action
+                    }
+                }
+            },
+            Ordering::Ordered => quote! {
+                #field_vis struct #iter_name<'a> {
+                    _store_ref: &'a slab::Slab<#element_name>,
+                    _iter: #iter_type,
+                    _iter_rev: std::iter::Rev<#iter_type>,
+                    _inner_iter: Option<Box<dyn std::iter::DoubleEndedIterator<Item=&'a usize> +'a>>,
+                }
 
-            impl<'a> Iterator for #iter_name<'a> {
-                type Item = &'a #element_name;
-
-                fn next(&mut self) -> Option<Self::Item> {
-                    #iter_action
+                impl<'a> Iterator for #iter_name<'a> {
+                    type Item = &'a #element_name;
+    
+                    fn next(&mut self) -> Option<Self::Item> {
+                        #iter_action
+                    }
+                }
+    
+                impl<'a> DoubleEndedIterator for #iter_name<'a> {
+                    fn next_back(&mut self) -> Option<Self::Item> {
+                        #rev_iter_action
+                    }
                 }
             }
         }
