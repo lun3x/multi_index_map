@@ -62,7 +62,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
-    // For each indexed field generate a TokenStream representing initializing the lookup table. Used in `with_capacity` initialization
+    // For each indexed field generate a TokenStream representing initializing the lookup table.
+    // Used in `with_capacity` initialization
     // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to `with_capacity(n)`
     let lookup_table_fields_init: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
@@ -82,7 +83,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .collect();
 
     // For each indexed field generate a TokenStream representing reserving capacity in the lookup table. Used in `reserve`
-    // If the Ordered lookup table data structure support `reserve`, it should also call `reserve(additional)`
+    // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
+    // Once this is implemented and stabilized, we will use it here to reserve capacity.
     let lookup_table_fields_reserve: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
@@ -101,7 +103,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // For each indexed field generate a TokenStream representing shrinking the lookup table. Used in `shrink_to_fit`
     // For consistency, HashMaps are shrunk to the capacity of the backing storage
-    // If the Ordered lookup table data structure support `shrink_to`, it should also call `shrink_to(self._store.capacity())`
+    // `BTreeMap` does not support shrinking.
     let lookup_table_fields_shrink: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
@@ -111,7 +113,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             match ordering {
                 Ordering::Hashed => quote! {
-                    self.#index_name.shrink_to(self._store.capacity());
+                    self.#index_name.shrink_to_fit();
                 },
                 Ordering::Ordered => quote! {},
             }
@@ -144,13 +146,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing the removal of an index from that field's lookup table. Used in remover
-    // Run after an element is already removed from the backing storage, the removed element is given as `elem_orig`, the index of the removed element in the backing storage before its removal is given as `idx`
+    // For each indexed field generate a TokenStream representing the removal of an index from that field's lookup table.
+    // Used in remover. Run after an element is already removed from the backing storage.
+    // The removed element is given as `elem_orig`
+    // The index of the removed element in the backing storage before its removal is given as `idx`
     // Remove idx from the lookup table:
-    //      - When the field is unique, check that the index is indeed idx, then delete the corresponding key (elem_orig.#field_name) from the field
-    //      - When the field is non-unique, get a reference to the container that contains all back storage indices under the same key (elem_orig.#field_name),
-    //          + If there are more than one indices in the container, remove idx from it
-    //          + If there are exactly one index in the container, then the index has to be idx, remove the key from the lookup table
+    //   - When the field is unique, check that the index is indeed idx, then delete the corresponding key (elem_orig.#field_name) from the field
+    //   - When the field is non-unique, get a reference to the container that contains all back storage indices under the same key (elem_orig.#field_name),
+    //     + If there are more than one indices in the container, remove idx from it
+    //     + If there are exactly one index in the container, then the index has to be idx, remove the key from the lookup table
     let removes: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
@@ -180,11 +184,16 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     }).collect();
 
-    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table. Used in modifier
-    // Run after an element is already modified in the backing storage. The element before the change is stored in `elem_orig`. The element after change is stored in reference `elem` (inside the backing storage). The index of `elem` in the backing storage is `idx`
+    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table.
+    // Used in modifier. Run after an element is already modified in the backing storage.
+    // The element before the change is stored in `elem_orig`.
+    // The element after change is stored in reference `elem` (inside the backing storage).
+    // The index of `elem` in the backing storage is `idx`
     // For each field, only make changes if elem.#field_name and elem_orig.#field_name are not equal
-    //     - When the field is unique, remove the old key and insert idx under the new key (if new key already exists, panic!)
-    //     - When the field is non-unique, remove idx from the container associated with the old key (if the container is empty after removal, remove the old key), and insert idx to the new key (create a new container if necessary)
+    //   - When the field is unique, remove the old key and insert idx under the new key (if new key already exists, panic!)
+    //   - When the field is non-unique, remove idx from the container associated with the old key
+    //     + if the container is empty after removal, remove the old key, and insert idx to the new key
+    //       (create a new container if necessary)
     let modifies: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
