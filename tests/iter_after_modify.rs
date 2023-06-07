@@ -44,11 +44,11 @@ fn iter_after_modify() {
     map.insert(o4);
 
     {
-    let mut it = map.iter_by_timestamp();
-    assert_eq!(it.next().unwrap().order_id, 2);
-    assert_eq!(it.next().unwrap().order_id, 3);
-    assert_eq!(it.next().unwrap().order_id, 4);
-    assert_eq!(it.next().unwrap().order_id, 1);
+        let mut it = map.iter_by_timestamp();
+        assert_eq!(it.next().unwrap().order_id, 2);
+        assert_eq!(it.next().unwrap().order_id, 3);
+        assert_eq!(it.next().unwrap().order_id, 4);
+        assert_eq!(it.next().unwrap().order_id, 1);
     }
 
     map.modify_by_order_id(&1, |o| {

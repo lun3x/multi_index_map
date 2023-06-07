@@ -31,25 +31,34 @@ fn test_reserve() {
 fn test_shrink() {
     let mut map = MultiIndexTestElementMap::default();
     for i in 0..10 {
-        map.insert(TestElement { field1: i, field2: i, field3: i, field4: i });
+        map.insert(TestElement {
+            field1: i,
+            field2: i,
+            field3: i,
+            field4: i,
+        });
     }
     map.shrink_to_fit();
-    assert_eq!(map.capacity(), 10); 
+    assert_eq!(map.capacity(), 10);
     map.reserve(10);
     assert_eq!(map.capacity(), 20);
     map.shrink_to_fit();
-    assert_eq!(map.capacity(), 10); 
+    assert_eq!(map.capacity(), 10);
 
     map.remove_by_field1(&5);
     map.remove_by_field1(&6);
     map.shrink_to_fit();
-    assert_eq!(map.capacity(), 10); 
+    assert_eq!(map.capacity(), 10);
 
     for i in 11..14 {
-        map.insert(TestElement { field1: i, field2: i, field3: i, field4: i });
-    } 
+        map.insert(TestElement {
+            field1: i,
+            field2: i,
+            field3: i,
+            field4: i,
+        });
+    }
 
     map.shrink_to_fit();
     assert_eq!(map.capacity(), 11);
 }
-
