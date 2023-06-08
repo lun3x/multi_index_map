@@ -9,13 +9,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
 
-    // Extract the struct fields if we are parsing a struct, otherwise throw an error as we do not support Enums or Unions.
+    // Extract the struct fields if we are parsing a struct,
+    // otherwise throw an error as we do not support Enums or Unions.
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
         _ => abort_call_site!("MultiIndexMap only supports structs as elements"),
     };
 
-    // Verify the struct fields are named fields, otherwise throw an error as we do not support Unnamed of Unit structs.
+    // Verify the struct fields are named fields,
+    // otherwise throw an error as we do not support Unnamed of Unit structs.
     let named_fields = match fields {
         syn::Fields::Named(f) => f,
         _ => abort_call_site!(
@@ -23,7 +25,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         ),
     };
 
-    // Filter out all the fields that do not have a multi_index attribute, so we can ignore the non-indexed fields.
+    // Filter out all the fields that do not have a multi_index attribute,
+    // so we can ignore the non-indexed fields.
     let fields_to_index = || {
         named_fields
             .named
@@ -64,7 +67,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // For each indexed field generate a TokenStream representing initializing the lookup table.
     // Used in `with_capacity` initialization
-    // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to `with_capacity(n)`
+    // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
+    //   `with_capacity(n)`
     let lookup_table_fields_init: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
@@ -82,8 +86,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing reserving capacity in the lookup table. Used in `reserve`
-    // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
+    // For each indexed field generate a TokenStream representing reserving capacity in the lookup table.
+    // Used in `reserve`
+    // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation,
+    //   which does nothing.
     // Once this is implemented and stabilized, we will use it here to reserve capacity.
     let lookup_table_fields_reserve: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
@@ -101,7 +107,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing shrinking the lookup table. Used in `shrink_to_fit`
+    // For each indexed field generate a TokenStream representing shrinking the lookup table.
+    // Used in `shrink_to_fit`
     // For consistency, HashMaps are shrunk to the capacity of the backing storage
     // `BTreeMap` does not support shrinking.
     let lookup_table_fields_shrink: Vec<proc_macro2::TokenStream> = fields_to_index()
@@ -120,9 +127,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing inserting the position in the backing storage to that field's lookup table
-    // Unique indexed fields just require a simple insert to the map, whereas non-unique fields require inserting to the container of positions,
-    // creating a new container if necessary.
+    // For each indexed field generate a TokenStream representing inserting the position
+    //   in the backing storage to that field's lookup table
+    // Unique indexed fields just require a simple insert to the map,
+    //   whereas non-unique fields require inserting to the container of positions,
+    //   creating a new container if necessary.
     let inserts: Vec<proc_macro2::TokenStream> = fields_to_index()
         .map(|f| {
             let field_name = f.ident.as_ref().unwrap();
@@ -136,30 +145,45 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 Uniqueness::Unique => quote! {
                     let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
-                        panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
+                        panic!(
+                            "Unable to insert element, uniqueness constraint violated on field '{}'",
+                            #field_name_string
+                        );
                     }
                 },
                 Uniqueness::NonUnique => quote! {
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx);
+                    self.#index_name.entry(elem.#field_name.clone())
+                        .or_insert(std::collections::BTreeSet::new())
+                        .insert(idx);
                 },
             }
         })
         .collect();
 
-    // For each indexed field generate a TokenStream representing the removal of an index from that field's lookup table.
+    // For each indexed field generate a TokenStream
+    //   representing the removal of an index from that field's lookup table.
     // Used in remover. Run after an element is already removed from the backing storage.
     // The removed element is given as `elem_orig`
     // The index of the removed element in the backing storage before its removal is given as `idx`
     // Remove idx from the lookup table:
-    //   - When the field is unique, check that the index is indeed idx, then delete the corresponding key (elem_orig.#field_name) from the field
-    //   - When the field is non-unique, get a reference to the container that contains all back storage indices under the same key (elem_orig.#field_name),
+    //   - When the field is unique, check that the index is indeed idx,
+    //     then delete the corresponding key (elem_orig.#field_name) from the field
+    //   - When the field is non-unique, get a reference to the container that
+    //     contains all back storage indices under the same key (elem_orig.#field_name),
     //     + If there are more than one indices in the container, remove idx from it
-    //     + If there are exactly one index in the container, then the index has to be idx, remove the key from the lookup table
+    //     + If there are exactly one index in the container, then the index has to be idx,
+    //       remove the key from the lookup table
     let removes: Vec<proc_macro2::TokenStream> = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
         let index_name = format_ident!("_{}_index", field_name);
-        let error_msg = format!("Internal invariants broken, unable to find element in index '{field_name_string}' despite being present in another");
+        let error_msg = format!(
+            concat!(
+                "Internal invariants broken, ",
+                "unable to find element in index '{}' despite being present in another"
+            ),
+            field_name_string
+        );
         let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
@@ -184,13 +208,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     }).collect();
 
-    // For each indexed field generate a TokenStream representing the combined remove and insert from that field's lookup table.
+    // For each indexed field generate a TokenStream representing the combined remove and insert from that
+    //   field's lookup table.
     // Used in modifier. Run after an element is already modified in the backing storage.
     // The element before the change is stored in `elem_orig`.
     // The element after change is stored in reference `elem` (inside the backing storage).
     // The index of `elem` in the backing storage is `idx`
     // For each field, only make changes if elem.#field_name and elem_orig.#field_name are not equal
-    //   - When the field is unique, remove the old key and insert idx under the new key (if new key already exists, panic!)
+    //   - When the field is unique, remove the old key and insert idx under the new key
+    //     (if new key already exists, panic!)
     //   - When the field is non-unique, remove idx from the container associated with the old key
     //     + if the container is empty after removal, remove the old key, and insert idx to the new key
     //       (create a new container if necessary)
@@ -198,7 +224,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
         let index_name = format_ident!("_{}_index", field_name);
-        let error_msg = format!("Internal invariants broken, unable to find element in index '{field_name_string}' despite being present in another");
+        let error_msg = format!(
+            concat!(
+                "Internal invariants broken, ",
+                "unable to find element in index '{}' despite being present in another"
+            ),
+            field_name_string
+        );
         let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
             abort_call_site!("Attributes must be in the style #[multi_index(hashed_unique)]")
         });
@@ -209,7 +241,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     let idx = self.#index_name.remove(&elem_orig.#field_name).expect(#error_msg);
                     let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
-                        panic!("Unable to insert element, uniqueness constraint violated on field '{}'", #field_name_string);
+                        panic!(
+                            "Unable to insert element, uniqueness constraint violated on field '{}'",
+                            #field_name_string
+                        );
                     }
                 }
 
@@ -224,7 +259,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                     } else {
                         self.#index_name.remove(&elem_orig.#field_name);
                     }
-                    self.#index_name.entry(elem.#field_name.clone()).or_insert(std::collections::BTreeSet::new()).insert(idx);
+                    self.#index_name.entry(elem.#field_name.clone())
+                        .or_insert(std::collections::BTreeSet::new())
+                        .insert(idx);
                 }
             },
         }
@@ -246,7 +283,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Generate the name of the MultiIndexMap
     let map_name = format_ident!("MultiIndex{}Map", element_name);
 
-    // For each indexed field generate a TokenStream representing all the accessors for the underlying storage via that field's lookup table.
+    // For each indexed field generate a TokenStream representing all the accessors
+    //   for the underlying storage via that field's lookup table.
     let accessors = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
@@ -256,7 +294,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
         let remover_name = format_ident!("remove_by_{}", field_name);
         let modifier_name = format_ident!("modify_by_{}", field_name);
-        let iter_name = format_ident!("{}{}Iter", map_name, field_name.to_string().to_case(convert_case::Case::UpperCamel));
+        let iter_name = format_ident!(
+            "{}{}Iter",
+            map_name,
+            field_name.to_string().to_case(convert_case::Case::UpperCamel)
+        );
         let iter_getter_name = format_ident!("iter_by_{}", field_name);
         let ty = &f.ty;
         let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
@@ -291,7 +333,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         let mut_getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 /// SAFETY:
-                /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                /// It is safe to mutate the non-indexed fields,
+                /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
@@ -299,7 +342,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
             Uniqueness::NonUnique => quote! {
                 /// SAFETY:
-                /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+                /// It is safe to mutate the non-indexed fields,
+                /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
@@ -312,7 +356,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                                     refs.push(val.1)
                                 },
                                 _ => {
-                                    panic!("Error getting mutable reference of non-unique field `{}` in getter.", #field_name_string);
+                                    panic!(
+                                        "Error getting mutable reference of non-unique field `{}` in getter.",
+                                        #field_name_string
+                                    );
                                 }
                             }
                             last_idx = *idx + 1;
@@ -366,7 +413,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         //      - return the modified item(s) as references
         let modifier = match uniqueness {
             Uniqueness::Unique => quote! {
-                #field_vis fn #modifier_name(&mut self, key: &#ty, f: impl FnOnce(&mut #element_name)) -> Option<&#element_name> {
+                #field_vis fn #modifier_name(
+                    &mut self,
+                    key: &#ty,
+                    f: impl FnOnce(&mut #element_name)
+                ) -> Option<&#element_name> {
                     let idx = *self.#index_name.get(key)?;
                     let elem = &mut self._store[idx];
                     let elem_orig = elem.clone();
@@ -376,7 +427,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 }
             },
             Uniqueness::NonUnique => quote! {
-                #field_vis fn #modifier_name(&mut self, key: &#ty, f: impl Fn(&mut #element_name)) -> Vec<&#element_name> {
+                #field_vis fn #modifier_name(
+                    &mut self,
+                    key: &#ty,
+                    f: impl Fn(&mut #element_name)
+                ) -> Vec<&#element_name> {
                     let idxs = match self.#index_name.get(key) {
                         Some(container) => container.clone(),
                         _ => std::collections::BTreeSet::<usize>::new()
@@ -394,7 +449,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                                 refs.push(&*elem);
                             },
                             _ => {
-                                panic!("Error getting mutable reference of non-unique field `{}` in modifier.", #field_name_string);
+                                panic!(
+                                    "Error getting mutable reference of non-unique field `{}` in modifier.",
+                                    #field_name_string
+                                );
                             }
                         }
                         last_idx = idx + 1;
@@ -422,7 +480,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
         };
 
-        // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor on the end.
+        // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
+        //   on the end.
         quote! {
             #getter
 
@@ -438,7 +497,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         }
     });
 
-    // For each indexed field generate a TokenStream representing the Iterator over the backing storage via that field,
+    // For each indexed field generate a TokenStream representing the Iterator over the backing storage
+    //   via that field,
     // such that the elements are accessed in an order defined by the index rather than the backing storage.
     let iterators = fields_to_index().map(|f| {
         let field_name = f.ident.as_ref().unwrap();
@@ -518,9 +578,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         };
 
         // TokenStream representing the iterator over each indexed field.
-        // We have a different iterator type for each indexed field. Each one wraps the standard Iterator for that lookup table, but adds in a couple of things:
-        // First we maintain a reference to the backing store, so we can return references to the elements we are interested in.
-        // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to iterate through the container of matching elements for a given index value.
+        // We have a different iterator type for each indexed field. Each one wraps the standard Iterator for
+        //   that lookup table, but adds in a couple of things:
+        // First we maintain a reference to the backing store, so we can return references to the elements we
+        //   are interested in.
+        // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to
+        //   iterate through the container of matching elements for a given index value.
+        // For ordered indices, we use _iter_rev to store a reversed iterator of the index field
+        // TODO: code looks clumsy, need to refactor
         match ordering {
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
@@ -621,7 +686,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
 
             /// SAFETY:
-            /// It is safe to mutate the non-indexed fields, however mutating any of the indexed fields will break the internal invariants.
+            /// It is safe to mutate the non-indexed fields,
+            /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
             #element_vis unsafe fn iter_mut(&mut self) -> slab::IterMut<#element_name> {
                 self._store.iter_mut()
@@ -638,13 +704,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     proc_macro::TokenStream::from(expanded)
 }
 
-// Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap as the lookup table.
+// Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
+//   as the lookup table.
 enum Ordering {
     Hashed,
     Ordered,
 }
 
-// Represents whether the index is Unique or NonUnique, ie. whether we allow multiple elements with the same value in this index.
+// Represents whether the index is Unique or NonUnique, ie. whether we allow multiple elements with the same
+//   value in this index.
 // All these variants end in Unique, even "NonUnique", remove this warning.
 #[allow(clippy::enum_variant_names)]
 enum Uniqueness {

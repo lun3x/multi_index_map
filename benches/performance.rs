@@ -24,12 +24,12 @@ fn insert_benchmark(c: &mut Criterion) {
         c.bench_function(&format!("insert_bench_{}", n), |b| {
             b.iter(|| {
                 for i in 0..n {
-                    map.insert(TestElementWithOnlyIndexedFields {
+                    black_box(map.insert(black_box(TestElementWithOnlyIndexedFields {
                         field_hashed_unique: TestNonPrimitiveType(i),
                         field_hashed_non_unique: TestNonPrimitiveType(42),
                         field_ordered_unique: i,
                         field_ordered_non_unique: i / 5,
-                    });
+                    })));
                     map.clear();
                 }
             })
@@ -45,18 +45,18 @@ fn delete_by_hashed_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(&format!("delete_hashed_unique_key_bench_{}", n), |b| {
             b.iter(|| {
-                let mut map_clone = map.clone();
+                let mut map_clone = black_box(map.clone());
                 for i in 0..n {
-                    map_clone.remove_by_field_hashed_unique(&TestNonPrimitiveType(i));
+                    black_box(map_clone.remove_by_field_hashed_unique(black_box(&TestNonPrimitiveType(i))));
                 }
             })
         });
@@ -71,18 +71,21 @@ fn delete_by_hashed_non_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(&format!("delete_hashed_non_unique_key_bench_{}", n), |b| {
             b.iter(|| {
-                let mut map_clone = map.clone();
+                let mut map_clone = black_box(map.clone());
                 for i in 0..10 {
-                    map_clone.remove_by_field_hashed_non_unique(&TestNonPrimitiveType(42 + i % 5));
+                    black_box(
+                        map_clone
+                            .remove_by_field_hashed_non_unique(black_box(&TestNonPrimitiveType(42 + i % 5))),
+                    );
                 }
             })
         });
@@ -97,18 +100,18 @@ fn delete_by_ordered_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(&format!("delete_ordered_unique_key_bench_{}", n), |b| {
             b.iter(|| {
-                let mut map_clone = map.clone();
+                let mut map_clone = black_box(map.clone());
                 for i in 0..n {
-                    map_clone.remove_by_field_ordered_unique(&i);
+                    black_box(map_clone.remove_by_field_ordered_unique(black_box(&i)));
                 }
             })
         });
@@ -123,18 +126,18 @@ fn delete_by_ordered_non_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(&format!("delete_ordered_non_unique_key_bench_{}", n), |b| {
             b.iter(|| {
-                let mut map_clone = map.clone();
+                let mut map_clone = black_box(map.clone());
                 for i in 0..n {
-                    map_clone.remove_by_field_ordered_non_unique(&(i / 5));
+                    black_box(map_clone.remove_by_field_ordered_non_unique(black_box(&(i / 5))));
                 }
             })
         });
@@ -149,22 +152,28 @@ fn modify_hashed_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_hashed_unique_key_by_hashed_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                            e.field_hashed_unique = TestNonPrimitiveType(e.field_hashed_unique.0 + n);
-                        });
+                        black_box(map_clone.modify_by_field_hashed_unique(
+                            black_box(&TestNonPrimitiveType(i)),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(
+                                    e.field_hashed_unique =
+                                        black_box(TestNonPrimitiveType(e.field_hashed_unique.0 + n)),
+                                );
+                            },
+                        ));
                     }
                 })
             },
@@ -180,22 +189,28 @@ fn modify_hashed_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_hashed_non_unique_key_by_hashed_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                            e.field_hashed_non_unique = TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1);
-                        });
+                        black_box(map_clone.modify_by_field_hashed_unique(
+                            black_box(&TestNonPrimitiveType(i)),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(
+                                    e.field_hashed_non_unique =
+                                        black_box(TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1)),
+                                );
+                            },
+                        ));
                     }
                 })
             },
@@ -211,22 +226,25 @@ fn modify_ordered_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_ordered_unique_key_by_hashed_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                            e.field_ordered_unique += n;
-                        });
+                        black_box(map_clone.modify_by_field_hashed_unique(
+                            black_box(&TestNonPrimitiveType(i)),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(e.field_ordered_unique += black_box(n));
+                            },
+                        ));
                     }
                 })
             },
@@ -242,22 +260,25 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_ordered_non_unique_key_by_hashed_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_hashed_unique(&TestNonPrimitiveType(i), |e| {
-                            e.field_ordered_non_unique += 1;
-                        });
+                        black_box(map_clone.modify_by_field_hashed_unique(
+                            black_box(&TestNonPrimitiveType(i)),
+                            black_box(|e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(e.field_ordered_non_unique += black_box(1));
+                            }),
+                        ));
                     }
                 })
             },
@@ -273,22 +294,28 @@ fn modify_hashed_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_hashed_unique_key_by_ordered_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_ordered_unique(&i, |e| {
-                            e.field_hashed_unique = TestNonPrimitiveType(e.field_hashed_unique.0 + n);
-                        });
+                        black_box(map_clone.modify_by_field_ordered_unique(
+                            black_box(&i),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(
+                                    e.field_hashed_unique =
+                                        black_box(TestNonPrimitiveType(e.field_hashed_unique.0 + n)),
+                                );
+                            },
+                        ));
                     }
                 })
             },
@@ -304,22 +331,28 @@ fn modify_hashed_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterio
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_hashed_non_unique_key_by_ordered_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_ordered_unique(&i, |e| {
-                            e.field_hashed_non_unique = TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1);
-                        });
+                        black_box(map_clone.modify_by_field_ordered_unique(
+                            black_box(&i),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(
+                                    e.field_hashed_non_unique =
+                                        black_box(TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1)),
+                                );
+                            },
+                        ));
                     }
                 })
             },
@@ -335,22 +368,25 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_ordered_unique_key_by_ordered_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_ordered_unique(&i, |e| {
-                            e.field_ordered_unique += n;
-                        });
+                        black_box(map_clone.modify_by_field_ordered_unique(
+                            black_box(&i),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(e.field_ordered_unique += black_box(n));
+                            },
+                        ));
                     }
                 })
             },
@@ -366,22 +402,25 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42 + i % 5),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
         }
         c.bench_function(
             &format!("modify_ordered_non_unique_key_by_ordered_unique_key_bench_{}", n),
             |b| {
                 b.iter(|| {
-                    let mut map_clone = map.clone();
+                    let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        map_clone.modify_by_field_ordered_unique(&i, |e| {
-                            e.field_ordered_non_unique += 1;
-                        });
+                        black_box(map_clone.modify_by_field_ordered_unique(
+                            black_box(&i),
+                            |e: &mut TestElementWithOnlyIndexedFields| {
+                                black_box(e.field_ordered_non_unique += black_box(1));
+                            },
+                        ));
                     }
                 })
             },
@@ -397,19 +436,19 @@ fn hashed_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
             map.clear();
         }
         c.bench_function(&format!("hashed_unique_key_iter_bench_{}", n), |b| {
             b.iter(|| {
-                let mut a = map.iter_by_field_hashed_unique();
+                let mut a = black_box(map.iter_by_field_hashed_unique());
                 for _ in 0..n {
-                    a.next();
+                    black_box(a.next());
                 }
             })
         });
@@ -424,19 +463,19 @@ fn hashed_non_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
             map.clear();
         }
         c.bench_function(&format!("hashed_non_unique_key_iter_bench_{}", n), |b| {
             b.iter(|| {
-                let mut a = map.iter_by_field_hashed_non_unique();
+                let mut a = black_box(map.iter_by_field_hashed_non_unique());
                 for _ in 0..n {
-                    a.next();
+                    black_box(a.next());
                 }
             })
         });
@@ -451,19 +490,19 @@ fn ordered_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
             map.clear();
         }
         c.bench_function(&format!("ordered_unique_key_iter_bench_{}", n), |b| {
             b.iter(|| {
-                let mut a = map.iter_by_field_ordered_unique();
+                let mut a = black_box(map.iter_by_field_ordered_unique());
                 for _ in 0..n {
-                    a.next();
+                    black_box(a.next());
                 }
             })
         });
@@ -478,19 +517,19 @@ fn ordered_non_unique_key_iter_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
         for i in 0..n {
-            map.insert(TestElementWithOnlyIndexedFields {
+            map.insert(black_box(TestElementWithOnlyIndexedFields {
                 field_hashed_unique: TestNonPrimitiveType(i),
                 field_hashed_non_unique: TestNonPrimitiveType(42),
                 field_ordered_unique: i,
                 field_ordered_non_unique: i / 5,
-            });
+            }));
             map.clear();
         }
         c.bench_function(&format!("ordered_non_unique_key_iter_bench_{}", n), |b| {
             b.iter(|| {
-                let mut a = map.iter_by_field_ordered_non_unique();
+                let mut a = black_box(map.iter_by_field_ordered_non_unique());
                 for _ in 0..n {
-                    a.next();
+                    black_box(a.next());
                 }
             })
         });
