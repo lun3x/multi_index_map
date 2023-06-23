@@ -38,7 +38,7 @@ fn iter_after_modify() {
 
     let mut map = MultiIndexOrderMap::default();
 
-    map.insert(o1.clone());
+    map.insert(o1);
     map.insert(o2);
     map.insert(o3);
     map.insert(o4);

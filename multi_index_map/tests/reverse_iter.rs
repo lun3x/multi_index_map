@@ -17,7 +17,10 @@ fn test_non_unique_reverse_iter() {
         });
     }
     for i in 3..6 {
-        s.insert(TestElement { field1: 0, field2: i });
+        s.insert(TestElement {
+            field1: 0,
+            field2: i,
+        });
     }
 
     let mut prev = 6;
