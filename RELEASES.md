@@ -1,4 +1,15 @@
-Version 0.5.0 (2024-04-24)
+Version 0.6.0 (2023-06-23)
+==========================
+
+- Merge @wyjin PR to implement the following changes:
+    - add `modify_by_` and `get_mut_by_` for non-unique indexes
+    - use BTreeSet to store equivalent elements in a non-unique index to improve insert/remove/modify performance
+    - add capacity-adjustment methods `shrink_to_fit`, `reserve`, and `with_capacity`
+    - bug fix when modifying non_unique indexes that caused only a single element to be modified
+    - add benchmarks
+- Remove requirement for slab and rustc_hash in dependee's Cargo.toml by restucturing package, splitting it into multi_index_map_derive and multi_index_map
+
+Version 0.5.0 (2023-04-24)
 ==========================
 
 - Set MultiIndexMap to same visibility as provided Element. Set each field's relevant methods to the visibility of that field. This allows finer-grained control of method visibility/privacy.
