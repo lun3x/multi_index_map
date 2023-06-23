@@ -47,7 +47,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         match uniqueness {
             Uniqueness::Unique => match ordering {
                 Ordering::Hashed => quote! {
-                    #index_name: ::rustc_hash::FxHashMap<#ty, usize>,
+                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>,
                 },
                 Ordering::Ordered => quote! {
                     #index_name: ::std::collections::BTreeMap<#ty, usize>,
@@ -55,7 +55,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => quote! {
-                    #index_name: ::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
+                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
                 },
                 Ordering::Ordered => quote! {
                     #index_name: ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>,
@@ -76,7 +76,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             });
             match ordering {
                 Ordering::Hashed => quote! {
-                    #index_name: ::rustc_hash::FxHashMap::default(),
+                    #index_name: ::multi_index_map::rustc_hash::FxHashMap::default(),
                 },
                 Ordering::Ordered => quote! {
                     #index_name: ::std::collections::BTreeMap::new(),
@@ -591,7 +591,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
                 #field_vis struct #iter_name<'a> {
-                    _store_ref: &'a ::slab::Slab<#element_name>,
+                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name>,
                     _iter: #iter_type,
                     _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'a usize> +'a>>,
                 }
@@ -605,7 +605,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             },
             Ordering::Ordered => quote! {
                 #field_vis struct #iter_name<'a> {
-                    _store_ref: &'a ::slab::Slab<#element_name>,
+                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name>,
                     _iter: #iter_type,
                     _iter_rev: ::std::iter::Rev<#iter_type>,
                     _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'a usize> +'a>>,
@@ -633,14 +633,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let expanded = quote! {
         #[derive(Default, Clone)]
         #element_vis struct #map_name {
-            _store: ::slab::Slab<#element_name>,
+            _store: ::multi_index_map::slab::Slab<#element_name>,
             #(#lookup_table_fields)*
         }
 
         impl #map_name {
             #element_vis fn with_capacity(n: usize) -> #map_name {
                 #map_name {
-                    _store: ::slab::Slab::with_capacity(n),
+                    _store: ::multi_index_map::slab::Slab::with_capacity(n),
                     #(#lookup_table_fields_init)*
                 }
             }
@@ -682,7 +682,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             }
 
             // Allow iteration directly over the backing storage
-            #element_vis fn iter(&self) -> ::slab::Iter<#element_name> {
+            #element_vis fn iter(&self) -> ::multi_index_map::slab::Iter<#element_name> {
                 self._store.iter()
             }
 
@@ -690,7 +690,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
             /// It is safe to mutate the non-indexed fields,
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis unsafe fn iter_mut(&mut self) -> ::slab::IterMut<#element_name> {
+            #element_vis unsafe fn iter_mut(&mut self) -> ::multi_index_map::slab::IterMut<#element_name> {
                 self._store.iter_mut()
             }
 

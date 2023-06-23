@@ -51,7 +51,10 @@ fn main() {
     }
 
     let o1_ref = map.get_by_order_id(&1).unwrap();
-    println!("Got {}'s order by id {}", o1_ref.trader_name, o1_ref.order_id);
+    println!(
+        "Got {}'s order by id {}",
+        o1_ref.trader_name, o1_ref.order_id
+    );
 
     // Set mutable so we can mutate the map.
     let mut map = map;
@@ -67,11 +70,17 @@ fn main() {
             o.trader_name = "Tom".to_string();
         })
         .unwrap();
-    println!("Modified {}'s order by id, to {:?}", o1_ref.trader_name, o1_ref);
+    println!(
+        "Modified {}'s order by id, to {:?}",
+        o1_ref.trader_name, o1_ref
+    );
 
     let o1_mut_ref = unsafe { map.get_mut_by_order_id(&7).unwrap() };
     o1_mut_ref.note = "TestNote".to_string();
-    println!("Changed note of order {o1_mut_ref:?}, to {:?}", o1_mut_ref.note,);
+    println!(
+        "Changed note of order {o1_mut_ref:?}, to {:?}",
+        o1_mut_ref.note,
+    );
 
     let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
     assert_eq!(toms_orders.len(), 2);
@@ -86,5 +95,8 @@ fn main() {
 
     map.insert(o3);
     let o3 = map.remove_by_timestamp(&33).unwrap();
-    println!("Removed {}'s order by timestamp {}", o3.trader_name, o3.timestamp);
+    println!(
+        "Removed {}'s order by timestamp {}",
+        o3.trader_name, o3.timestamp
+    );
 }
