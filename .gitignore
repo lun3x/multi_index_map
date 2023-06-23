@@ -7,3 +7,9 @@
 
 #/target
 /Cargo.lock
+
+#benchmark output
+benches/logs/*
+
+.vscode/*
+.DS_Store

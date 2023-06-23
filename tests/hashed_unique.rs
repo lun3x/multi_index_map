@@ -130,9 +130,7 @@ fn test_modify_violate_uniqueness() {
     map.insert(elem2);
 
     let res = std::panic::catch_unwind(move || {
-        map.modify_by_field1(&TestNonPrimitiveType(43), |e| {
-            e.field1 = TestNonPrimitiveType(42)
-        });
+        map.modify_by_field1(&TestNonPrimitiveType(43), |e| e.field1 = TestNonPrimitiveType(42));
     });
 
     res.expect_err("Expected to violate uniqueness constraint");
