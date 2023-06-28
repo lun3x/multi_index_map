@@ -26,7 +26,7 @@ Current implementation supports:
 ## Non-Unique Indexes
 * Hashed index retrievals are still constant-time with the total number of elements, but linear-time with the number of matching elements. (FxHashMap + (Slab * num_matches)).
 * Sorted indexes retrievals are still logarithmic-time with total number of elements, but linear-time with the number of matching elements. (BTreeMap + (Slab * num_matches)).
-* Iteration within an equal range of a non-unique index is fast, as the matching elements are stored contiguously in memory. Otherwise iteration is the same as unique indexes.
+* Each equal range of any non-unique index is stored as a BTreeSet, which we must iterate through the length of when retrieving all matching elements, and also when iterating over the whole index.
 
 # How to use
 
@@ -120,7 +120,7 @@ struct MultiIndexOrderMap {
     _store: slab::Slab<Order>,
     _order_id_index: rustc_hash::FxHashMap<u32, usize>,
     _timestamp_index: std::collections::BTreeMap<u64, usize>,
-    _trader_name_index: rustc_hash::FxHashMap<String, Vec<usize>>,
+    _trader_name_index: rustc_hash::FxHashMap<String, BTreeSet<usize>>,
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {
@@ -152,6 +152,7 @@ impl MultiIndexOrderMap {
     
     fn modify_by_order_id(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    fn modify_by_trader_name(&mut self, f: impl Fn(&mut Order)) -> Vec<&Order>;
     
     fn remove_by_order_id(&mut self) -> Option<Order>;
     fn remove_by_timestamp(&mut self) -> Option<Order>;
