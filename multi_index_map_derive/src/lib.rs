@@ -29,7 +29,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // so we can ignore the non-indexed fields.
     let fields_to_index = || {
         named_fields.named.iter().filter(|f| {
-            f.attrs.first().is_some() && f.attrs.first().unwrap().path.is_ident("multi_index")
+            f.attrs.iter().any(|attr|{attr.path.is_ident("multi_index")})
         })
     };
 
@@ -723,27 +723,30 @@ enum Uniqueness {
 
 // Get the Ordering and Uniqueness for a given field attribute.
 fn get_index_kind(f: &syn::Field) -> Option<(Ordering, Uniqueness)> {
-    let meta_list = match f.attrs.first()?.parse_meta() {
-        Ok(syn::Meta::List(l)) => l,
-        _ => return None,
-    };
+    for attr in f.attrs.iter() {
+        if attr.path.is_ident("multi_index") {
+            let meta_list = match attr.parse_meta() {
+                Ok(syn::Meta::List(l)) => l,
+                _ => return None,
+            };
+            let nested = meta_list.nested.first()?;
+            let nested_path = match nested {
+                syn::NestedMeta::Meta(syn::Meta::Path(p)) => p,
+                _ => return None,
+            };
 
-    let nested = meta_list.nested.first()?;
-
-    let nested_path = match nested {
-        syn::NestedMeta::Meta(syn::Meta::Path(p)) => p,
-        _ => return None,
-    };
-
-    if nested_path.is_ident("hashed_unique") {
-        Some((Ordering::Hashed, Uniqueness::Unique))
-    } else if nested_path.is_ident("ordered_unique") {
-        Some((Ordering::Ordered, Uniqueness::Unique))
-    } else if nested_path.is_ident("hashed_non_unique") {
-        Some((Ordering::Hashed, Uniqueness::NonUnique))
-    } else if nested_path.is_ident("ordered_non_unique") {
-        Some((Ordering::Ordered, Uniqueness::NonUnique))
-    } else {
-        None
+            if nested_path.is_ident("hashed_unique") {
+                return Some((Ordering::Hashed, Uniqueness::Unique));
+            } else if nested_path.is_ident("ordered_unique") {
+                return Some((Ordering::Ordered, Uniqueness::Unique));
+            } else if nested_path.is_ident("hashed_non_unique") {
+                return Some((Ordering::Hashed, Uniqueness::NonUnique));
+            } else if nested_path.is_ident("ordered_non_unique") {
+                return Some((Ordering::Ordered, Uniqueness::NonUnique));
+            } else {
+                return None;
+            }
+        }
     }
+    None
 }

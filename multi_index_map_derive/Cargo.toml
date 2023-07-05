@@ -15,7 +15,7 @@ readme = "README.md"
 
 [dependencies]
 # Library for parsing rust tokens, used by most proc macro crates
-syn = { version = "1.0", features = ["full"] }
+syn = { version = "1.0", features = ["full", "extra-traits"] }
 
 # Library for parsing syntax trees into rust tokens, used by most proc macro crates
 quote = { version = "1.0" }
