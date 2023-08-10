@@ -13,7 +13,9 @@ fn generate_lookup_tables(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> 
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
 
-        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
+        let (ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
+            abort_call_site!(MISSING_ATTRIBUTE)
+        });
 
         match uniqueness {
             Uniqueness::Unique => match ordering {
