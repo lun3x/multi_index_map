@@ -1,3 +1,10 @@
+Version 0.6.1 (2023-08-10)
+==========================
+
+- Merge @wyjin PR to implement the following changes:
+    - fix issue #27 to support other Derive attributes in any order
+- Refactor codebase for a large clean up
+
 Version 0.6.0 (2023-06-23)
 ==========================
 
