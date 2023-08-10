@@ -271,14 +271,14 @@ pub(crate) fn generate_clears(fields: &[&Field]) -> Vec<::proc_macro2::TokenStre
 
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
-pub(crate) fn generate_accessors(
-    fields: &[&Field],
-    map_name: &proc_macro2::Ident,
-    element_name: &proc_macro2::Ident,
-    removes: &[proc_macro2::TokenStream],
-    modifies: &[proc_macro2::TokenStream],
-) -> Vec<proc_macro2::TokenStream> {
-    fields.iter().map(|f| {
+pub(crate) fn generate_accessors<'a>(
+    fields: &'a [&Field],
+    map_name: &'a proc_macro2::Ident,
+    element_name: &'a proc_macro2::Ident,
+    removes: &'a [proc_macro2::TokenStream],
+    modifies: &'a [proc_macro2::TokenStream],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+    fields.iter().map(move |f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
@@ -488,7 +488,7 @@ pub(crate) fn generate_accessors(
                 #iterator_def
             }
         }
-    }).collect()
+    })
 }
 
 // For each indexed field generate a TokenStream representing the Iterator over the backing storage
@@ -633,7 +633,7 @@ pub(crate) fn generate_expanded(
     element_name: &proc_macro2::Ident,
     element_vis: &Visibility,
     inserts: &[proc_macro2::TokenStream],
-    accessors: &[proc_macro2::TokenStream],
+    accessors: impl Iterator<Item = proc_macro2::TokenStream>,
     iterators: &[proc_macro2::TokenStream],
     clears: &[proc_macro2::TokenStream],
     lookup_table_fields: &[proc_macro2::TokenStream],

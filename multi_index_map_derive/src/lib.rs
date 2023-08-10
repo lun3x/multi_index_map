@@ -72,7 +72,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         element_name,
         &element_vis,
         &inserts,
-        &accessors,
+        accessors,
         &iterators,
         &clears,
         &lookup_table_fields,
