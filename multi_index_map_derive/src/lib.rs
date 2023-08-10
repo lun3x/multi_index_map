@@ -71,14 +71,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &map_name,
         element_name,
         &element_vis,
-        &inserts,
+        inserts,
         accessors,
-        &iterators,
-        &clears,
-        &lookup_table_fields,
-        &lookup_table_fields_init,
-        &lookup_table_fields_shrink,
-        &lookup_table_fields_reserve,
+        iterators,
+        clears,
+        lookup_table_fields,
+        lookup_table_fields_init,
+        lookup_table_fields_shrink,
+        lookup_table_fields_reserve,
     );
 
     // Hand the output tokens back to the compiler.

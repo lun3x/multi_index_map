@@ -10,7 +10,9 @@ const MISSING_ATTRIBUTE: &str = "Missing #[multi_index(...)] attribute";
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
-pub(crate) fn generate_lookup_tables(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
+pub(crate) fn generate_lookup_tables<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
     fields.iter().map(|f| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
@@ -37,74 +39,71 @@ pub(crate) fn generate_lookup_tables(fields: &[&Field]) -> Vec<::proc_macro2::To
                 },
             },
         }
-    }).collect()
+    })
 }
 
 // For each indexed field generate a TokenStream representing initializing the lookup table.
 // Used in `with_capacity` initialization
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
 //   `with_capacity(n)`
-pub(crate) fn generate_lookup_table_init(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
-    fields
-        .iter()
-        .map(|f| {
-            let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-            let (ordering, _uniqueness) =
-                get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
-            match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: ::multi_index_map::rustc_hash::FxHashMap::default(),
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: ::std::collections::BTreeMap::new(),
-                },
-            }
-        })
-        .collect()
+pub(crate) fn generate_lookup_table_init<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+    fields.iter().map(|f| {
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, _uniqueness) =
+            get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
+        match ordering {
+            Ordering::Hashed => quote! {
+                #index_name: ::multi_index_map::rustc_hash::FxHashMap::default(),
+            },
+            Ordering::Ordered => quote! {
+                #index_name: ::std::collections::BTreeMap::new(),
+            },
+        }
+    })
 }
 
 // For each indexed field generate a TokenStream representing reserving capacity in the lookup table.
 // Used in `reserve`
 // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
 // Once this is implemented and stabilized, we will use it here to reserve capacity.
-pub(crate) fn generate_lookup_table_reserve(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
-    fields
-        .iter()
-        .map(|f| {
-            let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-            let (ordering, _uniqueness) =
-                get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
+pub(crate) fn generate_lookup_table_reserve<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+    fields.iter().map(|f| {
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, _uniqueness) =
+            get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
 
-            match ordering {
-                Ordering::Hashed => quote! {
-                    self.#index_name.reserve(additional);
-                },
-                Ordering::Ordered => quote! {},
-            }
-        })
-        .collect()
+        match ordering {
+            Ordering::Hashed => quote! {
+                self.#index_name.reserve(additional);
+            },
+            Ordering::Ordered => quote! {},
+        }
+    })
 }
 
 // For each indexed field generate a TokenStream representing shrinking the lookup table.
 // Used in `shrink_to_fit`
 // For consistency, HashMaps are shrunk to the capacity of the backing storage
 // `BTreeMap` does not support shrinking.
-pub(crate) fn generate_lookup_table_shrink(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
-    fields
-        .iter()
-        .map(|f| {
-            let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
-            let (ordering, _uniqueness) =
-                get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
+pub(crate) fn generate_lookup_table_shrink<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+    fields.iter().map(|f| {
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let (ordering, _uniqueness) =
+            get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
 
-            match ordering {
-                Ordering::Hashed => quote! {
-                    self.#index_name.shrink_to_fit();
-                },
-                Ordering::Ordered => quote! {},
-            }
-        })
-        .collect()
+        match ordering {
+            Ordering::Hashed => quote! {
+                self.#index_name.shrink_to_fit();
+            },
+            Ordering::Ordered => quote! {},
+        }
+    })
 }
 
 // For each indexed field generate a TokenStream representing inserting the position
@@ -112,34 +111,33 @@ pub(crate) fn generate_lookup_table_shrink(fields: &[&Field]) -> Vec<::proc_macr
 // Unique indexed fields just require a simple insert to the map,
 //   whereas non-unique fields require inserting to the container of positions,
 //   creating a new container if necessary.
-pub(crate) fn generate_inserts(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
-    fields.iter()
-        .map(|f| {
-            let field_name = f.ident.as_ref().unwrap();
-            let field_name_string = field_name.to_string();
-            let index_name = format_ident!("_{}_index", field_name);
-            let (_ordering, uniqueness) = get_index_kind(f).unwrap_or_else(|| {
-                abort_call_site!(MISSING_ATTRIBUTE)
-            });
+pub(crate) fn generate_inserts<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+    fields.iter().map(|f| {
+        let field_name = f.ident.as_ref().unwrap();
+        let field_name_string = field_name.to_string();
+        let index_name = format_ident!("_{}_index", field_name);
+        let (_ordering, uniqueness) =
+            get_index_kind(f).unwrap_or_else(|| abort_call_site!(MISSING_ATTRIBUTE));
 
-            match uniqueness {
-                Uniqueness::Unique => quote! {
-                    let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
-                    if orig_elem_idx.is_some() {
-                        panic!(
-                            "Unable to insert element, uniqueness constraint violated on field '{}'",
-                            #field_name_string
-                        );
-                    }
-                },
-                Uniqueness::NonUnique => quote! {
-                    self.#index_name.entry(elem.#field_name.clone())
-                        .or_insert(::std::collections::BTreeSet::new())
-                        .insert(idx);
-                },
-            }
-        })
-        .collect()
+        match uniqueness {
+            Uniqueness::Unique => quote! {
+                let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
+                if orig_elem_idx.is_some() {
+                    panic!(
+                        "Unable to insert element, uniqueness constraint violated on field '{}'",
+                        #field_name_string
+                    );
+                }
+            },
+            Uniqueness::NonUnique => quote! {
+                self.#index_name.entry(elem.#field_name.clone())
+                    .or_insert(::std::collections::BTreeSet::new())
+                    .insert(idx);
+            },
+        }
+    })
 }
 
 // For each indexed field generate a TokenStream
@@ -255,18 +253,17 @@ pub(crate) fn generate_modifies(fields: &[&Field]) -> Vec<::proc_macro2::TokenSt
     }).collect()
 }
 
-pub(crate) fn generate_clears(fields: &[&Field]) -> Vec<::proc_macro2::TokenStream> {
-    fields
-        .iter()
-        .map(|f| {
-            let field_name = f.ident.as_ref().unwrap();
-            let index_name = format_ident!("_{}_index", field_name);
+pub(crate) fn generate_clears<'a>(
+    fields: &'a [&Field],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+    fields.iter().map(|f| {
+        let field_name = f.ident.as_ref().unwrap();
+        let index_name = format_ident!("_{}_index", field_name);
 
-            quote! {
-                self.#index_name.clear();
-            }
-        })
-        .collect()
+        quote! {
+            self.#index_name.clear();
+        }
+    })
 }
 
 // For each indexed field generate a TokenStream representing all the accessors
@@ -494,12 +491,12 @@ pub(crate) fn generate_accessors<'a>(
 // For each indexed field generate a TokenStream representing the Iterator over the backing storage
 //   via that field,
 // such that the elements are accessed in an order defined by the index rather than the backing storage.
-pub(crate) fn generate_iterators(
-    fields: &[&Field],
-    map_name: &proc_macro2::Ident,
-    element_name: &proc_macro2::Ident,
-) -> Vec<proc_macro2::TokenStream> {
-    fields.iter().map(|f| {
+pub(crate) fn generate_iterators<'a>(
+    fields: &'a [&Field],
+    map_name: &'a proc_macro2::Ident,
+    element_name: &'a proc_macro2::Ident,
+) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+    fields.iter().map(move |f| {
         let field_name = f.ident.as_ref().unwrap();
         let field_vis = &f.vis;
         let field_name_string = field_name.to_string();
@@ -623,7 +620,7 @@ pub(crate) fn generate_iterators(
                 }
             },
         }
-    }).collect()
+    })
 }
 
 // Build the final output using quasi-quoting
@@ -632,14 +629,14 @@ pub(crate) fn generate_expanded(
     map_name: &proc_macro2::Ident,
     element_name: &proc_macro2::Ident,
     element_vis: &Visibility,
-    inserts: &[proc_macro2::TokenStream],
+    inserts: impl Iterator<Item = proc_macro2::TokenStream>,
     accessors: impl Iterator<Item = proc_macro2::TokenStream>,
-    iterators: &[proc_macro2::TokenStream],
-    clears: &[proc_macro2::TokenStream],
-    lookup_table_fields: &[proc_macro2::TokenStream],
-    lookup_table_fields_init: &[proc_macro2::TokenStream],
-    lookup_table_fields_shrink: &[proc_macro2::TokenStream],
-    lookup_table_fields_reserve: &[proc_macro2::TokenStream],
+    iterators: impl Iterator<Item = proc_macro2::TokenStream>,
+    clears: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     quote! {
         #[derive(Default, Clone)]
