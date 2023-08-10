@@ -28,9 +28,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Filter out all the fields that do not have a multi_index attribute,
     // so we can ignore the non-indexed fields.
     let fields_to_index = || {
-        named_fields.named.iter().filter(|f| {
-            f.attrs.iter().any(|attr|{attr.path.is_ident("multi_index")})
-        })
+        named_fields
+            .named
+            .iter()
+            .filter(|f| f.attrs.iter().any(|attr| attr.path.is_ident("multi_index")))
     };
 
     // For each indexed field generate a TokenStream representing the lookup table for that field
