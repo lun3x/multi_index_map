@@ -581,7 +581,6 @@ pub(crate) fn generate_iterators<'a>(
         // Second we maintain an optional inner_iter, only used for non-unique indexes. This is used to
         //   iterate through the container of matching elements for a given index value.
         // For ordered indices, we use _iter_rev to store a reversed iterator of the index field
-        // TODO: code looks clumsy, need to refactor
         match ordering {
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
