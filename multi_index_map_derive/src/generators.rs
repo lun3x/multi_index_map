@@ -644,6 +644,16 @@ pub(crate) fn generate_expanded(
             #(#lookup_table_fields)*
         }
 
+        #[allow(trivial_bounds)]
+        impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct("FFF")
+                    .field("_store", &self._store)
+                    // #(#lookup_table_fields_debug)*
+                    .finish()
+            }
+        }
+
         impl #map_name {
             #element_vis fn with_capacity(n: usize) -> #map_name {
                 #map_name {
