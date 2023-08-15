@@ -1,3 +1,10 @@
+Version 0.6.2 (2023-08-15)
+==========================
+
+- Reduce work done at compile time by only looking up ordering and uniqueness once per field.
+- Improve error messages, so all invalid attributes will be highlighted.
+- Use version 2 resolver in Cargo.toml
+
 Version 0.6.1 (2023-08-10)
 ==========================
 
