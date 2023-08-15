@@ -812,6 +812,22 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
+    let debug_impl = if cfg!(feature = "experimental") {
+        quote! {
+            #[allow(trivial_bounds)]
+            impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    f.debug_struct(stringify!(#map_name))
+                        .field("_store", &self._store)
+                        // #(#lookup_table_fields_debug)*
+                        .finish()
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         #[derive(Default)]
         #element_vis struct #map_name {
@@ -819,15 +835,7 @@ pub(crate) fn generate_expanded(
             #(#lookup_table_fields)*
         }
 
-        #[allow(trivial_bounds)]
-        impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                f.debug_struct("FFF")
-                    .field("_store", &self._store)
-                    // #(#lookup_table_fields_debug)*
-                    .finish()
-            }
-        }
+        #debug_impl
 
         impl #map_name {
             #element_vis fn with_capacity(n: usize) -> #map_name {

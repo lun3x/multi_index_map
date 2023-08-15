@@ -1,5 +1,3 @@
-#![feature(trivial_bounds)]
-
 use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
