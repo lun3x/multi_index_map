@@ -1,4 +1,3 @@
 [workspace]
-members = [
-   "multi_index_map/", "multi_index_map_derive/", 
-]
+members = ["multi_index_map/", "multi_index_map_derive/"]
+resolver = "2"
