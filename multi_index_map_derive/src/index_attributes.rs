@@ -1,4 +1,6 @@
 use ::syn::Field;
+use proc_macro_error::emit_error;
+use syn::spanned::Spanned;
 
 // Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
 //   as the lookup table.
@@ -39,6 +41,7 @@ pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
             } else if nested_path.is_ident("ordered_non_unique") {
                 return Some((Ordering::Ordered, Uniqueness::NonUnique));
             } else {
+                emit_error!(nested_path.span(), "Invalid multi_index attribute, should be one of [hashed_unique, ordered_unique, hashed_non_unique, ordered_non_unique]");
                 return None;
             }
         }
