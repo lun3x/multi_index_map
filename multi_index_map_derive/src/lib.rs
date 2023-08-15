@@ -32,7 +32,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let fields_to_index = named_fields
         .named
         .iter()
-        .filter(|f| f.attrs.iter().any(|attr| attr.path.is_ident("multi_index")))
+        .filter_map(|f| {
+            let (ordering, uniqueness) = index_attributes::get_index_kind(f)?;
+            Some((f, ordering, uniqueness))
+        })
         .collect::<Vec<_>>();
 
     let lookup_table_fields = generators::generate_lookup_tables(&fields_to_index);
