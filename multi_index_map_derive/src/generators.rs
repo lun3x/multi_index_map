@@ -4,8 +4,6 @@ use ::syn::{Field, Visibility};
 
 use crate::index_attributes::{Ordering, Uniqueness};
 
-// const MISSING_ATTRIBUTE: &str = "Missing #[multi_index(...)] attribute";
-
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
