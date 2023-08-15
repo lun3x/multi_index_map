@@ -29,3 +29,6 @@ criterion = "0.5.0"
 [[bench]]
 name = "performance"
 harness = false
+
+[features]
+experimental = ["multi_index_map_derive/experimental"]
