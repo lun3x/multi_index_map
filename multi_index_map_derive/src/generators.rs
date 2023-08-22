@@ -116,6 +116,19 @@ pub(crate) fn generate_lookup_table_shrink(
     })
 }
 
+// For each indexed field generate a TokenStream representing a debug struct field
+pub(crate) fn generate_lookup_table_debug(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields.iter().map(|(_f, idents, _ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
+
+        quote! {
+            .field(stringify!(#index_name), &self.#index_name)
+        }
+    })
+}
+
 // For each indexed field generate a TokenStream representing inserting the position
 //   in the backing storage to that field's lookup table
 // Unique indexed fields just require a simple insert to the map,
@@ -811,6 +824,7 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_debug: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     let debug_impl = if cfg!(feature = "experimental") {
         quote! {
@@ -819,7 +833,7 @@ pub(crate) fn generate_expanded(
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     f.debug_struct(stringify!(#map_name))
                         .field("_store", &self._store)
-                        // #(#lookup_table_fields_debug)*
+                        #(#lookup_table_fields_debug)*
                         .finish()
                 }
             }
