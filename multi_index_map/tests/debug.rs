@@ -1,5 +1,5 @@
 #![cfg_attr(feature = "experimental", feature(trivial_bounds))]
-
+#![cfg(feature = "experimental")]
 use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
@@ -13,7 +13,6 @@ struct TestElement {
 }
 
 #[test]
-#[cfg(feature = "experimental")]
 fn should_compile() {
     let mut map = MultiIndexTestElementMap::default();
 
