@@ -85,6 +85,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let lookup_table_fields_shrink = generators::generate_lookup_table_shrink(&indexed_fields);
 
+    let lookup_table_field_types = generators::generate_lookup_table_field_types(&indexed_fields);
+
     let inserts = generators::generate_inserts(&indexed_fields);
 
     let removes = generators::generate_removes(&indexed_fields);
@@ -121,6 +123,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         lookup_table_fields_shrink,
         lookup_table_fields_reserve,
         lookup_table_fields_debug,
+        lookup_table_field_types,
     );
 
     // Hand the output tokens back to the compiler.

@@ -57,6 +57,40 @@ pub(crate) fn generate_lookup_tables(
     })
 }
 
+// For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
+pub(crate) fn generate_lookup_table_field_types(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields.iter().flat_map(|(f, idents, ordering, uniqueness)| {
+        let ty = &f.ty;
+
+        let type_debug = quote! {
+            #ty: core::fmt::Debug,
+        };
+
+        let field_debug = match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => quote! {
+                    ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>: core::fmt::Debug,
+                },
+                Ordering::Ordered => quote! {
+                    ::std::collections::BTreeMap<#ty, usize>: core::fmt::Debug,
+                },
+            },
+            Uniqueness::NonUnique => match ordering {
+                Ordering::Hashed => quote! {
+                    ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>: core::fmt::Debug,
+                },
+                Ordering::Ordered => quote! {
+                    ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>: core::fmt::Debug,
+                },
+            },
+        };
+
+        [type_debug, field_debug]
+    })
+}
+
 // For each indexed field generate a TokenStream representing initializing the lookup table.
 // Used in `with_capacity` initialization
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
@@ -825,11 +859,14 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_debug: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_field_types: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     let debug_impl = if cfg!(feature = "experimental") {
         quote! {
-            #[allow(trivial_bounds)]
-            impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug {
+            // #[allow(trivial_bounds)]
+            impl core::fmt::Debug for #map_name where #element_name: core::fmt::Debug,
+            #(#lookup_table_field_types)*
+             {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     f.debug_struct(stringify!(#map_name))
                         .field("_store", &self._store)

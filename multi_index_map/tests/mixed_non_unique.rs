@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "experimental", feature(trivial_bounds))]
+
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap)]
