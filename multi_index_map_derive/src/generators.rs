@@ -413,7 +413,39 @@ pub(crate) fn generate_accessors<'a>(
                     Some(elem)
                }
             },
-            Uniqueness::NonUnique => quote!{}
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #updater_name(
+                    &mut self,
+                    key: &#ty,
+                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
+                ) -> Vec<&#element_name> {
+                    let idxs = match self.#index_name.get(key) {
+                        Some(container) => container.clone(),
+                        _ => ::std::collections::BTreeSet::<usize>::new()
+                    };
+
+                    let mut refs = Vec::with_capacity(idxs.len());
+                    let mut mut_iter = self._store.iter_mut();
+                    let mut last_idx: usize = 0;
+                    for idx in idxs {
+                        match mut_iter.nth(idx - last_idx) {
+                            Some(val) => {
+                                let elem = val.1;
+                                f(#(&mut elem.#unindexed_idents,)*);
+                                refs.push(&*elem);
+                            }
+                            _ => {
+                                panic!(
+                                    "Error getting mutable reference of non-unique field `{}` in modifier.",
+                                    #field_name_string
+                                );
+                            }
+                        }
+                        last_idx = idx + 1;
+                    }
+                    refs
+                }
+            }
         };
 
         // TokenStream representing the modify_by_ accessor for this field.
