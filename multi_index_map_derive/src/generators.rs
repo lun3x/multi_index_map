@@ -7,9 +7,9 @@ use crate::index_attributes::{Ordering, Uniqueness};
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
-pub(crate) fn generate_lookup_tables<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_tables(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
@@ -39,9 +39,9 @@ pub(crate) fn generate_lookup_tables<'a>(
 // Used in `with_capacity` initialization
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
 //   `with_capacity(n)`
-pub(crate) fn generate_lookup_table_init<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_init(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -60,9 +60,9 @@ pub(crate) fn generate_lookup_table_init<'a>(
 // Used in `reserve`
 // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
 // Once this is implemented and stabilized, we will use it here to reserve capacity.
-pub(crate) fn generate_lookup_table_reserve<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_reserve(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -79,9 +79,9 @@ pub(crate) fn generate_lookup_table_reserve<'a>(
 // Used in `shrink_to_fit`
 // For consistency, HashMaps are shrunk to the capacity of the backing storage
 // `BTreeMap` does not support shrinking.
-pub(crate) fn generate_lookup_table_shrink<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_shrink(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -99,9 +99,9 @@ pub(crate) fn generate_lookup_table_shrink<'a>(
 // Unique indexed fields just require a simple insert to the map,
 //   whereas non-unique fields require inserting to the container of positions,
 //   creating a new container if necessary.
-pub(crate) fn generate_inserts<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_inserts(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
@@ -238,9 +238,9 @@ pub(crate) fn generate_modifies(
     }).collect()
 }
 
-pub(crate) fn generate_clears<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_clears(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, _uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
