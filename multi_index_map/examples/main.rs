@@ -1,3 +1,6 @@
+use rustc_hash::FxHashMap;
+use slab::Slab;
+
 use crate::inner::MultiIndexOrderMap;
 use crate::inner::Order;
 
@@ -12,6 +15,29 @@ mod inner {
         #[multi_index(hashed_non_unique)]
         pub(crate) trader_name: String,
         pub(crate) note: String,
+    }
+}
+
+struct Elem {
+    id: i32,
+    name: String,
+    job: String,
+}
+
+struct Map {
+    store: Slab<Elem>,
+    lookup: FxHashMap<i32, usize>,
+}
+
+impl Map {
+    fn modify_unindexed_by_field_1<F>(&mut self, key: i32, f: F) -> Option<&Elem>
+    where
+        F: FnOnce(&mut String, &mut String),
+    {
+        let idx = self.lookup.get(&key)?;
+        let elem = self.store.get_mut(*idx).unwrap();
+        f(&mut elem.name, &mut elem.job);
+        Some(elem)
     }
 }
 
