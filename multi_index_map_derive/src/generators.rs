@@ -217,7 +217,6 @@ pub(crate) fn generate_modifies(
                         );
                     }
                 }
-
             },
             Uniqueness::NonUnique => quote! {
                 if elem.#field_name != elem_orig.#field_name {
@@ -421,9 +420,10 @@ pub(crate) fn generate_accessors<'a>(
                     key: &#ty,
                     mut f: impl FnMut(#(&mut #unindexed_types,)*)
                 ) -> Vec<&#element_name> {
+                    let empty = ::std::collections::BTreeSet::<usize>::new();
                     let idxs = match self.#index_name.get(key) {
-                        Some(container) => container.clone(),
-                        _ => ::std::collections::BTreeSet::<usize>::new()
+                        Some(container) => container,
+                        _ => &empty,
                     };
 
                     let mut refs = Vec::with_capacity(idxs.len());
@@ -438,7 +438,7 @@ pub(crate) fn generate_accessors<'a>(
                             }
                             _ => {
                                 panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in modifier.",
+                                    "Error getting mutable reference of non-unique field `{}` in updater.",
                                     #field_name_string
                                 );
                             }
