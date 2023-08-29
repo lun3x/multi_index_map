@@ -1,3 +1,8 @@
+Version 0.7.0 (2023-08-29)
+==========================
+
+- Add `update_by_` methods and deprecate `get_mut_by_` methods. The new methods are equivalently useful, but safe and equally performant.
+
 Version 0.6.2 (2023-08-15)
 ==========================
 
