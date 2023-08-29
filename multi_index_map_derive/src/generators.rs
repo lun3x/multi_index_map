@@ -7,9 +7,9 @@ use crate::index_attributes::{Ordering, Uniqueness};
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
-pub(crate) fn generate_lookup_tables<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_tables(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
         let ty = &f.ty;
@@ -39,9 +39,9 @@ pub(crate) fn generate_lookup_tables<'a>(
 // Used in `with_capacity` initialization
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
 //   `with_capacity(n)`
-pub(crate) fn generate_lookup_table_init<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_init(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -60,9 +60,9 @@ pub(crate) fn generate_lookup_table_init<'a>(
 // Used in `reserve`
 // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
 // Once this is implemented and stabilized, we will use it here to reserve capacity.
-pub(crate) fn generate_lookup_table_reserve<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_reserve(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -79,9 +79,9 @@ pub(crate) fn generate_lookup_table_reserve<'a>(
 // Used in `shrink_to_fit`
 // For consistency, HashMaps are shrunk to the capacity of the backing storage
 // `BTreeMap` does not support shrinking.
-pub(crate) fn generate_lookup_table_shrink<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_lookup_table_shrink(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
         let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
 
@@ -99,9 +99,9 @@ pub(crate) fn generate_lookup_table_shrink<'a>(
 // Unique indexed fields just require a simple insert to the map,
 //   whereas non-unique fields require inserting to the container of positions,
 //   creating a new container if necessary.
-pub(crate) fn generate_inserts<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_inserts(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
@@ -140,7 +140,7 @@ pub(crate) fn generate_inserts<'a>(
 //     + If there are exactly one index in the container, then the index has to be idx,
 //       remove the key from the lookup table
 pub(crate) fn generate_removes(
-    fields: &[(&Field, Ordering, Uniqueness)],
+    fields: &[(Field, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields
         .iter()
@@ -191,7 +191,7 @@ pub(crate) fn generate_removes(
 //     + if the container is empty after removal, remove the old key, and insert idx to the new key
 //       (create a new container if necessary)
 pub(crate) fn generate_modifies(
-    fields: &[(&Field, Ordering, Uniqueness)],
+    fields: &[(Field, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields.iter().map(|(f, _ordering, uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
@@ -217,7 +217,6 @@ pub(crate) fn generate_modifies(
                         );
                     }
                 }
-
             },
             Uniqueness::NonUnique => quote! {
                 if elem.#field_name != elem_orig.#field_name {
@@ -238,9 +237,9 @@ pub(crate) fn generate_modifies(
     }).collect()
 }
 
-pub(crate) fn generate_clears<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
+pub(crate) fn generate_clears(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, _uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
         let index_name = format_ident!("_{}_index", field_name);
@@ -254,13 +253,34 @@ pub(crate) fn generate_clears<'a>(
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
 pub(crate) fn generate_accessors<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
+    indexed_fields: &'a [(Field, Ordering, Uniqueness)],
+    unindexed_fields: &'a [Field],
     map_name: &'a proc_macro2::Ident,
     element_name: &'a proc_macro2::Ident,
     removes: &'a [proc_macro2::TokenStream],
     modifies: &'a [proc_macro2::TokenStream],
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
-    fields.iter().map(move |(f, ordering, uniqueness)| {
+    let unindexed_types = unindexed_fields
+        .iter()
+        .map(|f| {
+            let ty = &f.ty;
+            quote! {
+                #ty
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let unindexed_idents = unindexed_fields
+        .iter()
+        .map(|f| {
+            let ident = &f.ident;
+            quote! {
+                #ident
+            }
+        })
+        .collect::<Vec<_>>();
+
+    indexed_fields.iter().map(move |(f, ordering, uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
         let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
@@ -269,6 +289,7 @@ pub(crate) fn generate_accessors<'a>(
         let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
         let remover_name = format_ident!("remove_by_{}", field_name);
         let modifier_name = format_ident!("modify_by_{}", field_name);
+        let updater_name = format_ident!("update_by_{}", field_name);
         let iter_name = format_ident!(
             "{}{}Iter",
             map_name,
@@ -308,6 +329,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// It is safe to mutate the non-indexed fields,
                 /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
+                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
@@ -317,6 +339,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// It is safe to mutate the non-indexed fields,
                 /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
+                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
                         let mut refs = Vec::with_capacity(idxs.len());
@@ -376,6 +399,55 @@ pub(crate) fn generate_accessors<'a>(
                     }
                 }
             },
+        };
+
+        let updater = match uniqueness {
+            Uniqueness::Unique => quote! {
+               #field_vis fn #updater_name(
+                    &mut self,
+                    key: &#ty,
+                    f: impl FnOnce(#(&mut #unindexed_types,)*)
+                ) -> Option<&#element_name> {
+                    let idx = *self.#index_name.get(key)?;
+                    let elem = &mut self._store[idx];
+                    f(#(&mut elem.#unindexed_idents,)*);
+                    Some(elem)
+               }
+            },
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #updater_name(
+                    &mut self,
+                    key: &#ty,
+                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
+                ) -> Vec<&#element_name> {
+                    let empty = ::std::collections::BTreeSet::<usize>::new();
+                    let idxs = match self.#index_name.get(key) {
+                        Some(container) => container,
+                        _ => &empty,
+                    };
+
+                    let mut refs = Vec::with_capacity(idxs.len());
+                    let mut mut_iter = self._store.iter_mut();
+                    let mut last_idx: usize = 0;
+                    for idx in idxs {
+                        match mut_iter.nth(idx - last_idx) {
+                            Some(val) => {
+                                let elem = val.1;
+                                f(#(&mut elem.#unindexed_idents,)*);
+                                refs.push(&*elem);
+                            }
+                            _ => {
+                                panic!(
+                                    "Error getting mutable reference of non-unique field `{}` in updater.",
+                                    #field_name_string
+                                );
+                            }
+                        }
+                        last_idx = idx + 1;
+                    }
+                    refs
+                }
+            }
         };
 
         // TokenStream representing the modify_by_ accessor for this field.
@@ -463,6 +535,8 @@ pub(crate) fn generate_accessors<'a>(
 
             #modifier
 
+            #updater
+
             #field_vis fn #iter_getter_name(&self) -> #iter_name {
                 #iterator_def
             }
@@ -474,7 +548,7 @@ pub(crate) fn generate_accessors<'a>(
 //   via that field,
 // such that the elements are accessed in an order defined by the index rather than the backing storage.
 pub(crate) fn generate_iterators<'a>(
-    fields: &'a [(&Field, Ordering, Uniqueness)],
+    fields: &'a [(Field, Ordering, Uniqueness)],
     map_name: &'a proc_macro2::Ident,
     element_name: &'a proc_macro2::Ident,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {

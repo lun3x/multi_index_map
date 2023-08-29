@@ -47,6 +47,8 @@ struct Order {
     timestamp: u64,
     #[multi_index(hashed_non_unique)]
     trader_name: String,
+    filled: bool,
+    volume: u64,
 }
 
 fn main() {
@@ -54,12 +56,16 @@ fn main() {
         order_id: 1,
         timestamp: 1656145181,
         trader_name: "JohnDoe".into(),
+        filled: false,
+        volume: 100,
     };
 
     let order2 = Order {
         order_id: 2,
         timestamp: 1656145182,
         trader_name: "JohnDoe".into(),
+        filled: false,
+        volume: 100,
     };
 
     let mut map = MultiIndexOrderMap::default();
@@ -80,9 +86,17 @@ fn main() {
             o.order_id = 42;
         })
         .unwrap();
+
     assert_eq!(order2_ref.timestamp, 1656145183);
     assert_eq!(order2_ref.order_id, 42);
     assert_eq!(order2_ref.trader_name, "JohnDoe".to_string());
+
+    let order2_ref = map.update_by_order_id(&2, |filled: &mut bool, volume: &mut u64| {
+        *filled = true;
+        *volume = 0;
+    });
+    assert_eq!(order2_ref.filled, true);
+    assert_eq!(order2_ref.volume, 0);
 
     let orders = map.get_by_trader_name(&"JohnDoe".to_string());
     assert_eq!(orders.len(), 2);
@@ -109,10 +123,12 @@ For `hashed_unique` and `hashed_non_unique` a `FxHashMap` is used, for `ordered_
 * When retrieving elements for a given key, we lookup the key in the lookup table, then retrieve the item at that index in the backing store.
 * When removing an element for a given key, we do the same, but we then must also remove keys from all the other lookup tables before returning the element.
 * When iterating over an index, we use the default iterators for the lookup table, then simply retrieve the element at the given index in the backing store.
-* When modifying an element, we lookup the element through the given key, then apply the closure to modify the element in-place. We then return a reference to the modified element.
-We must then update all the lookup tables to account for any changes to indexed fields.
-If we only want to modify an unindexed field then it is much faster to just mutate that field directly.
-This is why the unsafe methods are provided. These can be used to modify unindexed fields quickly, but must not be used to modify indexed fields.
+* When updating un-indexed fields, we lookup the element(s) through the given key, then apply the closure to modify just the unindexed fields in-place.
+We then return a reference to the modified element(s).
+If the key doesn't match, the closure won't be applied, and Option::None will be returned.
+* When modifying indexed fields of an element, we do the same process, but the closure takes a mutable reference to the whole element.
+Any fields, indexed and un-indexed can be modified.
+We must then update all the lookup tables to account for any changes to indexed fields, so this is slower than an un-indexed update.
 
 
 ```rust
@@ -142,21 +158,21 @@ impl MultiIndexOrderMap {
     fn is_empty(&self) -> bool;
     fn clear(&mut self);
     
-    fn get_by_order_id(&self) -> Option<&Order>;
-    fn get_by_timestamp(&self) -> Option<&Order>;
-    fn get_by_trader_name(&self) -> Vec<&Order>;
+    fn get_by_order_id(&self, key: &u32) -> Option<&Order>;
+    fn get_by_timestamp(&self, key: &u64) -> Option<&Order>;
+    fn get_by_trader_name(&self, key: &String) -> Vec<&Order>;
+
+    fn update_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
+    fn update_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
+    fn update_by_trader_name(&mut self, key: &String, f: impl FnOnce(&mut bool, &mut u64)) -> Vec<&Order>;
     
-    unsafe fn get_mut_by_order_id(&mut self) -> Option<&mut Order>;
-    unsafe fn get_mut_by_timestamp(&mut self) -> Option<&mut Order>;
-    unsafe fn get_mut_by_trader_name(&mut self) -> Vec<&mut Order>;
+    fn modify_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    fn modify_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut Order)) -> Option<&Order>;
+    fn modify_by_trader_name(&mut self, key: &String, f: impl Fn(&mut Order)) -> Vec<&Order>;
     
-    fn modify_by_order_id(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_timestamp(&mut self, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_trader_name(&mut self, f: impl Fn(&mut Order)) -> Vec<&Order>;
-    
-    fn remove_by_order_id(&mut self) -> Option<Order>;
-    fn remove_by_timestamp(&mut self) -> Option<Order>;
-    fn remove_by_trader_name(&mut self) -> Vec<Order>;
+    fn remove_by_order_id(&mut self, key: &u32) -> Option<Order>;
+    fn remove_by_timestamp(&mut self, key: &u64) -> Option<Order>;
+    fn remove_by_trader_name(&mut self, key: &String) -> Vec<Order>;
     
     fn iter(&self) -> slab::Iter<Order>;
     unsafe fn iter_mut(&mut self) -> slab::IterMut<Order>;
