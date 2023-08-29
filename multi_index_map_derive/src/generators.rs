@@ -157,7 +157,7 @@ pub(crate) fn generate_removes(
     fields
         .iter()
         .map(|(f, _ordering, uniqueness)| {
-            let field_name = f.ident.as_ref().unwrap();
+            let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
             let field_name_string = field_name.to_string();
             let index_name = format_ident!("_{field_name}_index");
             let error_msg = format!(
@@ -272,7 +272,7 @@ pub(crate) fn generate_clears(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, _uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let index_name = format_ident!("_{field_name}_index");
 
         quote! {
@@ -305,7 +305,7 @@ pub(crate) fn generate_accessors<'a>(
     let unindexed_idents = unindexed_fields
         .iter()
         .map(|f| {
-            let ident = &f.ident;
+            let ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
             quote! {
                 #ident
             }
@@ -584,7 +584,7 @@ pub(crate) fn generate_iterators<'a>(
     element_name: &'a proc_macro2::Ident,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
     fields.iter().map(move |(f, ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_vis = &f.vis;
         let field_name_string = field_name.to_string();
         let error_msg = format!(
