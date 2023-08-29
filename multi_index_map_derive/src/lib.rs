@@ -39,7 +39,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         })
         .partition(|(_, kind)| kind.is_some());
 
-    // Massage the Vec into the correct type, we won't actually drop any values here
+    // Massage the two partitioned Vecs into the correct types
     let indexed_fields = indexed_fields
         .into_iter()
         .map(|(field, kind)| {
