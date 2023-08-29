@@ -1,6 +1,8 @@
 use ::proc_macro_error::{abort_call_site, proc_macro_error};
 use ::quote::format_ident;
 use ::syn::{parse_macro_input, DeriveInput};
+use convert_case::Casing;
+use generators::{Idents, EXPECT_NAMED_FIELDS};
 use proc_macro_error::OptionExt;
 
 mod generators;
@@ -34,10 +36,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .named
         .into_iter()
         .map(|f| {
-            let kind = index_attributes::get_index_kind(&f);
-            (f, kind)
+            let index_kind = index_attributes::get_index_kind(&f);
+            (f, index_kind)
         })
-        .partition(|(_, kind)| kind.is_some());
+        .partition(|(_, index_kind)| index_kind.is_some());
+
+    let element_name = &input.ident;
+
+    let map_name = format_ident!("MultiIndex{}Map", element_name);
 
     // Massage the two partitioned Vecs into the correct types
     let indexed_fields = indexed_fields
@@ -45,7 +51,21 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|(field, kind)| {
             let (ordering, uniqueness) = kind
                 .expect_or_abort("Internal logic broken, all indexed fields should have a kind");
-            (field, ordering, uniqueness)
+
+            let field_ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+
+            let idents = Idents {
+                index: format_ident!("_{field_ident}_index",),
+                orig: format_ident!("{field_ident}_orig",),
+                iter: format_ident!(
+                    "{map_name}{}Iter",
+                    field_ident
+                        .to_string()
+                        .to_case(::convert_case::Case::UpperCamel)
+                ),
+            };
+
+            (field, idents, ordering, uniqueness)
         })
         .collect::<Vec<_>>();
 
@@ -72,21 +92,16 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let clears = generators::generate_clears(&indexed_fields);
 
-    let element_name = &input.ident;
-
-    let map_name = format_ident!("MultiIndex{}Map", element_name);
-
     let accessors = generators::generate_accessors(
         &indexed_fields,
         &unindexed_fields,
-        &map_name,
         element_name,
         &removes,
         &pre_modifies,
         &post_modifies,
     );
 
-    let iterators = generators::generate_iterators(&indexed_fields, &map_name, element_name);
+    let iterators = generators::generate_iterators(&indexed_fields, element_name);
 
     let element_vis = input.vis;
 
