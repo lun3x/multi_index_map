@@ -46,7 +46,10 @@ pub(crate) fn generate_lookup_table_init(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let index_name = format_ident!(
+            "_{}_index",
+            f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS)
+        );
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -67,7 +70,10 @@ pub(crate) fn generate_lookup_table_reserve(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let index_name = format_ident!(
+            "_{}_index",
+            f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS)
+        );
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -86,7 +92,10 @@ pub(crate) fn generate_lookup_table_shrink(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let index_name = format_ident!(
+            "_{}_index",
+            f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS)
+        );
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -106,9 +115,9 @@ pub(crate) fn generate_inserts(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_name_string = field_name.to_string();
-        let index_name = format_ident!("_{}_index", field_name);
+        let index_name = format_ident!("_{field_name}_index");
 
         match uniqueness {
             Uniqueness::Unique => quote! {
@@ -150,7 +159,7 @@ pub(crate) fn generate_removes(
         .map(|(f, _ordering, uniqueness)| {
             let field_name = f.ident.as_ref().unwrap();
             let field_name_string = field_name.to_string();
-            let index_name = format_ident!("_{}_index", field_name);
+            let index_name = format_ident!("_{field_name}_index");
             let error_msg = format!(
                 concat!(
                     "Internal invariants broken, ",
@@ -181,26 +190,44 @@ pub(crate) fn generate_removes(
         .collect()
 }
 
+// For each indexed field generate a TokenStream representing the clone the original value,
+//   so that we can compare after the modify is applied and adjust lookup tables as necessary
+pub(crate) fn generate_pre_modifies(
+    fields: &[(Field, Ordering, Uniqueness)],
+) -> Vec<::proc_macro2::TokenStream> {
+    fields
+        .iter()
+        .map(|(field, _, _)| {
+            let ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+            let orig_ident = format_ident!("orig_{ident}");
+
+            quote! {
+                let #orig_ident = elem.#ident.clone();
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
 // For each indexed field generate a TokenStream representing the combined remove and insert from that
 //   field's lookup table.
 // Used in modifier. Run after an element is already modified in the backing storage.
-// The element before the change is stored in `elem_orig`.
+// The fields of the original element are stored in `orig_#field_name`
 // The element after change is stored in reference `elem` (inside the backing storage).
 // The index of `elem` in the backing storage is `idx`
-// For each field, only make changes if elem.#field_name and elem_orig.#field_name are not equal
+// For each field, only make changes if `elem.#field_name` and `orig_#field_name` are not equal
 //   - When the field is unique, remove the old key and insert idx under the new key
 //     (if new key already exists, panic!)
 //   - When the field is non-unique, remove idx from the container associated with the old key
 //     + if the container is empty after removal, remove the old key, and insert idx to the new key
 //       (create a new container if necessary)
-pub(crate) fn generate_modifies(
+pub(crate) fn generate_post_modifies(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields.iter().map(|(f, _ordering, uniqueness)| {
         let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_name_string = field_name.to_string();
         let orig_ident = format_ident!("orig_{field_name}");
-        let index_name = format_ident!("_{}_index", field_name);
+        let index_name = format_ident!("_{field_name}_index");
         let error_msg = format!(
             concat!(
                 "Internal invariants broken, ",
@@ -246,7 +273,7 @@ pub(crate) fn generate_clears(
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, _ordering, _uniqueness)| {
         let field_name = f.ident.as_ref().unwrap();
-        let index_name = format_ident!("_{}_index", field_name);
+        let index_name = format_ident!("_{field_name}_index");
 
         quote! {
             self.#index_name.clear();
@@ -262,7 +289,8 @@ pub(crate) fn generate_accessors<'a>(
     map_name: &'a proc_macro2::Ident,
     element_name: &'a proc_macro2::Ident,
     removes: &'a [proc_macro2::TokenStream],
-    modifies: &'a [proc_macro2::TokenStream],
+    pre_modifies: &'a [proc_macro2::TokenStream],
+    post_modifies: &'a [proc_macro2::TokenStream],
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
     let unindexed_types = unindexed_fields
         .iter()
@@ -284,34 +312,21 @@ pub(crate) fn generate_accessors<'a>(
         })
         .collect::<Vec<_>>();
 
-    let pre_modifies = indexed_fields
-        .iter()
-        .map(|(field, _, _)| {
-            let ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
-            let orig_ident = format_ident!("orig_{ident}");
-
-            quote! {
-                let #orig_ident = elem.#ident.clone();
-            }
-        })
-        .collect::<Vec<_>>();
-
     indexed_fields.iter().map(move |(f, ordering, uniqueness)| {
         let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
-        let index_name = format_ident!("_{}_index", field_name);
-        let getter_name = format_ident!("get_by_{}", field_name);
-        let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
-        let remover_name = format_ident!("remove_by_{}", field_name);
-        let modifier_name = format_ident!("modify_by_{}", field_name);
-        let updater_name = format_ident!("update_by_{}", field_name);
+        let index_name = format_ident!("_{field_name}_index");
+        let getter_name = format_ident!("get_by_{field_name}", );
+        let mut_getter_name = format_ident!("get_mut_by_{field_name}");
+        let remover_name = format_ident!("remove_by_{field_name}");
+        let modifier_name = format_ident!("modify_by_{field_name}");
+        let updater_name = format_ident!("update_by_{field_name}");
         let iter_name = format_ident!(
-            "{}{}Iter",
-            map_name,
+            "{map_name}{}Iter",
             field_name.to_string().to_case(::convert_case::Case::UpperCamel)
         );
-        let iter_getter_name = format_ident!("iter_by_{}", field_name);
+        let iter_getter_name = format_ident!("iter_by_{field_name}");
         let ty = &f.ty;
 
         // TokenStream representing the get_by_ accessor for this field.
@@ -482,7 +497,7 @@ pub(crate) fn generate_accessors<'a>(
                     let elem = &mut self._store[idx];
                     #(#pre_modifies)*
                     f(elem);
-                    #(#modifies)*
+                    #(#post_modifies)*
                     Some(elem)
                 }
             },
@@ -505,7 +520,7 @@ pub(crate) fn generate_accessors<'a>(
                                 let elem = val.1;
                                 #(#pre_modifies)*
                                 f(elem);
-                                #(#modifies)*
+                                #(#post_modifies)*
                                 refs.push(&*elem);
                             },
                             _ => {
@@ -576,8 +591,7 @@ pub(crate) fn generate_iterators<'a>(
             "Internal invariants broken, found empty slice in non_unique index '{field_name_string}'"
         );
         let iter_name = format_ident!(
-            "{}{}Iter",
-            map_name,
+            "{map_name}{}Iter",
             field_name.to_string().to_case(::convert_case::Case::UpperCamel)
         );
         let ty = &f.ty;

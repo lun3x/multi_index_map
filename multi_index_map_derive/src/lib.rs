@@ -66,7 +66,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let removes = generators::generate_removes(&indexed_fields);
 
-    let modifies = generators::generate_modifies(&indexed_fields);
+    let pre_modifies = generators::generate_pre_modifies(&indexed_fields);
+
+    let post_modifies = generators::generate_post_modifies(&indexed_fields);
 
     let clears = generators::generate_clears(&indexed_fields);
 
@@ -80,7 +82,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &map_name,
         element_name,
         &removes,
-        &modifies,
+        &pre_modifies,
+        &post_modifies,
     );
 
     let iterators = generators::generate_iterators(&indexed_fields, &map_name, element_name);
