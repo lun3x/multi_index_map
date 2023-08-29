@@ -1,4 +1,4 @@
-# MultiIndexMap [![Tests](https://github.com/lun3x/multi_index_map/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/lun3x/multi_index_map/actions/workflows/rust.yml)
+# MultiIndexMap [![Tests](https://github.com/lun3x/multi_index_map/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/lun3x/multi_index_map/actions/workflows/ci.yml)
 
 [Also available on crates.io.](https://crates.io/crates/multi_index_map)
 
