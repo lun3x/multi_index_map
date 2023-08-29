@@ -75,12 +75,12 @@ fn main() {
         o1_ref.trader_name, o1_ref
     );
 
-    let o1_mut_ref = unsafe { map.get_mut_by_order_id(&7).unwrap() };
-    o1_mut_ref.note = "TestNote".to_string();
-    println!(
-        "Changed note of order {o1_mut_ref:?}, to {:?}",
-        o1_mut_ref.note,
-    );
+    let o1_ref = map
+        .update_by_order_id(&7, |note| {
+            *note = "TestNote".to_string();
+        })
+        .unwrap();
+    println!("Updated note of order {o1_ref:?}, to {:?}", o1_ref.note,);
 
     let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
     assert_eq!(toms_orders.len(), 2);
