@@ -1,8 +1,11 @@
 use ::convert_case::Casing;
 use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
+use proc_macro_error::OptionExt;
 
 use crate::index_attributes::{Ordering, Uniqueness};
+
+const EXPECT_NAMED_FIELDS: &str = "Internal logic broken, all fields should have named identifiers";
 
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
@@ -11,7 +14,7 @@ pub(crate) fn generate_lookup_tables(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, ordering, uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+        let index_name = format_ident!("_{}_index", f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS));
         let ty = &f.ty;
 
         match uniqueness {
@@ -194,8 +197,9 @@ pub(crate) fn generate_modifies(
     fields: &[(Field, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields.iter().map(|(f, _ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_name_string = field_name.to_string();
+        let orig_ident = format_ident!("orig_{field_name}");
         let index_name = format_ident!("_{}_index", field_name);
         let error_msg = format!(
             concat!(
@@ -207,8 +211,8 @@ pub(crate) fn generate_modifies(
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                if elem.#field_name != elem_orig.#field_name {
-                    let idx = self.#index_name.remove(&elem_orig.#field_name).expect(#error_msg);
+                if elem.#field_name != #orig_ident {
+                    let idx = self.#index_name.remove(&#orig_ident).expect(#error_msg);
                     let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
                         panic!(
@@ -219,14 +223,14 @@ pub(crate) fn generate_modifies(
                 }
             },
             Uniqueness::NonUnique => quote! {
-                if elem.#field_name != elem_orig.#field_name {
-                    let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect(#error_msg);
+                if elem.#field_name != #orig_ident {
+                    let idxs = self.#index_name.get_mut(&#orig_ident).expect(#error_msg);
                     if idxs.len() > 1 {
                         if !(idxs.remove(&idx)) {
                             panic!(#error_msg);
                         }
                     } else {
-                        self.#index_name.remove(&elem_orig.#field_name);
+                        self.#index_name.remove(&#orig_ident);
                     }
                     self.#index_name.entry(elem.#field_name.clone())
                         .or_insert(::std::collections::BTreeSet::new())
@@ -280,8 +284,20 @@ pub(crate) fn generate_accessors<'a>(
         })
         .collect::<Vec<_>>();
 
+    let pre_modifies = indexed_fields
+        .iter()
+        .map(|(field, _, _)| {
+            let ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+            let orig_ident = format_ident!("orig_{ident}");
+
+            quote! {
+                let #orig_ident = elem.#ident.clone();
+            }
+        })
+        .collect::<Vec<_>>();
+
     indexed_fields.iter().map(move |(f, ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
         let index_name = format_ident!("_{}_index", field_name);
@@ -464,7 +480,7 @@ pub(crate) fn generate_accessors<'a>(
                 ) -> Option<&#element_name> {
                     let idx = *self.#index_name.get(key)?;
                     let elem = &mut self._store[idx];
-                    let elem_orig = elem.clone();
+                    #(#pre_modifies)*
                     f(elem);
                     #(#modifies)*
                     Some(elem)
@@ -487,7 +503,7 @@ pub(crate) fn generate_accessors<'a>(
                         match mut_iter.nth(idx - last_idx) {
                             Some(val) => {
                                 let elem = val.1;
-                                let elem_orig = elem.clone();
+                                #(#pre_modifies)*
                                 f(elem);
                                 #(#modifies)*
                                 refs.push(&*elem);
