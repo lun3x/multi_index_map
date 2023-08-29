@@ -330,6 +330,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// It is safe to mutate the non-indexed fields,
                 /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
+                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
                     Some(&mut self._store[*self.#index_name.get(key)?])
                 }
@@ -339,6 +340,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// It is safe to mutate the non-indexed fields,
                 /// however mutating any of the indexed fields will break the internal invariants.
                 /// If the indexed fields need to be changed, the modify() method must be used.
+                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
                     if let Some(idxs) = self.#index_name.get(key) {
                         let mut refs = Vec::with_capacity(idxs.len());
