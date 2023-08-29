@@ -46,7 +46,7 @@ fn test_non_unique_update() {
     let refs = map.get_by_field1(&42);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, i as f64 * 2.0);
-        assert_eq!(r.field4, i.to_string());
+        assert_eq!(r.field4, (i * 2).to_string());
     }
 }
 
