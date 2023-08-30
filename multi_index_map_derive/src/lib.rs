@@ -2,7 +2,7 @@ use ::proc_macro_error::{abort_call_site, proc_macro_error};
 use ::quote::format_ident;
 use ::syn::{parse_macro_input, DeriveInput};
 use convert_case::Casing;
-use generators::{Idents, EXPECT_NAMED_FIELDS};
+use generators::{FieldIdents, EXPECT_NAMED_FIELDS};
 use proc_macro_error::OptionExt;
 
 mod generators;
@@ -54,14 +54,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             let field_ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
 
-            let idents = Idents {
-                index: format_ident!("_{field_ident}_index",),
-                orig: format_ident!("{field_ident}_orig",),
-                iter: format_ident!(
+            let idents = FieldIdents {
+                name: field_ident.clone(),
+                index_name: format_ident!("_{field_ident}_index",),
+                cloned_name: format_ident!("{field_ident}_orig",),
+                iter_name: format_ident!(
                     "{map_name}{}Iter",
                     field_ident
                         .to_string()
-                        .to_case(::convert_case::Case::UpperCamel)
+                        .to_case(::convert_case::Case::UpperCamel),
                 ),
             };
 
