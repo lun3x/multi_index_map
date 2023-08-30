@@ -33,4 +33,4 @@ convert_case = { version = "0.6" }
 proc-macro = true
 
 [features]
-experimental = []
+trivial_bounds = []

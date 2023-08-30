@@ -861,7 +861,7 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_debug: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_field_types: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
-    let debug_impl = if cfg!(feature = "experimental") {
+    let debug_impl = if cfg!(feature = "trivial_bounds") {
         quote! {
             // #[allow(trivial_bounds)]
             impl core::fmt::Debug for #map_name where #element_name: core::fmt::Debug,

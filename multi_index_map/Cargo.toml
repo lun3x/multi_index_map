@@ -31,4 +31,4 @@ name = "performance"
 harness = false
 
 [features]
-experimental = ["multi_index_map_derive/experimental"]
+trivial_bounds = ["multi_index_map_derive/trivial_bounds"]
