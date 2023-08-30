@@ -91,11 +91,12 @@ fn main() {
     assert_eq!(order2_ref.order_id, 42);
     assert_eq!(order2_ref.trader_name, "JohnDoe".to_string());
 
-    let order2_ref = map.update_by_order_id(&42, |filled: &mut bool, volume: &mut u64| {
-        *filled = true;
-        *volume = 0;
-    })
-    .unwrap();
+    let order2_ref = map
+        .update_by_order_id(&42, |filled: &mut bool, volume: &mut u64| {
+            *filled = true;
+            *volume = 0;
+        })
+        .unwrap();
     assert_eq!(order2_ref.filled, true);
     assert_eq!(order2_ref.volume, 0);
 
