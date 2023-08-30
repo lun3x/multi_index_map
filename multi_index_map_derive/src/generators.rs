@@ -36,25 +36,37 @@ pub(crate) fn generate_lookup_tables(
         let ty = &f.ty;
         let index_name = &idents.index_name;
 
-        match uniqueness {
-            Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>,
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: ::std::collections::BTreeMap<#ty, usize>,
-                },
-            },
-            Uniqueness::NonUnique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>,
-                },
-            },
+        let field_type = index_field_type(ty, ordering, uniqueness);
+
+        quote! {
+            #index_name: #field_type,
         }
     })
+}
+
+fn index_field_type(
+    ty: &Type,
+    ordering: &Ordering,
+    uniqueness: &Uniqueness,
+) -> ::proc_macro2::TokenStream {
+    match uniqueness {
+        Uniqueness::Unique => match ordering {
+            Ordering::Hashed => quote! {
+                ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>
+            },
+            Ordering::Ordered => quote! {
+                ::std::collections::BTreeMap<#ty, usize>
+            },
+        },
+        Uniqueness::NonUnique => match ordering {
+            Ordering::Hashed => quote! {
+                ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>
+            },
+            Ordering::Ordered => quote! {
+                ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>
+            },
+        },
+    }
 }
 
 // For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
@@ -71,27 +83,14 @@ pub(crate) fn generate_lookup_table_field_types(
                 #ty: core::fmt::Debug,
             };
 
-        let field_debug = match uniqueness {
-            Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {
-                    ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>: core::fmt::Debug,
-                },
-                Ordering::Ordered => quote! {
-                    ::std::collections::BTreeMap<#ty, usize>: core::fmt::Debug,
-                },
-            },
-            Uniqueness::NonUnique => match ordering {
-                Ordering::Hashed => quote! {
-                    ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>: core::fmt::Debug,
-                },
-                Ordering::Ordered => quote! {
-                    ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>: core::fmt::Debug,
-                },
-            },
-        };
+            let field_type = index_field_type(ty, ordering, uniqueness);
 
-        [type_debug, field_debug]
-    })
+            let field_debug = quote! {
+                #field_type: core::fmt::Debug,
+            };
+
+            [type_debug, field_debug]
+        })
 }
 
 // For each indexed field generate a TokenStream representing initializing the lookup table.
