@@ -1,3 +1,9 @@
+Version 0.7.1 (2023-08-30)
+==========================
+
+- Refactor and cleanup lots of code, also further reduce work done at compile time, by only generating identifiers for each field once.
+- Implement work necessary to remove Clone requirement, however this will be fully removed in the next release.
+
 Version 0.7.0 (2023-08-29)
 ==========================
 
