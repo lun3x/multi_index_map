@@ -813,7 +813,7 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
     quote! {
-        #[derive(Default, Clone)]
+        #[derive(Default)]
         #element_vis struct #map_name {
             _store: ::multi_index_map::slab::Slab<#element_name>,
             #(#lookup_table_fields)*

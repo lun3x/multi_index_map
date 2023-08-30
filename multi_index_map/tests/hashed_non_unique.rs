@@ -3,7 +3,7 @@ use multi_index_map::MultiIndexMap;
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u64);
 
-#[derive(MultiIndexMap, Clone, Debug)]
+#[derive(MultiIndexMap, Debug)]
 struct TestElement {
     #[multi_index(hashed_non_unique)]
     field1: TestNonPrimitiveType,

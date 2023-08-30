@@ -13,6 +13,18 @@ mod inner {
         pub(crate) trader_name: String,
         pub(crate) note: String,
     }
+
+    // Manually implement Clone, this can be auto generated correctly by rust-analyzer
+    impl Clone for MultiIndexOrderMap {
+        fn clone(&self) -> Self {
+            Self {
+                _store: self._store.clone(),
+                _order_id_index: self._order_id_index.clone(),
+                _timestamp_index: self._timestamp_index.clone(),
+                _trader_name_index: self._trader_name_index.clone(),
+            }
+        }
+    }
 }
 
 fn main() {
