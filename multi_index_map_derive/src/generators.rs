@@ -17,6 +17,12 @@ pub(crate) struct FieldIdents {
     pub(crate) iter_name: Ident,
 }
 
+struct FieldInfo<'a> {
+    vis: &'a Visibility,
+    ty: &'a Type,
+    str: &'a str,
+}
+
 pub(crate) const EXPECT_NAMED_FIELDS: &str =
     "Internal logic broken, all fields should have named identifiers";
 
@@ -289,13 +295,14 @@ pub(crate) fn generate_clears(
 //   in order to return a Vec of references to the backing storage.
 fn generate_field_getter(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
-    field_type: &Type,
+    field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
 ) -> proc_macro2::TokenStream {
     let getter_name = format_ident!("get_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -323,14 +330,15 @@ fn generate_field_getter(
 // Note that these methods are deprecated, and will be removed in a future version.
 fn generate_field_mut_getter(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
-    field_type: &Type,
-    field_name_string: &str,
+    field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
 ) -> proc_macro2::TokenStream {
     let mut_getter_name = format_ident!("get_mut_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -362,7 +370,7 @@ fn generate_field_mut_getter(
                             _ => {
                                 panic!(
                                     "Error getting mutable reference of non-unique field `{}` in getter.",
-                                    #field_name_string
+                                    #field_name_str
                                 );
                             }
                         }
@@ -386,14 +394,15 @@ fn generate_field_mut_getter(
 //      - return the element(s)
 fn generate_field_remover(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
-    field_type: &Type,
+    field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
     removes: &[proc_macro2::TokenStream],
 ) -> proc_macro2::TokenStream {
     let remover_name = format_ident!("remove_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -424,9 +433,7 @@ fn generate_field_remover(
 
 fn generate_field_updater(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
-    field_type: &Type,
-    field_name_string: &str,
+    field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
     unindexed_types: &[&Type],
@@ -434,6 +441,9 @@ fn generate_field_updater(
 ) -> proc_macro2::TokenStream {
     let updater_name = format_ident!("update_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -473,7 +483,7 @@ fn generate_field_updater(
                         _ => {
                             panic!(
                                 "Error getting mutable reference of non-unique field `{}` in updater.",
-                                #field_name_string
+                                #field_name_str
                             );
                         }
                     }
@@ -492,9 +502,7 @@ fn generate_field_updater(
 //      - return the modified item(s) as references
 fn generate_field_modifier(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
-    field_type: &Type,
-    field_name_string: &str,
+    field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
     pre_modifies: &[proc_macro2::TokenStream],
@@ -502,6 +510,9 @@ fn generate_field_modifier(
 ) -> proc_macro2::TokenStream {
     let modifier_name = format_ident!("modify_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -543,7 +554,7 @@ fn generate_field_modifier(
                         _ => {
                             panic!(
                                 "Error getting mutable reference of non-unique field `{}` in modifier.",
-                                #field_name_string
+                                #field_name_str
                             );
                         }
                     }
@@ -557,12 +568,13 @@ fn generate_field_modifier(
 
 fn generate_field_iter_getter(
     field_idents: &FieldIdents,
-    field_vis: &Visibility,
+    field_info: &FieldInfo,
     ordering: &Ordering,
 ) -> proc_macro2::TokenStream {
     let iter_getter_name = format_ident!("iter_by_{}", &field_idents.name);
     let iter_name = &field_idents.iter_name;
     let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
 
     let iterator_def = match ordering {
         Ordering::Hashed => quote! {
@@ -608,37 +620,23 @@ pub(crate) fn generate_accessors<'a>(
     indexed_fields
         .iter()
         .map(move |(f, idents, ordering, uniqueness)| {
-            let field_name = &idents.name;
-            let field_name_string = field_name.to_string();
-            let field_vis = &f.vis;
-            let field_type = &f.ty;
+            let field_info = FieldInfo {
+                vis: &f.vis,
+                ty: &f.ty,
+                str: &idents.name.to_string(),
+            };
 
-            let getter =
-                generate_field_getter(idents, field_vis, field_type, element_name, uniqueness);
+            let getter = generate_field_getter(idents, &field_info, element_name, uniqueness);
 
-            let mut_getter = generate_field_mut_getter(
-                idents,
-                field_vis,
-                field_type,
-                &field_name_string,
-                element_name,
-                uniqueness,
-            );
+            let mut_getter =
+                generate_field_mut_getter(idents, &field_info, element_name, uniqueness);
 
-            let remover = generate_field_remover(
-                idents,
-                field_vis,
-                field_type,
-                element_name,
-                uniqueness,
-                removes,
-            );
+            let remover =
+                generate_field_remover(idents, &field_info, element_name, uniqueness, removes);
 
             let updater = generate_field_updater(
                 idents,
-                field_vis,
-                field_type,
-                &field_name_string,
+                &field_info,
                 element_name,
                 uniqueness,
                 &unindexed_types,
@@ -647,16 +645,14 @@ pub(crate) fn generate_accessors<'a>(
 
             let modifier = generate_field_modifier(
                 idents,
-                field_vis,
-                field_type,
-                &field_name_string,
+                &field_info,
                 element_name,
                 uniqueness,
                 pre_modifies,
                 post_modifies,
             );
 
-            let iter_getter = generate_field_iter_getter(idents, field_vis, ordering);
+            let iter_getter = generate_field_iter_getter(idents, &field_info, ordering);
 
             // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
             //   on the end.
