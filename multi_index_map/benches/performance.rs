@@ -16,6 +16,18 @@ pub struct TestElementWithOnlyIndexedFields {
     field_ordered_non_unique: u32,
 }
 
+impl Clone for MultiIndexTestElementWithOnlyIndexedFieldsMap {
+    fn clone(&self) -> Self {
+        Self {
+            _store: self._store.clone(),
+            _field_hashed_unique_index: self._field_hashed_unique_index.clone(),
+            _field_hashed_non_unique_index: self._field_hashed_non_unique_index.clone(),
+            _field_ordered_unique_index: self._field_ordered_unique_index.clone(),
+            _field_ordered_non_unique_index: self._field_ordered_non_unique_index.clone(),
+        }
+    }
+}
+
 const BENCH_SIZES: &[u32] = &[100u32, 1000u32, 10000u32, 100000u32];
 
 fn insert_benchmark(c: &mut Criterion) {

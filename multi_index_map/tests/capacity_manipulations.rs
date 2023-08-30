@@ -1,6 +1,6 @@
 use multi_index_map::MultiIndexMap;
 
-#[derive(MultiIndexMap, Clone, Debug)]
+#[derive(MultiIndexMap, Debug)]
 struct TestElement {
     #[multi_index(hashed_unique)]
     field1: i32,

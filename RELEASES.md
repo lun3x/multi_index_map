@@ -1,3 +1,9 @@
+Version 0.8.0 (2023-08-30)
+==========================
+
+- Remove `Clone` requirement on elements, now only the indexed fields must implement Clone. This should be helpful when storing non-Clonable types in un-indexed fields.
+- If the MultiIndexMap does need to be Cloned, this must be implemented manually, however this should be fairly simple to do next to where the element is defined. See `examples/main.rs`.
+
 Version 0.7.1 (2023-08-30)
 ==========================
 

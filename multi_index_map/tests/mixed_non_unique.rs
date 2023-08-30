@@ -1,6 +1,6 @@
 use multi_index_map::MultiIndexMap;
 
-#[derive(MultiIndexMap, Clone)]
+#[derive(MultiIndexMap)]
 struct MultipleOrderedNonUniqueStruct {
     #[multi_index(ordered_non_unique)]
     field1: u32,
