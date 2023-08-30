@@ -167,11 +167,11 @@ impl MultiIndexOrderMap {
 
     fn update_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
     fn update_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
-    fn update_by_trader_name(&mut self, key: &String, f: impl FnOnce(&mut bool, &mut u64)) -> Vec<&Order>;
+    fn update_by_trader_name(&mut self, key: &String, f: impl FnMut(&mut bool, &mut u64)) -> Vec<&Order>;
     
     fn modify_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut Order)) -> Option<&Order>;
     fn modify_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_trader_name(&mut self, key: &String, f: impl Fn(&mut Order)) -> Vec<&Order>;
+    fn modify_by_trader_name(&mut self, key: &String, f: impl FnMut(&mut Order)) -> Vec<&Order>;
     
     fn remove_by_order_id(&mut self, key: &u32) -> Option<Order>;
     fn remove_by_timestamp(&mut self, key: &u64) -> Option<Order>;
