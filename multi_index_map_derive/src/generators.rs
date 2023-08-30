@@ -533,7 +533,7 @@ fn generate_field_modifier(
             #field_vis fn #modifier_name(
                 &mut self,
                 key: &#field_type,
-                f: impl Fn(&mut #element_name)
+                mut f: impl FnMut(&mut #element_name)
             ) -> Vec<&#element_name> {
                 let idxs = match self.#index_name.get(key) {
                     Some(container) => container.clone(),

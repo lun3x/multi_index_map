@@ -1,3 +1,8 @@
+Version 0.8.1 (2023-08-30)
+==========================
+
+- Allow FnMut closures in `modify_by_` methods.
+
 Version 0.8.0 (2023-08-30)
 ==========================
 
