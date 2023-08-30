@@ -5,6 +5,10 @@ use proc_macro_error::OptionExt;
 
 use crate::index_attributes::{Ordering, Uniqueness};
 
+// Struct to store generated identifiers.
+// These are set once during the initial pass over the indexed fields,
+//   then reused in each generator, to reduce work done at compile-time,
+//   and to ensure each generator uses the same identifiers.
 pub(crate) struct Idents {
     pub(crate) index: Ident,
     pub(crate) orig: Ident,
@@ -22,23 +26,23 @@ pub(crate) fn generate_lookup_tables(
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, idents, ordering, uniqueness)| {
         let ty = &f.ty;
-        let index_ident = &idents.index;
+        let index_name = &idents.index;
 
         match uniqueness {
             Uniqueness::Unique => match ordering {
                 Ordering::Hashed => quote! {
-                    #index_ident: ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>,
+                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>,
                 },
                 Ordering::Ordered => quote! {
-                    #index_ident: ::std::collections::BTreeMap<#ty, usize>,
+                    #index_name: ::std::collections::BTreeMap<#ty, usize>,
                 },
             },
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => quote! {
-                    #index_ident: ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
+                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
                 },
                 Ordering::Ordered => quote! {
-                    #index_ident: ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>,
+                    #index_name: ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>,
                 },
             },
         }
@@ -53,13 +57,14 @@ pub(crate) fn generate_lookup_table_init(
     fields: &[(Field, Idents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
-        let index_ident = &idents.index;
+        let index_name = &idents.index;
+
         match ordering {
             Ordering::Hashed => quote! {
-                #index_ident: ::multi_index_map::rustc_hash::FxHashMap::default(),
+                #index_name: ::multi_index_map::rustc_hash::FxHashMap::default(),
             },
             Ordering::Ordered => quote! {
-                #index_ident: ::std::collections::BTreeMap::new(),
+                #index_name: ::std::collections::BTreeMap::new(),
             },
         }
     })
@@ -73,11 +78,11 @@ pub(crate) fn generate_lookup_table_reserve(
     fields: &[(Field, Idents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
-        let index_ident = &idents.index;
+        let index_name = &idents.index;
 
         match ordering {
             Ordering::Hashed => quote! {
-                self.#index_ident.reserve(additional);
+                self.#index_name.reserve(additional);
             },
             Ordering::Ordered => quote! {},
         }
@@ -92,11 +97,11 @@ pub(crate) fn generate_lookup_table_shrink(
     fields: &[(Field, Idents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
-        let index_ident = &idents.index;
+        let index_name = &idents.index;
 
         match ordering {
             Ordering::Hashed => quote! {
-                self.#index_ident.shrink_to_fit();
+                self.#index_name.shrink_to_fit();
             },
             Ordering::Ordered => quote! {},
         }
@@ -112,22 +117,22 @@ pub(crate) fn generate_inserts(
     fields: &[(Field, Idents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(f, idents, _ordering, uniqueness)| {
-        let field_ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
-        let field_ident_string = stringify!(field_ident);
-        let index_ident = &idents.index;
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+        let field_name_string = stringify!(field_name);
+        let index_name = &idents.index;
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                let orig_elem_idx = self.#index_ident.insert(elem.#field_ident.clone(), idx);
+                let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                 if orig_elem_idx.is_some() {
                     panic!(
                         "Unable to insert element, uniqueness constraint violated on field '{}'",
-                        #field_ident_string
+                        #field_name_string
                     );
                 }
             },
             Uniqueness::NonUnique => quote! {
-                self.#index_ident.entry(elem.#field_ident.clone())
+                self.#index_name.entry(elem.#field_name.clone())
                     .or_insert(::std::collections::BTreeSet::new())
                     .insert(idx);
             },
@@ -142,9 +147,9 @@ pub(crate) fn generate_inserts(
 // The index of the removed element in the backing storage before its removal is given as `idx`
 // Remove idx from the lookup table:
 //   - When the field is unique, check that the index is indeed idx,
-//     then delete the corresponding key (elem_orig.#field_ident) from the field
+//     then delete the corresponding key (elem_orig.#field_name) from the field
 //   - When the field is non-unique, get a reference to the container that
-//     contains all back storage indices under the same key (elem_orig.#field_ident),
+//     contains all back storage indices under the same key (elem_orig.#field_name),
 //     + If there are more than one indices in the container, remove idx from it
 //     + If there are exactly one index in the container, then the index has to be idx,
 //       remove the key from the lookup table
@@ -154,30 +159,30 @@ pub(crate) fn generate_removes(
     fields
         .iter()
         .map(|(f, idents, _ordering, uniqueness)| {
-            let field_ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
-            let field_ident_string = stringify!(field_ident);
+            let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+            let field_name_string = stringify!(field_name);
             let error_msg = format!(
                 concat!(
                     "Internal invariants broken, ",
                     "unable to find element in index '{}' despite being present in another"
                 ),
-                field_ident_string
+                field_name_string
             );
-            let index_ident = &idents.index;
+            let index_name = &idents.index;
 
             match uniqueness {
                 Uniqueness::Unique => quote! {
-                    let _removed_elem = self.#index_ident.remove(&elem_orig.#field_ident);
+                    let _removed_elem = self.#index_name.remove(&elem_orig.#field_name);
                 },
                 Uniqueness::NonUnique => quote! {
-                    let key_to_remove = &elem_orig.#field_ident;
-                    if let Some(elems) = self.#index_ident.get_mut(key_to_remove) {
+                    let key_to_remove = &elem_orig.#field_name;
+                    if let Some(elems) = self.#index_name.get_mut(key_to_remove) {
                         if elems.len() > 1 {
                             if !elems.remove(&idx){
                                 panic!(#error_msg);
                             }
                         } else {
-                            self.#index_ident.remove(key_to_remove);
+                            self.#index_name.remove(key_to_remove);
                         }
                     }
 
@@ -195,11 +200,11 @@ pub(crate) fn generate_pre_modifies(
     fields
         .iter()
         .map(|(field, idents, _, _)| {
-            let ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+            let field_name = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
             let orig_ident = &idents.orig;
 
             quote! {
-                let #orig_ident = elem.#ident.clone();
+                let #orig_ident = elem.#field_name.clone();
             }
         })
         .collect::<Vec<_>>()
@@ -208,10 +213,10 @@ pub(crate) fn generate_pre_modifies(
 // For each indexed field generate a TokenStream representing the combined remove and insert from that
 //   field's lookup table.
 // Used in modifier. Run after an element is already modified in the backing storage.
-// The fields of the original element are stored in `orig_#field_ident`
+// The fields of the original element are stored in `orig_#field_name`
 // The element after change is stored in reference `elem` (inside the backing storage).
 // The index of `elem` in the backing storage is `idx`
-// For each field, only make changes if `elem.#field_ident` and `orig_#field_ident` are not equal
+// For each field, only make changes if `elem.#field_name` and `orig_#field_name` are not equal
 //   - When the field is unique, remove the old key and insert idx under the new key
 //     (if new key already exists, panic!)
 //   - When the field is non-unique, remove idx from the container associated with the old key
@@ -221,42 +226,42 @@ pub(crate) fn generate_post_modifies(
     fields: &[(Field, Idents, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields.iter().map(|(f, idents, _ordering, uniqueness)| {
-        let field_ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
-        let field_ident_string = stringify!(field_ident);
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+        let field_name_string = stringify!(field_name);
         let orig_ident = &idents.orig;
-        let index_ident = &idents.index;
+        let index_name = &idents.index;
         let error_msg = format!(
             concat!(
                 "Internal invariants broken, ",
                 "unable to find element in index '{}' despite being present in another"
             ),
-            field_ident_string
+            field_name_string
         );
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                if elem.#field_ident != #orig_ident {
-                    let idx = self.#index_ident.remove(&#orig_ident).expect(#error_msg);
-                    let orig_elem_idx = self.#index_ident.insert(elem.#field_ident.clone(), idx);
+                if elem.#field_name != #orig_ident {
+                    let idx = self.#index_name.remove(&#orig_ident).expect(#error_msg);
+                    let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
                         panic!(
                             "Unable to insert element, uniqueness constraint violated on field '{}'",
-                            #field_ident_string
+                            #field_name_string
                         );
                     }
                 }
             },
             Uniqueness::NonUnique => quote! {
-                if elem.#field_ident != #orig_ident {
-                    let idxs = self.#index_ident.get_mut(&#orig_ident).expect(#error_msg);
+                if elem.#field_name != #orig_ident {
+                    let idxs = self.#index_name.get_mut(&#orig_ident).expect(#error_msg);
                     if idxs.len() > 1 {
                         if !(idxs.remove(&idx)) {
                             panic!(#error_msg);
                         }
                     } else {
-                        self.#index_ident.remove(&#orig_ident);
+                        self.#index_name.remove(&#orig_ident);
                     }
-                    self.#index_ident.entry(elem.#field_ident.clone())
+                    self.#index_name.entry(elem.#field_name.clone())
                         .or_insert(::std::collections::BTreeSet::new())
                         .insert(idx);
                 }
@@ -294,17 +299,17 @@ pub(crate) fn generate_accessors<'a>(
         .collect::<Vec<_>>();
 
     indexed_fields.iter().map(move |(f, idents, ordering, uniqueness)| {
-        let field_ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
-        let field_ident_string = field_ident.to_string();
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+        let field_name_string = field_name.to_string();
         let field_vis = &f.vis;
-        let index_ident = &idents.index;
-        let getter_name = format_ident!("get_by_{field_ident}", );
-        let mut_getter_name = format_ident!("get_mut_by_{field_ident}");
-        let remover_name = format_ident!("remove_by_{field_ident}");
-        let modifier_name = format_ident!("modify_by_{field_ident}");
-        let updater_name = format_ident!("update_by_{field_ident}");
+        let index_name = &idents.index;
+        let getter_name = format_ident!("get_by_{field_name}", );
+        let mut_getter_name = format_ident!("get_mut_by_{field_name}");
+        let remover_name = format_ident!("remove_by_{field_name}");
+        let modifier_name = format_ident!("modify_by_{field_name}");
+        let updater_name = format_ident!("update_by_{field_name}");
         let iter_name = &idents.iter;
-        let iter_getter_name = format_ident!("iter_by_{field_ident}");
+        let iter_getter_name = format_ident!("iter_by_{field_name}");
         let ty = &f.ty;
 
         // TokenStream representing the get_by_ accessor for this field.
@@ -313,12 +318,12 @@ pub(crate) fn generate_accessors<'a>(
         let getter = match uniqueness {
             Uniqueness::Unique => quote! {
                 #field_vis fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
-                    Some(&self._store[*self.#index_ident.get(key)?])
+                    Some(&self._store[*self.#index_name.get(key)?])
                 }
             },
             Uniqueness::NonUnique => quote! {
                 #field_vis fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
-                    if let Some(idxs) = self.#index_ident.get(key) {
+                    if let Some(idxs) = self.#index_name.get(key) {
                         let mut elem_refs = Vec::with_capacity(idxs.len());
                         for idx in idxs {
                             elem_refs.push(&self._store[*idx])
@@ -340,7 +345,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// If the indexed fields need to be changed, the modify() method must be used.
                 #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
-                    Some(&mut self._store[*self.#index_ident.get(key)?])
+                    Some(&mut self._store[*self.#index_name.get(key)?])
                 }
             },
             Uniqueness::NonUnique => quote! {
@@ -350,7 +355,7 @@ pub(crate) fn generate_accessors<'a>(
                 /// If the indexed fields need to be changed, the modify() method must be used.
                 #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
                 #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
-                    if let Some(idxs) = self.#index_ident.get(key) {
+                    if let Some(idxs) = self.#index_name.get(key) {
                         let mut refs = Vec::with_capacity(idxs.len());
                         let mut mut_iter = self._store.iter_mut();
                         let mut last_idx: usize = 0;
@@ -362,7 +367,7 @@ pub(crate) fn generate_accessors<'a>(
                                 _ => {
                                     panic!(
                                         "Error getting mutable reference of non-unique field `{}` in getter.",
-                                        #field_ident_string
+                                        #field_name_string
                                     );
                                 }
                             }
@@ -387,7 +392,7 @@ pub(crate) fn generate_accessors<'a>(
             Uniqueness::Unique => quote! {
 
                 #field_vis fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                    let idx = self.#index_ident.remove(key)?;
+                    let idx = self.#index_name.remove(key)?;
                     let elem_orig = self._store.remove(idx);
                     #(#removes)*
                     Some(elem_orig)
@@ -395,7 +400,7 @@ pub(crate) fn generate_accessors<'a>(
             },
             Uniqueness::NonUnique => quote! {
                 #field_vis fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
-                    if let Some(idxs) = self.#index_ident.remove(key) {
+                    if let Some(idxs) = self.#index_name.remove(key) {
                         let mut elems = Vec::with_capacity(idxs.len());
                         for idx in idxs {
                             let elem_orig = self._store.remove(idx);
@@ -417,7 +422,7 @@ pub(crate) fn generate_accessors<'a>(
                     key: &#ty,
                     f: impl FnOnce(#(&mut #unindexed_types,)*)
                 ) -> Option<&#element_name> {
-                    let idx = *self.#index_ident.get(key)?;
+                    let idx = *self.#index_name.get(key)?;
                     let elem = &mut self._store[idx];
                     f(#(&mut elem.#unindexed_idents,)*);
                     Some(elem)
@@ -430,7 +435,7 @@ pub(crate) fn generate_accessors<'a>(
                     mut f: impl FnMut(#(&mut #unindexed_types,)*)
                 ) -> Vec<&#element_name> {
                     let empty = ::std::collections::BTreeSet::<usize>::new();
-                    let idxs = match self.#index_ident.get(key) {
+                    let idxs = match self.#index_name.get(key) {
                         Some(container) => container,
                         _ => &empty,
                     };
@@ -448,7 +453,7 @@ pub(crate) fn generate_accessors<'a>(
                             _ => {
                                 panic!(
                                     "Error getting mutable reference of non-unique field `{}` in updater.",
-                                    #field_ident_string
+                                    #field_name_string
                                 );
                             }
                         }
@@ -471,7 +476,7 @@ pub(crate) fn generate_accessors<'a>(
                     key: &#ty,
                     f: impl FnOnce(&mut #element_name)
                 ) -> Option<&#element_name> {
-                    let idx = *self.#index_ident.get(key)?;
+                    let idx = *self.#index_name.get(key)?;
                     let elem = &mut self._store[idx];
                     #(#pre_modifies)*
                     f(elem);
@@ -485,7 +490,7 @@ pub(crate) fn generate_accessors<'a>(
                     key: &#ty,
                     f: impl Fn(&mut #element_name)
                 ) -> Vec<&#element_name> {
-                    let idxs = match self.#index_ident.get(key) {
+                    let idxs = match self.#index_name.get(key) {
                         Some(container) => container.clone(),
                         _ => ::std::collections::BTreeSet::<usize>::new()
                     };
@@ -504,7 +509,7 @@ pub(crate) fn generate_accessors<'a>(
                             _ => {
                                 panic!(
                                     "Error getting mutable reference of non-unique field `{}` in modifier.",
-                                    #field_ident_string
+                                    #field_name_string
                                 );
                             }
                         }
@@ -519,15 +524,15 @@ pub(crate) fn generate_accessors<'a>(
             Ordering::Hashed => quote! {
                 #iter_name {
                     _store_ref: &self._store,
-                    _iter: self.#index_ident.iter(),
+                    _iter: self.#index_name.iter(),
                     _inner_iter: None,
                 }
             },
             Ordering::Ordered => quote! {
                 #iter_name {
                     _store_ref: &self._store,
-                    _iter: self.#index_ident.iter(),
-                    _iter_rev: self.#index_ident.iter().rev(),
+                    _iter: self.#index_name.iter(),
+                    _iter_rev: self.#index_name.iter().rev(),
                     _inner_iter: None,
                 }
             },
@@ -561,11 +566,11 @@ pub(crate) fn generate_iterators<'a>(
     element_name: &'a proc_macro2::Ident,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
     fields.iter().map(move |(f, idents, ordering, uniqueness)| {
-        let field_ident = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+        let field_name = f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
         let field_vis = &f.vis;
-        let field_ident_string = field_ident.to_string();
+        let field_name_string = field_name.to_string();
         let error_msg = format!(
-            "Internal invariants broken, found empty slice in non_unique index '{field_ident_string}'"
+            "Internal invariants broken, found empty slice in non_unique index '{field_name_string}'"
         );
         let iter_name = &idents.iter;
         let ty = &f.ty;
