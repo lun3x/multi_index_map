@@ -51,9 +51,14 @@ fn iter_after_modify() {
         assert_eq!(it.next().unwrap().order_id, 1);
     }
 
+    let mut s = "test".to_string();
+
     map.modify_by_order_id(&1, |o| {
-        o.timestamp = 0;
+        s = "p".to_string();
+        o.timestamp = 4;
     });
+
+    assert_eq!(s, "p");
 
     {
         let mut it = map.iter_by_timestamp();
