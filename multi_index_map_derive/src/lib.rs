@@ -81,10 +81,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let lookup_table_fields_reserve = generators::generate_lookup_table_reserve(&indexed_fields);
 
+    #[cfg(feature = "trivial_bounds")]
     let lookup_table_fields_debug = generators::generate_lookup_table_debug(&indexed_fields);
 
     let lookup_table_fields_shrink = generators::generate_lookup_table_shrink(&indexed_fields);
 
+    #[cfg(feature = "trivial_bounds")]
     let lookup_table_field_types = generators::generate_lookup_table_field_types(&indexed_fields);
 
     let inserts = generators::generate_inserts(&indexed_fields);
@@ -122,7 +124,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         lookup_table_fields_init,
         lookup_table_fields_shrink,
         lookup_table_fields_reserve,
+        #[cfg(feature = "trivial_bounds")]
         lookup_table_fields_debug,
+        #[cfg(feature = "trivial_bounds")]
         lookup_table_field_types,
     );
 

@@ -58,15 +58,18 @@ pub(crate) fn generate_lookup_tables(
 }
 
 // For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
+#[cfg(feature = "trivial_bounds")]
 pub(crate) fn generate_lookup_table_field_types(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().flat_map(|(f, idents, ordering, uniqueness)| {
-        let ty = &f.ty;
+    fields
+        .iter()
+        .flat_map(|(f, _idents, ordering, uniqueness)| {
+            let ty = &f.ty;
 
-        let type_debug = quote! {
-            #ty: core::fmt::Debug,
-        };
+            let type_debug = quote! {
+                #ty: core::fmt::Debug,
+            };
 
         let field_debug = match uniqueness {
             Uniqueness::Unique => match ordering {
@@ -151,6 +154,7 @@ pub(crate) fn generate_lookup_table_shrink(
 }
 
 // For each indexed field generate a TokenStream representing a debug struct field
+#[cfg(feature = "trivial_bounds")]
 pub(crate) fn generate_lookup_table_debug(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
@@ -858,25 +862,29 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
-    lookup_table_fields_debug: impl Iterator<Item = proc_macro2::TokenStream>,
-    lookup_table_field_types: impl Iterator<Item = proc_macro2::TokenStream>,
+    #[cfg(feature = "trivial_bounds")] lookup_table_fields_debug: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
+    #[cfg(feature = "trivial_bounds")] lookup_table_field_types: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
 ) -> proc_macro2::TokenStream {
-    let debug_impl = if cfg!(feature = "trivial_bounds") {
-        quote! {
-            // #[allow(trivial_bounds)]
-            impl core::fmt::Debug for #map_name where #element_name: core::fmt::Debug,
-            #(#lookup_table_field_types)*
-             {
-                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                    f.debug_struct(stringify!(#map_name))
-                        .field("_store", &self._store)
-                        #(#lookup_table_fields_debug)*
-                        .finish()
-                }
+    #[cfg(not(feature = "trivial_bounds"))]
+    let debug_impl = quote! {};
+
+    #[cfg(feature = "trivial_bounds")]
+    let debug_impl = quote! {
+        // #[allow(trivial_bounds)]
+        impl core::fmt::Debug for #map_name where #element_name: core::fmt::Debug,
+        #(#lookup_table_field_types)*
+         {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#map_name))
+                    .field("_store", &self._store)
+                    #(#lookup_table_fields_debug)*
+                    .finish()
             }
         }
-    } else {
-        quote! {}
     };
 
     quote! {
