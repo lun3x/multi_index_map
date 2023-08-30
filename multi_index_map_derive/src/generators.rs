@@ -1,18 +1,40 @@
-use ::convert_case::Casing;
 use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
+use proc_macro2::Ident;
+use proc_macro_error::OptionExt;
+use syn::Type;
 
 use crate::index_attributes::{Ordering, Uniqueness};
+
+// Struct to store generated identifiers for each field.
+// These are set once during the initial pass over the indexed fields,
+//   then reused in each generator, to reduce work done at compile-time,
+//   and to ensure each generator uses the same identifiers.
+pub(crate) struct FieldIdents {
+    pub(crate) name: Ident,
+    pub(crate) index_name: Ident,
+    pub(crate) cloned_name: Ident,
+    pub(crate) iter_name: Ident,
+}
+
+struct FieldInfo<'a> {
+    vis: &'a Visibility,
+    ty: &'a Type,
+    str: &'a str,
+}
+
+pub(crate) const EXPECT_NAMED_FIELDS: &str =
+    "Internal logic broken, all fields should have named identifiers";
 
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
 pub(crate) fn generate_lookup_tables(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, ordering, uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+    fields.iter().map(|(f, idents, ordering, uniqueness)| {
         let ty = &f.ty;
+        let index_name = &idents.index_name;
 
         match uniqueness {
             Uniqueness::Unique => match ordering {
@@ -40,10 +62,10 @@ pub(crate) fn generate_lookup_tables(
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
 //   `with_capacity(n)`
 pub(crate) fn generate_lookup_table_init(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+    fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -61,10 +83,10 @@ pub(crate) fn generate_lookup_table_init(
 // Currently `BTreeMap::extend_reserve()` is nightly-only and uses the trait default implementation, which does nothing.
 // Once this is implemented and stabilized, we will use it here to reserve capacity.
 pub(crate) fn generate_lookup_table_reserve(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+    fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -80,10 +102,10 @@ pub(crate) fn generate_lookup_table_reserve(
 // For consistency, HashMaps are shrunk to the capacity of the backing storage
 // `BTreeMap` does not support shrinking.
 pub(crate) fn generate_lookup_table_shrink(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, ordering, _uniqueness)| {
-        let index_name = format_ident!("_{}_index", f.ident.as_ref().unwrap());
+    fields.iter().map(|(_f, idents, ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
 
         match ordering {
             Ordering::Hashed => quote! {
@@ -100,12 +122,12 @@ pub(crate) fn generate_lookup_table_shrink(
 //   whereas non-unique fields require inserting to the container of positions,
 //   creating a new container if necessary.
 pub(crate) fn generate_inserts(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, _ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
-        let field_name_string = field_name.to_string();
-        let index_name = format_ident!("_{}_index", field_name);
+    fields.iter().map(|(_f, idents, _ordering, uniqueness)| {
+        let field_name = &idents.name;
+        let field_name_string = stringify!(field_name);
+        let index_name = &idents.index_name;
 
         match uniqueness {
             Uniqueness::Unique => quote! {
@@ -140,14 +162,13 @@ pub(crate) fn generate_inserts(
 //     + If there are exactly one index in the container, then the index has to be idx,
 //       remove the key from the lookup table
 pub(crate) fn generate_removes(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
     fields
         .iter()
-        .map(|(f, _ordering, uniqueness)| {
-            let field_name = f.ident.as_ref().unwrap();
-            let field_name_string = field_name.to_string();
-            let index_name = format_ident!("_{}_index", field_name);
+        .map(|(_f, idents, _ordering, uniqueness)| {
+            let field_name = &idents.name;
+            let field_name_string = stringify!(field_name);
             let error_msg = format!(
                 concat!(
                     "Internal invariants broken, ",
@@ -155,6 +176,7 @@ pub(crate) fn generate_removes(
                 ),
                 field_name_string
             );
+            let index_name = &idents.index_name;
 
             match uniqueness {
                 Uniqueness::Unique => quote! {
@@ -178,25 +200,44 @@ pub(crate) fn generate_removes(
         .collect()
 }
 
+// For each indexed field generate a TokenStream representing the clone the original value,
+//   so that we can compare after the modify is applied and adjust lookup tables as necessary
+pub(crate) fn generate_pre_modifies(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> Vec<::proc_macro2::TokenStream> {
+    fields
+        .iter()
+        .map(|(_f, idents, _, _)| {
+            let field_name = &idents.name;
+            let orig_ident = &idents.cloned_name;
+
+            quote! {
+                let #orig_ident = elem.#field_name.clone();
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
 // For each indexed field generate a TokenStream representing the combined remove and insert from that
 //   field's lookup table.
 // Used in modifier. Run after an element is already modified in the backing storage.
-// The element before the change is stored in `elem_orig`.
+// The fields of the original element are stored in `orig_#field_name`
 // The element after change is stored in reference `elem` (inside the backing storage).
 // The index of `elem` in the backing storage is `idx`
-// For each field, only make changes if elem.#field_name and elem_orig.#field_name are not equal
+// For each field, only make changes if `elem.#field_name` and `orig_#field_name` are not equal
 //   - When the field is unique, remove the old key and insert idx under the new key
 //     (if new key already exists, panic!)
 //   - When the field is non-unique, remove idx from the container associated with the old key
 //     + if the container is empty after removal, remove the old key, and insert idx to the new key
 //       (create a new container if necessary)
-pub(crate) fn generate_modifies(
-    fields: &[(Field, Ordering, Uniqueness)],
+pub(crate) fn generate_post_modifies(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
-    fields.iter().map(|(f, _ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
-        let field_name_string = field_name.to_string();
-        let index_name = format_ident!("_{}_index", field_name);
+    fields.iter().map(|(_f, idents, _ordering, uniqueness)| {
+        let field_name = &idents.name;
+        let field_name_string = stringify!(field_name);
+        let orig_ident = &idents.cloned_name;
+        let index_name = &idents.index_name;
         let error_msg = format!(
             concat!(
                 "Internal invariants broken, ",
@@ -207,8 +248,8 @@ pub(crate) fn generate_modifies(
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                if elem.#field_name != elem_orig.#field_name {
-                    let idx = self.#index_name.remove(&elem_orig.#field_name).expect(#error_msg);
+                if elem.#field_name != #orig_ident {
+                    let idx = self.#index_name.remove(&#orig_ident).expect(#error_msg);
                     let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
                         panic!(
@@ -219,14 +260,14 @@ pub(crate) fn generate_modifies(
                 }
             },
             Uniqueness::NonUnique => quote! {
-                if elem.#field_name != elem_orig.#field_name {
-                    let idxs = self.#index_name.get_mut(&elem_orig.#field_name).expect(#error_msg);
+                if elem.#field_name != #orig_ident {
+                    let idxs = self.#index_name.get_mut(&#orig_ident).expect(#error_msg);
                     if idxs.len() > 1 {
                         if !(idxs.remove(&idx)) {
                             panic!(#error_msg);
                         }
                     } else {
-                        self.#index_name.remove(&elem_orig.#field_name);
+                        self.#index_name.remove(&#orig_ident);
                     }
                     self.#index_name.entry(elem.#field_name.clone())
                         .or_insert(::std::collections::BTreeSet::new())
@@ -238,11 +279,10 @@ pub(crate) fn generate_modifies(
 }
 
 pub(crate) fn generate_clears(
-    fields: &[(Field, Ordering, Uniqueness)],
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
-    fields.iter().map(|(f, _ordering, _uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
-        let index_name = format_ident!("_{}_index", field_name);
+    fields.iter().map(|(_f, idents, _ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
 
         quote! {
             self.#index_name.clear();
@@ -250,320 +290,403 @@ pub(crate) fn generate_clears(
     })
 }
 
-// For each indexed field generate a TokenStream representing all the accessors
-//   for the underlying storage via that field's lookup table.
-pub(crate) fn generate_accessors<'a>(
-    indexed_fields: &'a [(Field, Ordering, Uniqueness)],
-    unindexed_fields: &'a [Field],
-    map_name: &'a proc_macro2::Ident,
-    element_name: &'a proc_macro2::Ident,
-    removes: &'a [proc_macro2::TokenStream],
-    modifies: &'a [proc_macro2::TokenStream],
-) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
-    let unindexed_types = unindexed_fields
-        .iter()
-        .map(|f| {
-            let ty = &f.ty;
-            quote! {
-                #ty
+// TokenStream representing the get_by_ accessor for this field.
+// For non-unique indexes we must go through all matching elements and find their positions,
+//   in order to return a Vec of references to the backing storage.
+fn generate_field_getter(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    element_name: &Ident,
+    uniqueness: &Uniqueness,
+) -> proc_macro2::TokenStream {
+    let getter_name = format_ident!("get_by_{}", &field_idents.name);
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #getter_name(&self, key: &#field_type) -> Option<&#element_name> {
+                Some(&self._store[*self.#index_name.get(key)?])
             }
-        })
-        .collect::<Vec<_>>();
-
-    let unindexed_idents = unindexed_fields
-        .iter()
-        .map(|f| {
-            let ident = &f.ident;
-            quote! {
-                #ident
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #getter_name(&self, key: &#field_type) -> Vec<&#element_name> {
+                if let Some(idxs) = self.#index_name.get(key) {
+                    let mut elem_refs = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        elem_refs.push(&self._store[*idx])
+                    }
+                    elem_refs
+                } else {
+                    Vec::new()
+                }
             }
-        })
-        .collect::<Vec<_>>();
+        },
+    }
+}
 
-    indexed_fields.iter().map(move |(f, ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
-        let field_name_string = field_name.to_string();
-        let field_vis = &f.vis;
-        let index_name = format_ident!("_{}_index", field_name);
-        let getter_name = format_ident!("get_by_{}", field_name);
-        let mut_getter_name = format_ident!("get_mut_by_{}", field_name);
-        let remover_name = format_ident!("remove_by_{}", field_name);
-        let modifier_name = format_ident!("modify_by_{}", field_name);
-        let updater_name = format_ident!("update_by_{}", field_name);
-        let iter_name = format_ident!(
-            "{}{}Iter",
-            map_name,
-            field_name.to_string().to_case(::convert_case::Case::UpperCamel)
-        );
-        let iter_getter_name = format_ident!("iter_by_{}", field_name);
-        let ty = &f.ty;
+// TokenStream representing the get_mut_by_ accessor for this field.
+// Note that these methods are deprecated, and will be removed in a future version.
+fn generate_field_mut_getter(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    element_name: &Ident,
+    uniqueness: &Uniqueness,
+) -> proc_macro2::TokenStream {
+    let mut_getter_name = format_ident!("get_mut_by_{}", &field_idents.name);
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
 
-        // TokenStream representing the get_by_ accessor for this field.
-        // For non-unique indexes we must go through all matching elements and find their positions,
-        // in order to return a Vec of references to the backing storage.
-        let getter = match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #getter_name(&self, key: &#ty) -> Option<&#element_name> {
-                    Some(&self._store[*self.#index_name.get(key)?])
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #getter_name(&self, key: &#ty) -> Vec<&#element_name> {
-                    if let Some(idxs) = self.#index_name.get(key) {
-                        let mut elem_refs = Vec::with_capacity(idxs.len());
-                        for idx in idxs {
-                            elem_refs.push(&self._store[*idx])
-                        }
-                        elem_refs
-                    } else {
-                        Vec::new()
-                    }
-                }
-            },
-        };
-
-        // TokenStream representing the get_mut_by_ accessor for this field.
-        let mut_getter = match uniqueness {
-            Uniqueness::Unique => quote! {
-                /// SAFETY:
-                /// It is safe to mutate the non-indexed fields,
-                /// however mutating any of the indexed fields will break the internal invariants.
-                /// If the indexed fields need to be changed, the modify() method must be used.
-                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-                #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Option<&mut #element_name> {
-                    Some(&mut self._store[*self.#index_name.get(key)?])
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                /// SAFETY:
-                /// It is safe to mutate the non-indexed fields,
-                /// however mutating any of the indexed fields will break the internal invariants.
-                /// If the indexed fields need to be changed, the modify() method must be used.
-                #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-                #field_vis unsafe fn #mut_getter_name(&mut self, key: &#ty) -> Vec<&mut #element_name> {
-                    if let Some(idxs) = self.#index_name.get(key) {
-                        let mut refs = Vec::with_capacity(idxs.len());
-                        let mut mut_iter = self._store.iter_mut();
-                        let mut last_idx: usize = 0;
-                        for idx in idxs.iter() {
-                            match mut_iter.nth(*idx - last_idx) {
-                                Some(val) => {
-                                    refs.push(val.1)
-                                },
-                                _ => {
-                                    panic!(
-                                        "Error getting mutable reference of non-unique field `{}` in getter.",
-                                        #field_name_string
-                                    );
-                                }
-                            }
-                            last_idx = *idx + 1;
-                        }
-                        refs
-                    } else {
-                        Vec::new()
-                    }
-                }
-            },
-        };
-
-        // TokenStream representing the remove_by_ accessor for this field.
-        // For non-unique indexes we must go through all matching elements and find their positions,
-        // in order to return a Vec elements from the backing storage.
-        //      - get the back storage index(s)
-        //      - mark the index(s) as unused in back storage
-        //      - remove the index(s) from all fields
-        //      - return the element(s)
-        let remover = match uniqueness {
-            Uniqueness::Unique => quote! {
-
-                #field_vis fn #remover_name(&mut self, key: &#ty) -> Option<#element_name> {
-                    let idx = self.#index_name.remove(key)?;
-                    let elem_orig = self._store.remove(idx);
-                    #(#removes)*
-                    Some(elem_orig)
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #remover_name(&mut self, key: &#ty) -> Vec<#element_name> {
-                    if let Some(idxs) = self.#index_name.remove(key) {
-                        let mut elems = Vec::with_capacity(idxs.len());
-                        for idx in idxs {
-                            let elem_orig = self._store.remove(idx);
-                            #(#removes)*
-                            elems.push(elem_orig)
-                        }
-                        elems
-                    } else {
-                        Vec::new()
-                    }
-                }
-            },
-        };
-
-        let updater = match uniqueness {
-            Uniqueness::Unique => quote! {
-               #field_vis fn #updater_name(
-                    &mut self,
-                    key: &#ty,
-                    f: impl FnOnce(#(&mut #unindexed_types,)*)
-                ) -> Option<&#element_name> {
-                    let idx = *self.#index_name.get(key)?;
-                    let elem = &mut self._store[idx];
-                    f(#(&mut elem.#unindexed_idents,)*);
-                    Some(elem)
-               }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #updater_name(
-                    &mut self,
-                    key: &#ty,
-                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
-                ) -> Vec<&#element_name> {
-                    let empty = ::std::collections::BTreeSet::<usize>::new();
-                    let idxs = match self.#index_name.get(key) {
-                        Some(container) => container,
-                        _ => &empty,
-                    };
-
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            /// SAFETY:
+            /// It is safe to mutate the non-indexed fields,
+            /// however mutating any of the indexed fields will break the internal invariants.
+            /// If the indexed fields need to be changed, the modify() method must be used.
+            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
+            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Option<&mut #element_name> {
+                Some(&mut self._store[*self.#index_name.get(key)?])
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            /// SAFETY:
+            /// It is safe to mutate the non-indexed fields,
+            /// however mutating any of the indexed fields will break the internal invariants.
+            /// If the indexed fields need to be changed, the modify() method must be used.
+            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
+            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<&mut #element_name> {
+                if let Some(idxs) = self.#index_name.get(key) {
                     let mut refs = Vec::with_capacity(idxs.len());
                     let mut mut_iter = self._store.iter_mut();
                     let mut last_idx: usize = 0;
-                    for idx in idxs {
-                        match mut_iter.nth(idx - last_idx) {
+                    for idx in idxs.iter() {
+                        match mut_iter.nth(*idx - last_idx) {
                             Some(val) => {
-                                let elem = val.1;
-                                f(#(&mut elem.#unindexed_idents,)*);
-                                refs.push(&*elem);
-                            }
-                            _ => {
-                                panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in updater.",
-                                    #field_name_string
-                                );
-                            }
-                        }
-                        last_idx = idx + 1;
-                    }
-                    refs
-                }
-            }
-        };
-
-        // TokenStream representing the modify_by_ accessor for this field.
-        //      - obtain mutable reference (s) of the element
-        //      - apply changes to the reference(s)
-        //      - for each changed element, update all changed fields
-        //      - return the modified item(s) as references
-        let modifier = match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #modifier_name(
-                    &mut self,
-                    key: &#ty,
-                    f: impl FnOnce(&mut #element_name)
-                ) -> Option<&#element_name> {
-                    let idx = *self.#index_name.get(key)?;
-                    let elem = &mut self._store[idx];
-                    let elem_orig = elem.clone();
-                    f(elem);
-                    #(#modifies)*
-                    Some(elem)
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #modifier_name(
-                    &mut self,
-                    key: &#ty,
-                    f: impl Fn(&mut #element_name)
-                ) -> Vec<&#element_name> {
-                    let idxs = match self.#index_name.get(key) {
-                        Some(container) => container.clone(),
-                        _ => ::std::collections::BTreeSet::<usize>::new()
-                    };
-                    let mut refs = Vec::with_capacity(idxs.len());
-                    let mut mut_iter = self._store.iter_mut();
-                    let mut last_idx: usize = 0;
-                    for idx in idxs {
-                        match mut_iter.nth(idx - last_idx) {
-                            Some(val) => {
-                                let elem = val.1;
-                                let elem_orig = elem.clone();
-                                f(elem);
-                                #(#modifies)*
-                                refs.push(&*elem);
+                                refs.push(val.1)
                             },
                             _ => {
                                 panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in modifier.",
-                                    #field_name_string
+                                    "Error getting mutable reference of non-unique field `{}` in getter.",
+                                    #field_name_str
                                 );
                             }
                         }
-                        last_idx = idx + 1;
+                        last_idx = *idx + 1;
                     }
                     refs
+                } else {
+                    Vec::new()
                 }
-            },
-        };
-
-        let iterator_def = match ordering {
-            Ordering::Hashed => quote! {
-                #iter_name {
-                    _store_ref: &self._store,
-                    _iter: self.#index_name.iter(),
-                    _inner_iter: None,
-                }
-            },
-            Ordering::Ordered => quote! {
-                #iter_name {
-                    _store_ref: &self._store,
-                    _iter: self.#index_name.iter(),
-                    _iter_rev: self.#index_name.iter().rev(),
-                    _inner_iter: None,
-                }
-            },
-        };
-
-        // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
-        //   on the end.
-        quote! {
-            #getter
-
-            #mut_getter
-
-            #remover
-
-            #modifier
-
-            #updater
-
-            #field_vis fn #iter_getter_name(&self) -> #iter_name {
-                #iterator_def
             }
+        },
+    }
+}
+
+// TokenStream representing the remove_by_ accessor for this field.
+// For non-unique indexes we must go through all matching elements and find their positions,
+// in order to return a Vec elements from the backing storage.
+//      - get the back storage index(s)
+//      - mark the index(s) as unused in back storage
+//      - remove the index(s) from all fields
+//      - return the element(s)
+fn generate_field_remover(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    element_name: &Ident,
+    uniqueness: &Uniqueness,
+    removes: &[proc_macro2::TokenStream],
+) -> proc_macro2::TokenStream {
+    let remover_name = format_ident!("remove_by_{}", &field_idents.name);
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Option<#element_name> {
+                let idx = self.#index_name.remove(key)?;
+                let elem_orig = self._store.remove(idx);
+                #(#removes)*
+                Some(elem_orig)
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Vec<#element_name> {
+                if let Some(idxs) = self.#index_name.remove(key) {
+                    let mut elems = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        let elem_orig = self._store.remove(idx);
+                        #(#removes)*
+                        elems.push(elem_orig)
+                    }
+                    elems
+                } else {
+                    Vec::new()
+                }
+            }
+        },
+    }
+}
+
+fn generate_field_updater(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    element_name: &Ident,
+    uniqueness: &Uniqueness,
+    unindexed_types: &[&Type],
+    unindexed_idents: &[&Ident],
+) -> proc_macro2::TokenStream {
+    let updater_name = format_ident!("update_by_{}", &field_idents.name);
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
+
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #updater_name(
+                &mut self,
+                key: &#field_type,
+                f: impl FnOnce(#(&mut #unindexed_types,)*)
+            ) -> Option<&#element_name> {
+                let idx = *self.#index_name.get(key)?;
+                let elem = &mut self._store[idx];
+                f(#(&mut elem.#unindexed_idents,)*);
+                Some(elem)
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #updater_name(
+                &mut self,
+                key: &#field_type,
+                mut f: impl FnMut(#(&mut #unindexed_types,)*)
+            ) -> Vec<&#element_name> {
+                let empty = ::std::collections::BTreeSet::<usize>::new();
+                let idxs = match self.#index_name.get(key) {
+                    Some(container) => container,
+                    _ => &empty,
+                };
+
+                let mut refs = Vec::with_capacity(idxs.len());
+                let mut mut_iter = self._store.iter_mut();
+                let mut last_idx: usize = 0;
+                for idx in idxs {
+                    match mut_iter.nth(idx - last_idx) {
+                        Some(val) => {
+                            let elem = val.1;
+                            f(#(&mut elem.#unindexed_idents,)*);
+                            refs.push(&*elem);
+                        }
+                        _ => {
+                            panic!(
+                                "Error getting mutable reference of non-unique field `{}` in updater.",
+                                #field_name_str
+                            );
+                        }
+                    }
+                    last_idx = idx + 1;
+                }
+                refs
+            }
+        },
+    }
+}
+
+// TokenStream representing the modify_by_ accessor for this field.
+//      - obtain mutable reference (s) of the element
+//      - apply changes to the reference(s)
+//      - for each changed element, update all changed fields
+//      - return the modified item(s) as references
+fn generate_field_modifier(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    element_name: &Ident,
+    uniqueness: &Uniqueness,
+    pre_modifies: &[proc_macro2::TokenStream],
+    post_modifies: &[proc_macro2::TokenStream],
+) -> proc_macro2::TokenStream {
+    let modifier_name = format_ident!("modify_by_{}", &field_idents.name);
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+    let field_type = &field_info.ty;
+    let field_name_str = &field_info.str;
+
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #modifier_name(
+                &mut self,
+                key: &#field_type,
+                f: impl FnOnce(&mut #element_name)
+            ) -> Option<&#element_name> {
+                let idx = *self.#index_name.get(key)?;
+                let elem = &mut self._store[idx];
+                #(#pre_modifies)*
+                f(elem);
+                #(#post_modifies)*
+                Some(elem)
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #modifier_name(
+                &mut self,
+                key: &#field_type,
+                f: impl Fn(&mut #element_name)
+            ) -> Vec<&#element_name> {
+                let idxs = match self.#index_name.get(key) {
+                    Some(container) => container.clone(),
+                    _ => ::std::collections::BTreeSet::<usize>::new()
+                };
+                let mut refs = Vec::with_capacity(idxs.len());
+                let mut mut_iter = self._store.iter_mut();
+                let mut last_idx: usize = 0;
+                for idx in idxs {
+                    match mut_iter.nth(idx - last_idx) {
+                        Some(val) => {
+                            let elem = val.1;
+                            #(#pre_modifies)*
+                            f(elem);
+                            #(#post_modifies)*
+                            refs.push(&*elem);
+                        },
+                        _ => {
+                            panic!(
+                                "Error getting mutable reference of non-unique field `{}` in modifier.",
+                                #field_name_str
+                            );
+                        }
+                    }
+                    last_idx = idx + 1;
+                }
+                refs
+            }
+        },
+    }
+}
+
+fn generate_field_iter_getter(
+    field_idents: &FieldIdents,
+    field_info: &FieldInfo,
+    ordering: &Ordering,
+) -> proc_macro2::TokenStream {
+    let iter_getter_name = format_ident!("iter_by_{}", &field_idents.name);
+    let iter_name = &field_idents.iter_name;
+    let index_name = &field_idents.index_name;
+    let field_vis = &field_info.vis;
+
+    let iterator_def = match ordering {
+        Ordering::Hashed => quote! {
+            #iter_name {
+                _store_ref: &self._store,
+                _iter: self.#index_name.iter(),
+                _inner_iter: None,
+            }
+        },
+        Ordering::Ordered => quote! {
+            #iter_name {
+                _store_ref: &self._store,
+                _iter: self.#index_name.iter(),
+                _iter_rev: self.#index_name.iter().rev(),
+                _inner_iter: None,
+            }
+        },
+    };
+
+    quote! {
+        #field_vis fn #iter_getter_name(&self) -> #iter_name {
+            #iterator_def
         }
-    })
+    }
+}
+
+// For each indexed field generate a TokenStream representing all the accessors
+//   for the underlying storage via that field's lookup table.
+pub(crate) fn generate_accessors<'a>(
+    indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
+    unindexed_fields: &'a [Field],
+    element_name: &'a proc_macro2::Ident,
+    removes: &'a [proc_macro2::TokenStream],
+    pre_modifies: &'a [proc_macro2::TokenStream],
+    post_modifies: &'a [proc_macro2::TokenStream],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+    let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
+    let unindexed_idents = unindexed_fields
+        .iter()
+        .map(|f| f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS))
+        .collect::<Vec<_>>();
+
+    indexed_fields
+        .iter()
+        .map(move |(f, idents, ordering, uniqueness)| {
+            let field_info = FieldInfo {
+                vis: &f.vis,
+                ty: &f.ty,
+                str: &idents.name.to_string(),
+            };
+
+            let getter = generate_field_getter(idents, &field_info, element_name, uniqueness);
+
+            let mut_getter =
+                generate_field_mut_getter(idents, &field_info, element_name, uniqueness);
+
+            let remover =
+                generate_field_remover(idents, &field_info, element_name, uniqueness, removes);
+
+            let updater = generate_field_updater(
+                idents,
+                &field_info,
+                element_name,
+                uniqueness,
+                &unindexed_types,
+                &unindexed_idents,
+            );
+
+            let modifier = generate_field_modifier(
+                idents,
+                &field_info,
+                element_name,
+                uniqueness,
+                pre_modifies,
+                post_modifies,
+            );
+
+            let iter_getter = generate_field_iter_getter(idents, &field_info, ordering);
+
+            // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
+            //   on the end.
+            quote! {
+                #getter
+
+                #mut_getter
+
+                #remover
+
+                #modifier
+
+                #updater
+
+                #iter_getter
+            }
+        })
 }
 
 // For each indexed field generate a TokenStream representing the Iterator over the backing storage
 //   via that field,
 // such that the elements are accessed in an order defined by the index rather than the backing storage.
 pub(crate) fn generate_iterators<'a>(
-    fields: &'a [(Field, Ordering, Uniqueness)],
-    map_name: &'a proc_macro2::Ident,
+    fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     element_name: &'a proc_macro2::Ident,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
-    fields.iter().map(move |(f, ordering, uniqueness)| {
-        let field_name = f.ident.as_ref().unwrap();
+    fields.iter().map(move |(f, idents, ordering, uniqueness)| {
+        let field_name = &idents.name;
         let field_vis = &f.vis;
         let field_name_string = field_name.to_string();
         let error_msg = format!(
             "Internal invariants broken, found empty slice in non_unique index '{field_name_string}'"
         );
-        let iter_name = format_ident!(
-            "{}{}Iter",
-            map_name,
-            field_name.to_string().to_case(::convert_case::Case::UpperCamel)
-        );
+        let iter_name = &idents.iter_name;
         let ty = &f.ty;
 
         // TokenStream representing the actual type of the iterator
