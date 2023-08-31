@@ -1,5 +1,5 @@
 use multi_index_map::MultiIndexMap;
-#[derive(MultiIndexMap, Clone, PartialEq, Debug)]
+#[derive(MultiIndexMap, PartialEq, Debug)]
 struct TestElement {
     #[multi_index(ordered_non_unique)]
     field1: usize,

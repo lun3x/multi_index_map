@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.6.2"
+version = "0.8.1"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"
@@ -14,7 +14,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multi_index_map_derive = { version = "0.6.2", path = "../multi_index_map_derive" }
+multi_index_map_derive = { version = "0.8.1", path = "../multi_index_map_derive" }
 
 # Used as the backing store of all the elements.
 slab = { version = "0.4" }
@@ -31,4 +31,4 @@ name = "performance"
 harness = false
 
 [features]
-experimental = ["multi_index_map_derive/experimental"]
+trivial_bounds = ["multi_index_map_derive/trivial_bounds"]

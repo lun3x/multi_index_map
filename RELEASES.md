@@ -1,3 +1,25 @@
+Version 0.8.1 (2023-08-30)
+==========================
+
+- Allow FnMut closures in `modify_by_` methods.
+
+Version 0.8.0 (2023-08-30)
+==========================
+
+- Remove `Clone` requirement on elements, now only the indexed fields must implement Clone. This should be helpful when storing non-Clonable types in un-indexed fields.
+- If the MultiIndexMap does need to be Cloned, this must be implemented manually, however this should be fairly simple to do next to where the element is defined. See `examples/main.rs`.
+
+Version 0.7.1 (2023-08-30)
+==========================
+
+- Refactor and cleanup lots of code, also further reduce work done at compile time, by only generating identifiers for each field once.
+- Implement work necessary to remove Clone requirement, however this will be fully removed in the next release.
+
+Version 0.7.0 (2023-08-29)
+==========================
+
+- Add `update_by_` methods and deprecate `get_mut_by_` methods. The new methods are equivalently useful, but safe and equally performant.
+
 Version 0.6.2 (2023-08-15)
 ==========================
 

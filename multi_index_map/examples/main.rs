@@ -13,6 +13,18 @@ mod inner {
         pub(crate) trader_name: String,
         pub(crate) note: String,
     }
+
+    // Manually implement Clone, this can be auto generated correctly by rust-analyzer
+    impl Clone for MultiIndexOrderMap {
+        fn clone(&self) -> Self {
+            Self {
+                _store: self._store.clone(),
+                _order_id_index: self._order_id_index.clone(),
+                _timestamp_index: self._timestamp_index.clone(),
+                _trader_name_index: self._trader_name_index.clone(),
+            }
+        }
+    }
 }
 
 fn main() {
@@ -75,12 +87,12 @@ fn main() {
         o1_ref.trader_name, o1_ref
     );
 
-    let o1_mut_ref = unsafe { map.get_mut_by_order_id(&7).unwrap() };
-    o1_mut_ref.note = "TestNote".to_string();
-    println!(
-        "Changed note of order {o1_mut_ref:?}, to {:?}",
-        o1_mut_ref.note,
-    );
+    let o1_ref = map
+        .update_by_order_id(&7, |note| {
+            *note = "TestNote".to_string();
+        })
+        .unwrap();
+    println!("Updated note of order {o1_ref:?}, to {:?}", o1_ref.note,);
 
     let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
     assert_eq!(toms_orders.len(), 2);
