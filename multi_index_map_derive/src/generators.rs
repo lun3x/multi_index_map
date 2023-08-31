@@ -80,13 +80,13 @@ pub(crate) fn generate_lookup_table_field_types(
             let ty = &f.ty;
 
             let type_debug = quote! {
-                #ty: core::fmt::Debug,
+                #ty: ::core::fmt::Debug,
             };
 
             let field_type = index_field_type(ty, ordering, uniqueness);
 
             let field_debug = quote! {
-                #field_type: core::fmt::Debug,
+                #field_type: ::core::fmt::Debug,
             };
 
             [type_debug, field_debug]
@@ -873,8 +873,7 @@ pub(crate) fn generate_expanded(
 
     #[cfg(feature = "trivial_bounds")]
     let debug_impl = quote! {
-        // #[allow(trivial_bounds)]
-        impl core::fmt::Debug for #map_name where #element_name: core::fmt::Debug,
+        impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug,
         #(#lookup_table_field_types)*
          {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
