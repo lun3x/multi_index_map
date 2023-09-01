@@ -36,25 +36,61 @@ pub(crate) fn generate_lookup_tables(
         let ty = &f.ty;
         let index_name = &idents.index_name;
 
-        match uniqueness {
-            Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>,
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: ::std::collections::BTreeMap<#ty, usize>,
-                },
-            },
-            Uniqueness::NonUnique => match ordering {
-                Ordering::Hashed => quote! {
-                    #index_name: ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>,
-                },
-                Ordering::Ordered => quote! {
-                    #index_name: ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>,
-                },
-            },
+        let field_type = index_field_type(ty, ordering, uniqueness);
+
+        quote! {
+            #index_name: #field_type,
         }
     })
+}
+
+fn index_field_type(
+    ty: &Type,
+    ordering: &Ordering,
+    uniqueness: &Uniqueness,
+) -> ::proc_macro2::TokenStream {
+    match uniqueness {
+        Uniqueness::Unique => match ordering {
+            Ordering::Hashed => quote! {
+                ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>
+            },
+            Ordering::Ordered => quote! {
+                ::std::collections::BTreeMap<#ty, usize>
+            },
+        },
+        Uniqueness::NonUnique => match ordering {
+            Ordering::Hashed => quote! {
+                ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>
+            },
+            Ordering::Ordered => quote! {
+                ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>
+            },
+        },
+    }
+}
+
+// For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
+#[cfg(feature = "trivial_bounds")]
+pub(crate) fn generate_lookup_table_field_types(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields
+        .iter()
+        .flat_map(|(f, _idents, ordering, uniqueness)| {
+            let ty = &f.ty;
+
+            let type_debug = quote! {
+                #ty: ::core::fmt::Debug,
+            };
+
+            let field_type = index_field_type(ty, ordering, uniqueness);
+
+            let field_debug = quote! {
+                #field_type: ::core::fmt::Debug,
+            };
+
+            [type_debug, field_debug]
+        })
 }
 
 // For each indexed field generate a TokenStream representing initializing the lookup table.
@@ -112,6 +148,20 @@ pub(crate) fn generate_lookup_table_shrink(
                 self.#index_name.shrink_to_fit();
             },
             Ordering::Ordered => quote! {},
+        }
+    })
+}
+
+// For each indexed field generate a TokenStream representing a debug struct field
+#[cfg(feature = "trivial_bounds")]
+pub(crate) fn generate_lookup_table_debug(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields.iter().map(|(_f, idents, _ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
+
+        quote! {
+            .field(stringify!(#index_name), &self.#index_name)
         }
     })
 }
@@ -811,13 +861,38 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
+    #[cfg(feature = "trivial_bounds")] lookup_table_fields_debug: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
+    #[cfg(feature = "trivial_bounds")] lookup_table_field_types: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
 ) -> proc_macro2::TokenStream {
+    #[cfg(not(feature = "trivial_bounds"))]
+    let debug_impl = quote! {};
+
+    #[cfg(feature = "trivial_bounds")]
+    let debug_impl = quote! {
+        impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug,
+        #(#lookup_table_field_types)*
+         {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#map_name))
+                    .field("_store", &self._store)
+                    #(#lookup_table_fields_debug)*
+                    .finish()
+            }
+        }
+    };
+
     quote! {
         #[derive(Default)]
         #element_vis struct #map_name {
             _store: ::multi_index_map::slab::Slab<#element_name>,
             #(#lookup_table_fields)*
         }
+
+        #debug_impl
 
         impl #map_name {
             #element_vis fn with_capacity(n: usize) -> #map_name {
