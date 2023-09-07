@@ -181,7 +181,7 @@ pub(crate) fn generate_lookup_table_debug(
     })
 }
 
-// For each indexed field generate a TokenStream representing a debug struct field
+// For each indexed field generate a TokenStream representing the `.clone()` of that field
 #[cfg(feature = "trivial_bounds")]
 pub(crate) fn generate_lookup_table_clone(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
