@@ -90,12 +90,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let lookup_table_fields_shrink = generators::generate_lookup_table_shrink(&indexed_fields);
 
     #[cfg(feature = "trivial_bounds")]
-    let lookup_table_field_debug_types =
-        generators::generate_lookup_table_field_debug_types(&indexed_fields);
+    let debug_type_bounds_table_fields =
+        generators::generate_debug_type_bounds_table_fields(&indexed_fields);
 
     #[cfg(feature = "trivial_bounds")]
-    let lookup_table_field_clone_types =
-        generators::generate_lookup_table_field_clone_types(&indexed_fields);
+    let clone_type_bounds_table_fields =
+        generators::generate_clone_type_bounds_table_fields(&indexed_fields);
 
     let inserts = generators::generate_inserts(&indexed_fields);
 
@@ -135,11 +135,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         #[cfg(feature = "trivial_bounds")]
         lookup_table_fields_debug,
         #[cfg(feature = "trivial_bounds")]
-        lookup_table_field_debug_types,
+        debug_type_bounds_table_fields,
         #[cfg(feature = "trivial_bounds")]
         lookup_table_fields_clone,
         #[cfg(feature = "trivial_bounds")]
-        lookup_table_field_clone_types,
+        clone_type_bounds_table_fields,
     );
 
     // Hand the output tokens back to the compiler.
