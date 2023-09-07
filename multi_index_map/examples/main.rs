@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
+
 use crate::inner::MultiIndexOrderMap;
 use crate::inner::Order;
 
@@ -14,7 +16,9 @@ mod inner {
         pub(crate) note: String,
     }
 
-    // Manually implement Clone, this can be auto generated correctly by rust-analyzer
+    // Manually implement Clone if trivial_bounds is disabled
+    // this can be auto generated correctly by rust-analyzer
+    #[cfg(not(feature = "trivial_bounds"))]
     impl Clone for MultiIndexOrderMap {
         fn clone(&self) -> Self {
             Self {

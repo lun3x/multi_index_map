@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
+
 use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, PartialOrd, Ord)]

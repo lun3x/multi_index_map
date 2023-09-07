@@ -69,30 +69,45 @@ fn index_field_type(
     }
 }
 
-// For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
 #[cfg(feature = "trivial_bounds")]
-pub(crate) fn generate_lookup_table_field_types(
+fn generate_type_bounds_table_fields(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+    type_bounds: ::proc_macro2::TokenStream,
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields
         .iter()
-        .flat_map(|(f, _idents, ordering, uniqueness)| {
+        .flat_map(move |(f, _idents, ordering, uniqueness)| {
             let ty = &f.ty;
 
             let type_debug = quote! {
-                #ty: ::core::fmt::Debug,
+                #ty: #type_bounds,
             };
 
             let field_type = index_field_type(ty, ordering, uniqueness);
 
             let field_debug = quote! {
-                #field_type: ::core::fmt::Debug,
+                #field_type: #type_bounds,
             };
 
             [type_debug, field_debug]
         })
 }
 
+// For each indexed field generate a TokenStream of the Debug bound for the field type and the multi_index_map specific type
+#[cfg(feature = "trivial_bounds")]
+pub(crate) fn generate_debug_type_bounds_table_fields(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    generate_type_bounds_table_fields(fields, quote! {::core::fmt::Debug})
+}
+
+// For each indexed field generate a TokenStream of the Clone bound for the field type and the multi_index_map specific type
+#[cfg(feature = "trivial_bounds")]
+pub(crate) fn generate_clone_type_bounds_table_fields(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    generate_type_bounds_table_fields(fields, quote! {::core::clone::Clone})
+}
 // For each indexed field generate a TokenStream representing initializing the lookup table.
 // Used in `with_capacity` initialization
 // If lookup table data structures support `with_capacity`, change `default()` and `new()` calls to
@@ -162,6 +177,20 @@ pub(crate) fn generate_lookup_table_debug(
 
         quote! {
             .field(stringify!(#index_name), &self.#index_name)
+        }
+    })
+}
+
+// For each indexed field generate a TokenStream representing the `.clone()` of that field
+#[cfg(feature = "trivial_bounds")]
+pub(crate) fn generate_lookup_table_clone(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields.iter().map(|(_f, idents, _ordering, _uniqueness)| {
+        let index_name = &idents.index_name;
+
+        quote! {
+            #index_name: ::core::clone::Clone::clone(&self.#index_name),
         }
     })
 }
@@ -864,23 +893,52 @@ pub(crate) fn generate_expanded(
     #[cfg(feature = "trivial_bounds")] lookup_table_fields_debug: impl Iterator<
         Item = proc_macro2::TokenStream,
     >,
-    #[cfg(feature = "trivial_bounds")] lookup_table_field_types: impl Iterator<
+    #[cfg(feature = "trivial_bounds")] debug_type_bounds_table_fields: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
+    #[cfg(feature = "trivial_bounds")] lookup_table_fields_clone: impl Iterator<
+        Item = proc_macro2::TokenStream,
+    >,
+    #[cfg(feature = "trivial_bounds")] clone_type_bounds_table_fields: impl Iterator<
         Item = proc_macro2::TokenStream,
     >,
 ) -> proc_macro2::TokenStream {
-    #[cfg(not(feature = "trivial_bounds"))]
-    let debug_impl = quote! {};
+    let debug_impl = {
+        #[cfg(not(feature = "trivial_bounds"))]
+        quote! {}
 
-    #[cfg(feature = "trivial_bounds")]
-    let debug_impl = quote! {
-        impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug,
-        #(#lookup_table_field_types)*
-         {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                f.debug_struct(stringify!(#map_name))
-                    .field("_store", &self._store)
-                    #(#lookup_table_fields_debug)*
-                    .finish()
+        #[cfg(feature = "trivial_bounds")]
+        quote! {
+            impl ::core::fmt::Debug for #map_name where #element_name: ::core::fmt::Debug,
+            #(#debug_type_bounds_table_fields)*
+             {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    f.debug_struct(stringify!(#map_name))
+                        .field("_store", &self._store)
+                        #(#lookup_table_fields_debug)*
+                        .finish()
+                }
+            }
+        }
+    };
+
+    let clone_impl = {
+        #[cfg(not(feature = "trivial_bounds"))]
+        quote! {}
+
+        #[cfg(feature = "trivial_bounds")]
+
+        quote! {
+            impl ::core::clone::Clone for #map_name where #element_name: ::core::clone::Clone,
+            #(#clone_type_bounds_table_fields)*
+             {
+                #[inline]
+                fn clone(&self) -> #map_name {
+                    #map_name {
+                        _store: ::core::clone::Clone::clone(&self._store),
+                        #(#lookup_table_fields_clone)*
+                    }
+                }
             }
         }
     };
@@ -893,6 +951,8 @@ pub(crate) fn generate_expanded(
         }
 
         #debug_impl
+
+        #clone_impl
 
         impl #map_name {
             #element_vis fn with_capacity(n: usize) -> #map_name {
