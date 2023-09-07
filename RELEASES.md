@@ -1,3 +1,8 @@
+Version 0.9.0 (2023-09-07)
+==========================
+
+- Add `trivial_bounds` feature to automatically derive Debug and Clone impls if all elements support Debug and Clone. This feature requires nightly rust, because it uses the `trivial_bounds` nightly feature.
+
 Version 0.8.1 (2023-08-30)
 ==========================
 
