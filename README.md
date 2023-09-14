@@ -33,7 +33,9 @@ Current implementation supports:
 This crate provides a derive macro `MultiIndexMap`, which when applied to the struct representing an element will generate a map to store and access these elements.
 Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
 The types of all indexed fields must implement `Clone`.
-If the MultiIndexMap needs to be cloned, `Clone` must be implemented manually, see `examples/main.rs` for an example of how to do this.
+If the MultiIndexMap needs to be cloned, `Clone` can be implemented manually, or if nightly rust is used, the feature `trivial_bounds` can be enabled.
+This will autoderive implementations of both `Debug` and `Clone` where possible.
+See `examples/main.rs` for an example of how to do it both ways.
 
 ## Example
 
