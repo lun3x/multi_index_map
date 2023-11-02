@@ -27,6 +27,12 @@ fn test_insert_and_get_by_field1() {
     map.insert(elem2);
     map.insert(elem1);
 
+    let elem2 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field3: 1,
+    };
+    map.try_insert(elem2).unwrap_err();
+
     let elems = map.get_by_field1(&TestNonPrimitiveType(42));
     assert_eq!(elems.len(), 2);
     assert_eq!(map.len(), 2);

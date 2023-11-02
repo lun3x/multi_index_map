@@ -128,28 +128,53 @@ pub(crate) fn generate_lookup_table_shrink(
     })
 }
 
-// For each indexed field generate a TokenStream representing inserting the position
-//   in the backing storage to that field's lookup table
+// For each indexed field generate a TokenStream representing getting the Entry for that field's lookup table
+pub(crate) fn generate_entries_for_insert(
+    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+    fields.iter().map(|(_f, idents, ordering, uniqueness)| {
+        let field_name = &idents.name;
+        let index_name = &idents.index_name;
+        let entry_name = format_ident!("{field_name}_entry");
+
+        match uniqueness {
+            Uniqueness::Unique => match ordering {
+                Ordering::Hashed => {
+                    quote! {
+                        let #entry_name = match self.#index_name.entry(elem.#field_name.clone()) {
+                            ::std::collections::hash_map::Entry::Occupied(_) => return Err(::multi_index_map::MultiIndexMapError::UniquenessViolated),
+                            ::std::collections::hash_map::Entry::Vacant(e) => e,
+                        };
+                    }
+                }
+                Ordering::Ordered => quote! {
+                    let #entry_name = match self.#index_name.entry(elem.#field_name.clone()) {
+                        ::std::collections::btree_map::Entry::Occupied(_) => return Err(::multi_index_map::MultiIndexMapError::UniquenessViolated),
+                        ::std::collections::btree_map::Entry::Vacant(e) => e,
+                    };
+                },
+            },
+            Uniqueness::NonUnique => quote! {},
+        }
+    })
+}
+
+// For each indexed field generate a TokenStream representing inserting the position in the backing storage
+//   to that field's lookup table via the entry generated previously
 // Unique indexed fields just require a simple insert to the map,
 //   whereas non-unique fields require inserting to the container of positions,
 //   creating a new container if necessary.
-pub(crate) fn generate_inserts(
+pub(crate) fn generate_inserts_for_entries(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
     fields.iter().map(|(_f, idents, _ordering, uniqueness)| {
         let field_name = &idents.name;
-        let field_name_string = stringify!(field_name);
         let index_name = &idents.index_name;
+        let entry_name = format_ident!("{field_name}_entry");
 
         match uniqueness {
             Uniqueness::Unique => quote! {
-                let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
-                if orig_elem_idx.is_some() {
-                    panic!(
-                        "Unable to insert element, uniqueness constraint violated on field '{}'",
-                        #field_name_string
-                    );
-                }
+                #entry_name.insert(idx);
             },
             Uniqueness::NonUnique => quote! {
                 self.#index_name.entry(elem.#field_name.clone())
@@ -816,7 +841,8 @@ pub(crate) fn generate_expanded(
     map_name: &proc_macro2::Ident,
     element_name: &proc_macro2::Ident,
     element_vis: &Visibility,
-    inserts: impl Iterator<Item = proc_macro2::TokenStream>,
+    entries_for_insert: impl Iterator<Item = proc_macro2::TokenStream>,
+    inserts_for_entries: impl Iterator<Item = proc_macro2::TokenStream>,
     accessors: impl Iterator<Item = proc_macro2::TokenStream>,
     iterators: impl Iterator<Item = proc_macro2::TokenStream>,
     clears: impl Iterator<Item = proc_macro2::TokenStream>,
@@ -867,11 +893,20 @@ pub(crate) fn generate_expanded(
                 #(#lookup_table_fields_shrink)*
             }
 
-            #element_vis fn insert(&mut self, elem: #element_name) {
-                let idx = self._store.insert(elem);
-                let elem = &self._store[idx];
+            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<(), ::multi_index_map::MultiIndexMapError> {
+                let store_entry = self._store.vacant_entry();
+                let idx = store_entry.key();
 
-                #(#inserts)*
+                #(#entries_for_insert)*
+                #(#inserts_for_entries)*
+
+                store_entry.insert(elem);
+
+                Ok(())
+            }
+
+            #element_vis fn insert(&mut self, elem: #element_name) {
+                self.try_insert(elem).expect("Unable to insert element, uniqueness constraint violated")
             }
 
             #element_vis fn clear(&mut self) {
