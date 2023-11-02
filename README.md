@@ -30,12 +30,11 @@ Current implementation supports:
 
 # How to use
 
-This crate provides a derive macro `MultiIndexMap`, which when applied to the struct representing an element will generate a map to store and access these elements.
-Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
-The types of all indexed fields must implement `Clone`.
-If the MultiIndexMap needs to be cloned, `Clone` can be implemented manually, or if nightly rust is used, the feature `trivial_bounds` can be enabled.
-This will autoderive implementations of both `Debug` and `Clone` where possible.
-See `examples/main.rs` for an example of how to do it both ways.
+* This crate provides a derive macro `MultiIndexMap`, which when applied to the struct representing an element will generate a map to store and access these elements.
+* Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
+* The types of all indexed fields must implement `Clone`.
+* Optionally, `multi_index_derive` can be used to derive traits on the generated MultiIndexMap, eg. `#[multi_index_derive(Clone, Debug)]`
+See `examples/main.rs` for more details.
 
 ## Example
 
@@ -43,6 +42,7 @@ See `examples/main.rs` for an example of how to do it both ways.
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug)]
+#[multi_index_derive(Debug)]
 struct Order {
     #[multi_index(hashed_unique)]
     order_id: u32,
@@ -112,6 +112,8 @@ fn main() {
         assert_eq!(order.trader_name, "JohnDoe");
     }
     assert_eq!(orders.len(), 2);
+
+    println!("{map:?}");
 
     // See examples and tests directories for more in depth usage.
 }

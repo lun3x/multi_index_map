@@ -8,11 +8,13 @@ use proc_macro_error::OptionExt;
 mod generators;
 mod index_attributes;
 
-#[proc_macro_derive(MultiIndexMap, attributes(multi_index))]
+#[proc_macro_derive(MultiIndexMap, attributes(multi_index, multi_index_derive))]
 #[proc_macro_error]
 pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
+
+    let extra_attrs = index_attributes::get_extra_attributes(&input);
 
     // Extract the struct fields if we are parsing a struct,
     // otherwise throw an error as we do not support Enums or Unions.
@@ -121,6 +123,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let element_vis = input.vis;
 
     let expanded = generators::generate_expanded(
+        extra_attrs,
         &map_name,
         element_name,
         &element_vis,
@@ -132,14 +135,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         lookup_table_fields_init,
         lookup_table_fields_shrink,
         lookup_table_fields_reserve,
-        #[cfg(feature = "trivial_bounds")]
-        lookup_table_fields_debug,
-        #[cfg(feature = "trivial_bounds")]
-        debug_type_bounds_table_fields,
-        #[cfg(feature = "trivial_bounds")]
-        lookup_table_fields_clone,
-        #[cfg(feature = "trivial_bounds")]
-        clone_type_bounds_table_fields,
     );
 
     // Hand the output tokens back to the compiler.

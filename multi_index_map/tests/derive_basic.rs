@@ -1,14 +1,14 @@
-#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
-#![cfg(feature = "trivial_bounds")]
 use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u64);
 
 #[derive(MultiIndexMap, Clone, Debug)]
+#[multi_index_derive(Clone, Debug)]
 struct TestElement {
     #[multi_index(hashed_unique)]
     field1: TestNonPrimitiveType,
+    #[allow(dead_code)]
     field2: String,
 }
 
@@ -27,12 +27,10 @@ fn should_compile() {
     };
     map.insert(elem1);
 
-    let mut new_map = map.clone();
+    let msg = format!("{:?}", map);
+    // check if indexed fields are present in debug output
+    assert!(msg.contains("42"));
 
-    assert_eq!(new_map.len(), 1);
-
-    let elem1 = new_map.remove_by_field1(&TestNonPrimitiveType(42)).unwrap();
-    assert_eq!(elem1.field1.0, 42);
-    assert_eq!(elem1.field2, "ElementOne");
-    assert_eq!(new_map.len(), 0);
+    let new_map = map.clone();
+    assert_eq!(new_map.len(), map.len());
 }

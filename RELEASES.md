@@ -1,3 +1,10 @@
+Version 0.10.0 (2023-11-02)
+==========================
+
+- Allow optional `#[multi_index_derive()]` attribute on element, to enable deriving of traits on the generated MultiIndexMap. eg. `#[multi_index_derive(Clone, Debug)]`.
+- Add feature `serde` to allow deriving of `Serialize` and `Deserialize` on MultiIndexMap.
+- Remove feature `trivial_bounds`, the same result can be acheived on stable rust with the `multi_index_derive` attribute.
+
 Version 0.9.0 (2023-09-07)
 ==========================
 

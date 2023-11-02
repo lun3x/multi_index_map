@@ -1,6 +1,9 @@
 use ::syn::Field;
+use proc_macro2::Span;
 use proc_macro_error::emit_error;
-use syn::spanned::Spanned;
+use syn::{
+    punctuated::Punctuated, spanned::Spanned, DeriveInput, Meta, MetaList, NestedMeta, Path,
+};
 
 // Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
 //   as the lookup table.
@@ -47,4 +50,62 @@ pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
         }
     }
     None
+}
+
+#[derive(Default)]
+pub(crate) struct ExtraAttributes {
+    pub(crate) derives: Vec<Meta>,
+}
+
+impl ExtraAttributes {
+    /// Add a single trait from `#[soa_derive]`
+    fn add_derive(&mut self, ident: &proc_macro2::Ident) {
+        // We hardcode derive(Default) because this is always possible, so no need to explicitly add it here
+        if ident == "Default" {
+            return;
+        }
+
+        let derive = Meta::List(MetaList {
+            path: Path::from(syn::Ident::new("derive", Span::call_site())),
+            paren_token: syn::token::Paren(Span::call_site()),
+            nested: Punctuated::from_iter([NestedMeta::Meta(Meta::Path(Path::from(
+                ident.clone(),
+            )))]),
+        });
+
+        self.derives.push(derive)
+    }
+}
+
+pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
+    let mut extra_attrs = ExtraAttributes::default();
+
+    for attr in f.attrs.iter() {
+        if attr.path.is_ident("multi_index_derive") {
+            let meta_list = match attr.parse_meta() {
+                Ok(syn::Meta::List(l)) => l,
+                _ => break,
+            };
+            for nested in meta_list.nested.iter() {
+                let nested_path = match nested {
+                    syn::NestedMeta::Meta(syn::Meta::Path(p)) => p,
+                    _ => {
+                        emit_error!(
+                            nested.span(),
+                            "Invalid multi_index_derive attribute, should be one of [Clone]"
+                        );
+                        continue;
+                    }
+                };
+
+                let Some(ident) = nested_path.get_ident() else {
+                    continue;
+                };
+
+                extra_attrs.add_derive(ident);
+            }
+        }
+    }
+
+    extra_attrs
 }

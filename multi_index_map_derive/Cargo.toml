@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map_derive"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"
@@ -31,6 +31,3 @@ convert_case = { version = "0.6" }
 
 [lib]
 proc-macro = true
-
-[features]
-trivial_bounds = []

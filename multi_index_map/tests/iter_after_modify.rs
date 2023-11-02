@@ -1,8 +1,7 @@
-#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
-
 use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug)]
+#[multi_index_derive(Debug)]
 pub(crate) struct Order {
     #[multi_index(hashed_unique)]
     pub(crate) order_id: u32,

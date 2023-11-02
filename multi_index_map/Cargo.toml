@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"
@@ -14,7 +14,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multi_index_map_derive = { version = "0.9.0", path = "../multi_index_map_derive" }
+multi_index_map_derive = { version = "0.10.0", path = "../multi_index_map_derive" }
 
 # Used as the backing store of all the elements.
 slab = { version = "0.4" }
@@ -25,10 +25,12 @@ rustc-hash = { version = "1.1" }
 [dev-dependencies]
 # Used for benchmarking
 criterion = "0.5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+
+[features]
+serde = ["slab/serde"]
 
 [[bench]]
 name = "performance"
 harness = false
-
-[features]
-trivial_bounds = ["multi_index_map_derive/trivial_bounds"]

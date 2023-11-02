@@ -5,6 +5,7 @@ use multi_index_map::MultiIndexMap;
 struct TestNonPrimitiveType(u32);
 
 #[derive(MultiIndexMap, Debug, Clone)]
+#[multi_index_derive(Clone, Debug)]
 pub struct TestElementWithOnlyIndexedFields {
     #[multi_index(hashed_unique)]
     field_hashed_unique: TestNonPrimitiveType,
@@ -14,18 +15,6 @@ pub struct TestElementWithOnlyIndexedFields {
     field_ordered_unique: u32,
     #[multi_index(ordered_non_unique)]
     field_ordered_non_unique: u32,
-}
-
-impl Clone for MultiIndexTestElementWithOnlyIndexedFieldsMap {
-    fn clone(&self) -> Self {
-        Self {
-            _store: self._store.clone(),
-            _field_hashed_unique_index: self._field_hashed_unique_index.clone(),
-            _field_hashed_non_unique_index: self._field_hashed_non_unique_index.clone(),
-            _field_ordered_unique_index: self._field_ordered_unique_index.clone(),
-            _field_ordered_non_unique_index: self._field_ordered_non_unique_index.clone(),
-        }
-    }
 }
 
 const BENCH_SIZES: &[u32] = &[100u32, 1000u32, 10000u32, 100000u32];
