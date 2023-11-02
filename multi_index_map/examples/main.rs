@@ -1,11 +1,10 @@
-#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
-
 use crate::inner::MultiIndexOrderMap;
 use crate::inner::Order;
 
 mod inner {
     use multi_index_map::MultiIndexMap;
     #[derive(MultiIndexMap, Debug, Clone)]
+    #[multi_index_derive(Clone, Debug)]
     pub(crate) struct Order {
         #[multi_index(hashed_unique)]
         pub(crate) order_id: u32,
@@ -14,20 +13,6 @@ mod inner {
         #[multi_index(hashed_non_unique)]
         pub(crate) trader_name: String,
         pub(crate) note: String,
-    }
-
-    // Manually implement Clone if trivial_bounds is disabled
-    // this can be auto generated correctly by rust-analyzer
-    #[cfg(not(feature = "trivial_bounds"))]
-    impl Clone for MultiIndexOrderMap {
-        fn clone(&self) -> Self {
-            Self {
-                _store: self._store.clone(),
-                _order_id_index: self._order_id_index.clone(),
-                _timestamp_index: self._timestamp_index.clone(),
-                _trader_name_index: self._trader_name_index.clone(),
-            }
-        }
     }
 }
 
