@@ -8,6 +8,8 @@ struct TestNonPrimitiveType(u64);
 struct TestElement {
     #[multi_index(hashed_unique)]
     field1: TestNonPrimitiveType,
+    // We only check this field indirectly through the Debug output
+    #[allow(dead_code)]
     field2: String,
 }
 
