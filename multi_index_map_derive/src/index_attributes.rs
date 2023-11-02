@@ -60,6 +60,11 @@ pub(crate) struct ExtraAttributes {
 impl ExtraAttributes {
     /// Add a single trait from `#[soa_derive]`
     fn add_derive(&mut self, ident: &proc_macro2::Ident) {
+        // We hardcode derive(Default) because this is always possible, so no need to explicitly add it here
+        if ident == "Default" {
+            return;
+        }
+
         let derive = Meta::List(MetaList {
             path: Path::from(syn::Ident::new("derive", Span::call_site())),
             paren_token: syn::token::Paren(Span::call_site()),
