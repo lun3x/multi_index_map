@@ -142,14 +142,14 @@ pub(crate) fn generate_entries_for_insert(
                 Ordering::Hashed => {
                     quote! {
                         let #entry_name = match self.#index_name.entry(elem.#field_name.clone()) {
-                            ::std::collections::hash_map::Entry::Occupied(_) => return Err(::multi_index_map::MultiIndexMapError::UniquenessViolated),
+                            ::std::collections::hash_map::Entry::Occupied(_) => return Err(::multi_index_map::UniquenessError(elem)),
                             ::std::collections::hash_map::Entry::Vacant(e) => e,
                         };
                     }
                 }
                 Ordering::Ordered => quote! {
                     let #entry_name = match self.#index_name.entry(elem.#field_name.clone()) {
-                        ::std::collections::btree_map::Entry::Occupied(_) => return Err(::multi_index_map::MultiIndexMapError::UniquenessViolated),
+                        ::std::collections::btree_map::Entry::Occupied(_) => return Err(::multi_index_map::UniquenessError(elem)),
                         ::std::collections::btree_map::Entry::Vacant(e) => e,
                     };
                 },
@@ -893,7 +893,7 @@ pub(crate) fn generate_expanded(
                 #(#lookup_table_fields_shrink)*
             }
 
-            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<&#element_name, ::multi_index_map::MultiIndexMapError> {
+            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<&#element_name, ::multi_index_map::UniquenessError<#element_name>> {
                 let store_entry = self._store.vacant_entry();
                 let idx = store_entry.key();
 
@@ -906,7 +906,7 @@ pub(crate) fn generate_expanded(
             }
 
             #element_vis fn insert(&mut self, elem: #element_name) -> &#element_name {
-                self.try_insert(elem).expect("Unable to insert element, uniqueness constraint violated")
+                self.try_insert(elem).expect("Unable to insert element")
             }
 
             #element_vis fn clear(&mut self) {

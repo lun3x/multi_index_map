@@ -1,4 +1,4 @@
-use multi_index_map::MultiIndexMap;
+use multi_index_map::{MultiIndexMap, UniquenessError};
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct TestNonPrimitiveType(u64);

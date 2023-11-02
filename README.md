@@ -21,7 +21,8 @@ Current implementation supports:
 * Iteration over the backing store is the same as Slab, so contiguous memory but with potentially vacant slots.
 * Insertion, removal, and modification complexity grows as the number of indexed fields grow. All indexes must be updated during these operations so these are slower.
 * Modification of unindexed fields through unsafe mut methods is the same as regular retrieval time.
-* Insertion or modification such that uniqueness is violated, will result in a `panic`.
+* Modification such that uniqueness is violated, will result in a `panic`.
+* Insertion such that uniqueness would be violated does not mutate the map, instead the element is returned to the user wrapped in an Err variant.
 
 ## Non-Unique Indexes
 * Hashed index retrievals are still constant-time with the total number of elements, but linear-time with the number of matching elements. (FxHashMap + (Slab * num_matches)).
@@ -73,7 +74,7 @@ fn main() {
 
     let mut map = MultiIndexOrderMap::default();
 
-    map.insert(order1);
+    map.try_insert(order1).unwrap();
     map.insert(order2);
 
     let orders = map.get_by_trader_name(&"JohnDoe".to_string());
@@ -159,7 +160,8 @@ struct MultiIndexOrderMapTraderNameIter<'a> {
 }
 
 impl MultiIndexOrderMap {
-    fn insert(&mut self, elem: Order);
+    fn try_insert(&mut self, elem: Order) -> Result<&Order, MultiIndexMapError<Order>>;
+    fn insert(&mut self, elem: Order) -> &Order;
     
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;

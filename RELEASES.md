@@ -1,3 +1,9 @@
+Version 0.11.0 (2023-11-02)
+==========================
+
+- Add `try_insert` method to allow fallible insertion and return shared reference to newly inserted element.
+- Change `insert` method to return shared reference to newly inserted element.
+
 Version 0.10.0 (2023-11-02)
 ==========================
 
