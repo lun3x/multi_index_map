@@ -20,6 +20,8 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run feature-gated tests
+      run: cargo test --verbose --features serde
     - name: cargo-semver-checks
       uses: obi1kenobi/cargo-semver-checks-action@v2.1
             
