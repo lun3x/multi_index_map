@@ -19,6 +19,12 @@ fn test_insert_and_get() {
     };
     map.insert(elem1);
 
+    let elem1 = TestElement {
+        field1: TestNonPrimitiveType(42),
+        field2: "ElementOne".to_string(),
+    };
+    assert!(map.try_insert(elem1).is_err());
+
     let elem1_ref = map.get_by_field1(&TestNonPrimitiveType(42)).unwrap();
     assert_eq!(elem1_ref.field1.0, 42);
     assert_eq!(elem1_ref.field2, "ElementOne");

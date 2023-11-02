@@ -33,8 +33,8 @@ fn main() {
 
     let mut map = MultiIndexOrderMap::default();
 
-    map.insert(o1);
-    map.insert(o2);
+    let _o1_ref: &Order = map.insert(o1);
+    let _o2_ref: &Order = map.try_insert(o2).unwrap();
 
     // Set non-mutable, non mutating iter methods still work.
     let map = map;
