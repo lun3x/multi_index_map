@@ -58,7 +58,7 @@ pub(crate) struct ExtraAttributes {
 }
 
 impl ExtraAttributes {
-    /// Add a single trait from `#[soa_derive]`
+    /// Add a single trait from `#[multi_index_derive]`
     fn add_derive(&mut self, ident: &proc_macro2::Ident) {
         // We hardcode derive(Default) because this is always possible, so no need to explicitly add it here
         if ident == "Default" {
@@ -92,7 +92,7 @@ pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
                     _ => {
                         emit_error!(
                             nested.span(),
-                            "Invalid multi_index_derive attribute, should be one of [Clone]"
+                            "Invalid multi_index_derive attribute, should be a deriveable trait, eg. Clone, Debug"
                         );
                         continue;
                     }
