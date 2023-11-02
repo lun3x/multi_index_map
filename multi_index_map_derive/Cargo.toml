@@ -31,6 +31,3 @@ convert_case = { version = "0.6" }
 
 [lib]
 proc-macro = true
-
-[features]
-trivial_bounds = []

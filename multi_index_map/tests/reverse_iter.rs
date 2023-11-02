@@ -1,7 +1,7 @@
-#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
-
 use multi_index_map::MultiIndexMap;
+
 #[derive(MultiIndexMap, PartialEq, Debug)]
+#[multi_index_derive(Debug)]
 struct TestElement {
     #[multi_index(ordered_non_unique)]
     field1: usize,

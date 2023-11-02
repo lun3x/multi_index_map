@@ -1,11 +1,10 @@
-#![cfg_attr(feature = "trivial_bounds", feature(trivial_bounds))]
-#![cfg(feature = "trivial_bounds")]
 use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u64);
 
 #[derive(MultiIndexMap, Clone, Debug)]
+#[multi_index_derive(Clone, Debug)]
 struct TestElement {
     #[multi_index(hashed_unique)]
     field1: TestNonPrimitiveType,
