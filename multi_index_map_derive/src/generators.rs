@@ -893,7 +893,7 @@ pub(crate) fn generate_expanded(
                 #(#lookup_table_fields_shrink)*
             }
 
-            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<&mut #element_name, ::multi_index_map::MultiIndexMapError> {
+            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<&#element_name, ::multi_index_map::MultiIndexMapError> {
                 let store_entry = self._store.vacant_entry();
                 let idx = store_entry.key();
 
@@ -905,7 +905,7 @@ pub(crate) fn generate_expanded(
                 Ok(elem)
             }
 
-            #element_vis fn insert(&mut self, elem: #element_name) -> &mut #element_name {
+            #element_vis fn insert(&mut self, elem: #element_name) -> &#element_name {
                 self.try_insert(elem).expect("Unable to insert element, uniqueness constraint violated")
             }
 
