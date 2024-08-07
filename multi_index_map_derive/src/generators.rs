@@ -334,31 +334,69 @@ fn generate_field_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
 ) -> proc_macro2::TokenStream {
     let getter_name = format_ident!("get_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
-
-    match uniqueness {
-        Uniqueness::Unique => quote! {
-            #field_vis fn #getter_name(&self, key: &#field_type) -> Option<&#element_name> {
-                Some(&self._store[*self.#index_name.get(key)?])
-            }
-        },
-        Uniqueness::NonUnique => quote! {
-            #field_vis fn #getter_name(&self, key: &#field_type) -> Vec<&#element_name> {
-                if let Some(idxs) = self.#index_name.get(key) {
-                    let mut elem_refs = Vec::with_capacity(idxs.len());
-                    for idx in idxs {
-                        elem_refs.push(&self._store[*idx])
-                    }
-                    elem_refs
-                } else {
-                    Vec::new()
+    match ordering {
+        Ordering::Hashed => match uniqueness {
+            Uniqueness::Unique => quote! {
+                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: ::core::hash::Hash + Eq + ?Sized,
+                {
+                    Some(&self._store[*self.#index_name.get(key)?])
                 }
-            }
+            },
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: ::core::hash::Hash + Eq + ?Sized,
+                {
+                    if let Some(idxs) = self.#index_name.get(key) {
+                        let mut elem_refs = Vec::with_capacity(idxs.len());
+                        for idx in idxs {
+                            elem_refs.push(&self._store[*idx])
+                        }
+                        elem_refs
+                    } else {
+                        Vec::new()
+                    }
+                }
+            },
+        },
+        Ordering::Ordered => match uniqueness {
+            Uniqueness::Unique => quote! {
+                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: Ord + ?Sized,
+                {
+                    Some(&self._store[*self.#index_name.get(key)?])
+                }
+            },
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: Ord + ?Sized,
+                {
+                    if let Some(idxs) = self.#index_name.get(key) {
+                        let mut elem_refs = Vec::with_capacity(idxs.len());
+                        for idx in idxs {
+                            elem_refs.push(&self._store[*idx])
+                        }
+                        elem_refs
+                    } else {
+                        Vec::new()
+                    }
+                }
+            },
         },
     }
 }
@@ -663,7 +701,8 @@ pub(crate) fn generate_accessors<'a>(
                 str: &idents.name.to_string(),
             };
 
-            let getter = generate_field_getter(idents, &field_info, element_name, uniqueness);
+            let getter =
+                generate_field_getter(idents, &field_info, element_name, ordering, uniqueness);
 
             let mut_getter =
                 generate_field_mut_getter(idents, &field_info, element_name, uniqueness);
