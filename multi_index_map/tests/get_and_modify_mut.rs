@@ -1,8 +1,5 @@
 use multi_index_map::MultiIndexMap;
 
-#[derive(Hash, PartialEq, Eq, Clone)]
-struct TestNonPrimitiveType(u64);
-
 #[derive(MultiIndexMap, Clone, Debug)]
 #[multi_index_derive(Clone, Debug)]
 struct TestElement {

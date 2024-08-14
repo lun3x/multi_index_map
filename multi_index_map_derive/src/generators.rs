@@ -510,6 +510,7 @@ fn generate_field_updater(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
     unindexed_types: &[&Type],
     unindexed_idents: &[&Ident],
@@ -520,52 +521,118 @@ fn generate_field_updater(
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
 
-    match uniqueness {
-        Uniqueness::Unique => quote! {
-            #field_vis fn #updater_name(
-                &mut self,
-                key: &#field_type,
-                f: impl FnOnce(#(&mut #unindexed_types,)*)
-            ) -> Option<&#element_name> {
-                let idx = *self.#index_name.get(key)?;
-                let elem = &mut self._store[idx];
-                f(#(&mut elem.#unindexed_idents,)*);
-                Some(elem)
-            }
-        },
-        Uniqueness::NonUnique => quote! {
-            #field_vis fn #updater_name(
-                &mut self,
-                key: &#field_type,
-                mut f: impl FnMut(#(&mut #unindexed_types,)*)
-            ) -> Vec<&#element_name> {
-                let empty = ::std::collections::BTreeSet::<usize>::new();
-                let idxs = match self.#index_name.get(key) {
-                    Some(container) => container,
-                    _ => &empty,
-                };
-
-                let mut refs = Vec::with_capacity(idxs.len());
-                let mut mut_iter = self._store.iter_mut();
-                let mut last_idx: usize = 0;
-                for idx in idxs {
-                    match mut_iter.nth(idx - last_idx) {
-                        Some(val) => {
-                            let elem = val.1;
-                            f(#(&mut elem.#unindexed_idents,)*);
-                            refs.push(&*elem);
-                        }
-                        _ => {
-                            panic!(
-                                "Error getting mutable reference of non-unique field `{}` in updater.",
-                                #field_name_str
-                            );
-                        }
-                    }
-                    last_idx = idx + 1;
+    match ordering {
+        Ordering::Hashed => match uniqueness {
+            Uniqueness::Unique => quote! {
+                #field_vis fn #updater_name<Q>(
+                    &mut self,
+                    key: &Q,
+                    f: impl FnOnce(#(&mut #unindexed_types,)*)
+                ) -> Option<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: ::std::hash::Hash + Eq + ?Sized,
+                {
+                    let idx = *self.#index_name.get(key)?;
+                    let elem = &mut self._store[idx];
+                    f(#(&mut elem.#unindexed_idents,)*);
+                    Some(elem)
                 }
-                refs
-            }
+            },
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #updater_name<Q>(
+                    &mut self,
+                    key: &Q,
+                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
+                ) -> Vec<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: ::std::hash::Hash + Eq + ?Sized,
+                {
+                    let empty = ::std::collections::BTreeSet::<usize>::new();
+                    let idxs = match self.#index_name.get(key) {
+                        Some(container) => container,
+                        _ => &empty,
+                    };
+
+                    let mut refs = Vec::with_capacity(idxs.len());
+                    let mut mut_iter = self._store.iter_mut();
+                    let mut last_idx: usize = 0;
+                    for idx in idxs {
+                        match mut_iter.nth(idx - last_idx) {
+                            Some(val) => {
+                                let elem = val.1;
+                                f(#(&mut elem.#unindexed_idents,)*);
+                                refs.push(&*elem);
+                            }
+                            _ => {
+                                panic!(
+                                    "Error getting mutable reference of non-unique field `{}` in updater.",
+                                    #field_name_str
+                                );
+                            }
+                        }
+                        last_idx = idx + 1;
+                    }
+                    refs
+                }
+            },
+        },
+        Ordering::Ordered => match uniqueness {
+            Uniqueness::Unique => quote! {
+                #field_vis fn #updater_name<Q>(
+                    &mut self,
+                    key: &Q,
+                    f: impl FnOnce(#(&mut #unindexed_types,)*)
+                ) -> Option<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: Ord + ?Sized,
+                {
+                    let idx = *self.#index_name.get(key)?;
+                    let elem = &mut self._store[idx];
+                    f(#(&mut elem.#unindexed_idents,)*);
+                    Some(elem)
+                }
+            },
+            Uniqueness::NonUnique => quote! {
+                #field_vis fn #updater_name<Q>(
+                    &mut self,
+                    key: &Q,
+                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
+                ) -> Vec<&#element_name>
+                where
+                    #field_type: ::std::borrow::Borrow<Q>,
+                    Q: Ord + ?Sized,
+                {
+                    let empty = ::std::collections::BTreeSet::<usize>::new();
+                    let idxs = match self.#index_name.get(key) {
+                        Some(container) => container,
+                        _ => &empty,
+                    };
+
+                    let mut refs = Vec::with_capacity(idxs.len());
+                    let mut mut_iter = self._store.iter_mut();
+                    let mut last_idx: usize = 0;
+                    for idx in idxs {
+                        match mut_iter.nth(idx - last_idx) {
+                            Some(val) => {
+                                let elem = val.1;
+                                f(#(&mut elem.#unindexed_idents,)*);
+                                refs.push(&*elem);
+                            }
+                            _ => {
+                                panic!(
+                                    "Error getting mutable reference of non-unique field `{}` in updater.",
+                                    #field_name_str
+                                );
+                            }
+                        }
+                        last_idx = idx + 1;
+                    }
+                    refs
+                }
+            },
         },
     }
 }
@@ -714,6 +781,7 @@ pub(crate) fn generate_accessors<'a>(
                 idents,
                 &field_info,
                 element_name,
+                ordering,
                 uniqueness,
                 &unindexed_types,
                 &unindexed_idents,
