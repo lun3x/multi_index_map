@@ -341,62 +341,42 @@ fn generate_field_getter(
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
-    match ordering {
-        Ordering::Hashed => match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: ::core::hash::Hash + Eq + ?Sized,
-                {
-                    Some(&self._store[*self.#index_name.get(key)?])
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: ::core::hash::Hash + Eq + ?Sized,
-                {
-                    if let Some(idxs) = self.#index_name.get(key) {
-                        let mut elem_refs = Vec::with_capacity(idxs.len());
-                        for idx in idxs {
-                            elem_refs.push(&self._store[*idx])
-                        }
-                        elem_refs
-                    } else {
-                        Vec::new()
-                    }
-                }
-            },
+
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            Q: ::std::hash::Hash + Eq + ?Sized
         },
-        Ordering::Ordered => match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: Ord + ?Sized,
-                {
-                    Some(&self._store[*self.#index_name.get(key)?])
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: Ord + ?Sized,
-                {
-                    if let Some(idxs) = self.#index_name.get(key) {
-                        let mut elem_refs = Vec::with_capacity(idxs.len());
-                        for idx in idxs {
-                            elem_refs.push(&self._store[*idx])
-                        }
-                        elem_refs
-                    } else {
-                        Vec::new()
+        Ordering::Ordered => quote! {
+            Q: Ord + ?Sized
+        },
+    };
+
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
+                Some(&self._store[*self.#index_name.get(key)?])
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
+                if let Some(idxs) = self.#index_name.get(key) {
+                    let mut elem_refs = Vec::with_capacity(idxs.len());
+                    for idx in idxs {
+                        elem_refs.push(&self._store[*idx])
                     }
+                    elem_refs
+                } else {
+                    Vec::new()
                 }
-            },
+            }
         },
     }
 }
@@ -521,118 +501,69 @@ fn generate_field_updater(
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
 
-    match ordering {
-        Ordering::Hashed => match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #updater_name<Q>(
-                    &mut self,
-                    key: &Q,
-                    f: impl FnOnce(#(&mut #unindexed_types,)*)
-                ) -> Option<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: ::std::hash::Hash + Eq + ?Sized,
-                {
-                    let idx = *self.#index_name.get(key)?;
-                    let elem = &mut self._store[idx];
-                    f(#(&mut elem.#unindexed_idents,)*);
-                    Some(elem)
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #updater_name<Q>(
-                    &mut self,
-                    key: &Q,
-                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
-                ) -> Vec<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: ::std::hash::Hash + Eq + ?Sized,
-                {
-                    let empty = ::std::collections::BTreeSet::<usize>::new();
-                    let idxs = match self.#index_name.get(key) {
-                        Some(container) => container,
-                        _ => &empty,
-                    };
-
-                    let mut refs = Vec::with_capacity(idxs.len());
-                    let mut mut_iter = self._store.iter_mut();
-                    let mut last_idx: usize = 0;
-                    for idx in idxs {
-                        match mut_iter.nth(idx - last_idx) {
-                            Some(val) => {
-                                let elem = val.1;
-                                f(#(&mut elem.#unindexed_idents,)*);
-                                refs.push(&*elem);
-                            }
-                            _ => {
-                                panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in updater.",
-                                    #field_name_str
-                                );
-                            }
-                        }
-                        last_idx = idx + 1;
-                    }
-                    refs
-                }
-            },
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            Q: ::std::hash::Hash + Eq + ?Sized
         },
-        Ordering::Ordered => match uniqueness {
-            Uniqueness::Unique => quote! {
-                #field_vis fn #updater_name<Q>(
-                    &mut self,
-                    key: &Q,
-                    f: impl FnOnce(#(&mut #unindexed_types,)*)
-                ) -> Option<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: Ord + ?Sized,
-                {
-                    let idx = *self.#index_name.get(key)?;
-                    let elem = &mut self._store[idx];
-                    f(#(&mut elem.#unindexed_idents,)*);
-                    Some(elem)
-                }
-            },
-            Uniqueness::NonUnique => quote! {
-                #field_vis fn #updater_name<Q>(
-                    &mut self,
-                    key: &Q,
-                    mut f: impl FnMut(#(&mut #unindexed_types,)*)
-                ) -> Vec<&#element_name>
-                where
-                    #field_type: ::std::borrow::Borrow<Q>,
-                    Q: Ord + ?Sized,
-                {
-                    let empty = ::std::collections::BTreeSet::<usize>::new();
-                    let idxs = match self.#index_name.get(key) {
-                        Some(container) => container,
-                        _ => &empty,
-                    };
+        Ordering::Ordered => quote! {
+            Q: Ord + ?Sized
+        },
+    };
 
-                    let mut refs = Vec::with_capacity(idxs.len());
-                    let mut mut_iter = self._store.iter_mut();
-                    let mut last_idx: usize = 0;
-                    for idx in idxs {
-                        match mut_iter.nth(idx - last_idx) {
-                            Some(val) => {
-                                let elem = val.1;
-                                f(#(&mut elem.#unindexed_idents,)*);
-                                refs.push(&*elem);
-                            }
-                            _ => {
-                                panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in updater.",
-                                    #field_name_str
-                                );
-                            }
+    match uniqueness {
+        Uniqueness::Unique => quote! {
+            #field_vis fn #updater_name<Q>(
+                &mut self,
+                key: &Q,
+                f: impl FnOnce(#(&mut #unindexed_types,)*)
+            ) -> Option<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
+                let idx = *self.#index_name.get(key)?;
+                let elem = &mut self._store[idx];
+                f(#(&mut elem.#unindexed_idents,)*);
+                Some(elem)
+            }
+        },
+        Uniqueness::NonUnique => quote! {
+            #field_vis fn #updater_name<Q>(
+                &mut self,
+                key: &Q,
+                mut f: impl FnMut(#(&mut #unindexed_types,)*)
+            ) -> Vec<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
+                let empty = ::std::collections::BTreeSet::<usize>::new();
+                let idxs = match self.#index_name.get(key) {
+                    Some(container) => container,
+                    _ => &empty,
+                };
+
+                let mut refs = Vec::with_capacity(idxs.len());
+                let mut mut_iter = self._store.iter_mut();
+                let mut last_idx: usize = 0;
+                for idx in idxs {
+                    match mut_iter.nth(idx - last_idx) {
+                        Some(val) => {
+                            let elem = val.1;
+                            f(#(&mut elem.#unindexed_idents,)*);
+                            refs.push(&*elem);
                         }
-                        last_idx = idx + 1;
+                        _ => {
+                            panic!(
+                                "Error getting mutable reference of non-unique field `{}` in updater.",
+                                #field_name_str
+                            );
+                        }
                     }
-                    refs
+                    last_idx = idx + 1;
                 }
-            },
+                refs
+            }
         },
     }
 }
