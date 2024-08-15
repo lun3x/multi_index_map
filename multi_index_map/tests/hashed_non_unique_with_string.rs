@@ -69,3 +69,20 @@ fn iter_after_modify() {
         assert_eq!(it.next().unwrap().order_id, 4);
     }
 }
+
+#[test]
+fn get_by_borrowed_string() {
+    let o1 = Order {
+        order_id: 1,
+        timestamp: 111,
+        trader_name: "John".to_string(),
+    };
+
+    let mut map = MultiIndexOrderMap::default();
+
+    map.insert(o1);
+
+    let res = map.get_by_trader_name("John");
+    assert_eq!(res.len(), 1);
+    assert_eq!(res.first().unwrap().order_id, 1);
+}

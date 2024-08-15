@@ -334,6 +334,7 @@ fn generate_field_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
 ) -> proc_macro2::TokenStream {
     let getter_name = format_ident!("get_by_{}", &field_idents.name);
@@ -341,14 +342,31 @@ fn generate_field_getter(
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
 
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            Q: ::std::hash::Hash + Eq + ?Sized
+        },
+        Ordering::Ordered => quote! {
+            Q: Ord + ?Sized
+        },
+    };
+
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #getter_name(&self, key: &#field_type) -> Option<&#element_name> {
+            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
                 Some(&self._store[*self.#index_name.get(key)?])
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #getter_name(&self, key: &#field_type) -> Vec<&#element_name> {
+            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
                 if let Some(idxs) = self.#index_name.get(key) {
                     let mut elem_refs = Vec::with_capacity(idxs.len());
                     for idx in idxs {
@@ -472,6 +490,7 @@ fn generate_field_updater(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
     unindexed_types: &[&Type],
     unindexed_idents: &[&Ident],
@@ -482,13 +501,26 @@ fn generate_field_updater(
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
 
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            Q: ::std::hash::Hash + Eq + ?Sized
+        },
+        Ordering::Ordered => quote! {
+            Q: Ord + ?Sized
+        },
+    };
+
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #updater_name(
+            #field_vis fn #updater_name<Q>(
                 &mut self,
-                key: &#field_type,
+                key: &Q,
                 f: impl FnOnce(#(&mut #unindexed_types,)*)
-            ) -> Option<&#element_name> {
+            ) -> Option<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
                 let idx = *self.#index_name.get(key)?;
                 let elem = &mut self._store[idx];
                 f(#(&mut elem.#unindexed_idents,)*);
@@ -496,11 +528,15 @@ fn generate_field_updater(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #updater_name(
+            #field_vis fn #updater_name<Q>(
                 &mut self,
-                key: &#field_type,
+                key: &Q,
                 mut f: impl FnMut(#(&mut #unindexed_types,)*)
-            ) -> Vec<&#element_name> {
+            ) -> Vec<&#element_name>
+            where
+                #field_type: ::std::borrow::Borrow<Q>,
+                #key_bounds,
+            {
                 let empty = ::std::collections::BTreeSet::<usize>::new();
                 let idxs = match self.#index_name.get(key) {
                     Some(container) => container,
@@ -663,7 +699,8 @@ pub(crate) fn generate_accessors<'a>(
                 str: &idents.name.to_string(),
             };
 
-            let getter = generate_field_getter(idents, &field_info, element_name, uniqueness);
+            let getter =
+                generate_field_getter(idents, &field_info, element_name, ordering, uniqueness);
 
             let mut_getter =
                 generate_field_mut_getter(idents, &field_info, element_name, uniqueness);
@@ -675,6 +712,7 @@ pub(crate) fn generate_accessors<'a>(
                 idents,
                 &field_info,
                 element_name,
+                ordering,
                 uniqueness,
                 &unindexed_types,
                 &unindexed_idents,
