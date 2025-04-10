@@ -1,9 +1,9 @@
-use ::proc_macro_error::{abort_call_site, proc_macro_error};
+use ::proc_macro_error2::{abort_call_site, proc_macro_error};
 use ::quote::format_ident;
 use ::syn::{parse_macro_input, DeriveInput};
 use convert_case::Casing;
 use generators::{FieldIdents, EXPECT_NAMED_FIELDS};
-use proc_macro_error::OptionExt;
+use proc_macro_error2::OptionExt;
 
 mod generators;
 mod index_attributes;
