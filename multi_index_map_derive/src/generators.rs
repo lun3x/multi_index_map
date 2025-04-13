@@ -1,7 +1,7 @@
 use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
 use proc_macro2::Ident;
-use proc_macro_error::OptionExt;
+use proc_macro_error2::OptionExt;
 use syn::Type;
 
 use crate::index_attributes::{ExtraAttributes, Ordering, Uniqueness};
