@@ -1,3 +1,8 @@
+Version 0.12.1 (2025-04-14)
+==========================
+
+- Bump rustc-hash dependency to 2.1 to use newer, faster hash function
+
 Version 0.12.0 (2025-04-14)
 ==========================
 
