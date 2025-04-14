@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"
@@ -14,7 +14,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multi_index_map_derive = { version = "0.11.1", path = "../multi_index_map_derive" }
+multi_index_map_derive = { version = "0.12.0", path = "../multi_index_map_derive" }
 
 # Used as the backing store of all the elements.
 slab = { version = "0.4" }

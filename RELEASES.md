@@ -1,8 +1,14 @@
+Version 0.12.0 (2025-04-14)
+==========================
+
+- Republish 0.11.1 as 0.12.0 due to SemVer violation caused by accidental inclusion of new Borrowed key type feature.
+
 Version 0.11.1 (2025-04-14)
 ==========================
 
 - Swap proc-macro-error dependency for proc-macro-error2, as the former has been abandoned.
 - Update convert-case dependency to 0.8
+- Allow callers to use Borrowed key types to access fields, eg. &str can be used rather than &String
 
 Version 0.11.0 (2023-11-02)
 ==========================
