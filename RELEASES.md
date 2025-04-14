@@ -1,3 +1,9 @@
+Version 0.11.1 (2025-04-14)
+==========================
+
+- Swap proc-macro-error dependency for proc-macro-error2, as the former has been abandoned.
+- Update convert-case dependency to 0.8
+
 Version 0.11.0 (2023-11-02)
 ==========================
 
