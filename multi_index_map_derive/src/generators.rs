@@ -346,27 +346,27 @@ fn generate_field_getter(
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            __MULTIINDEXMAP_KEY_TYPE: ::std::hash::Hash + Eq + ?Sized
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            __MULTIINDEXMAP_KEY_TYPE: Ord + ?Sized
+            __MultiIndexMapKeyType: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #getter_name<__MULTIINDEXMAP_KEY_TYPE>(&self, key: &__MULTIINDEXMAP_KEY_TYPE) -> Option<&#element_name #types>
+            #field_vis fn #getter_name<__MultiIndexMapKeyType>(&self, key: &__MultiIndexMapKeyType) -> Option<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 Some(&self._store[*self.#index_name.get(key)?])
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #getter_name<__MULTIINDEXMAP_KEY_TYPE>(&self, key: &__MULTIINDEXMAP_KEY_TYPE) -> Vec<&#element_name #types>
+            #field_vis fn #getter_name<__MultiIndexMapKeyType>(&self, key: &__MultiIndexMapKeyType) -> Vec<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 if let Some(idxs) = self.#index_name.get(key) {
@@ -512,22 +512,22 @@ fn generate_field_updater(
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            __MULTIINDEXMAP_KEY_TYPE: ::std::hash::Hash + Eq + ?Sized
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            __MULTIINDEXMAP_KEY_TYPE: Ord + ?Sized
+            __MultiIndexMapKeyType: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #updater_name<__MULTIINDEXMAP_KEY_TYPE>(
+            #field_vis fn #updater_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &__MULTIINDEXMAP_KEY_TYPE,
+                key: &__MultiIndexMapKeyType,
                 f: impl FnOnce(#(&mut #unindexed_types,)*)
             ) -> Option<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 let idx = *self.#index_name.get(key)?;
@@ -537,13 +537,13 @@ fn generate_field_updater(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #updater_name<__MULTIINDEXMAP_KEY_TYPE>(
+            #field_vis fn #updater_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &__MULTIINDEXMAP_KEY_TYPE,
+                key: &__MultiIndexMapKeyType,
                 mut f: impl FnMut(#(&mut #unindexed_types,)*)
             ) -> Vec<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 let empty = ::std::collections::BTreeSet::<usize>::new();
@@ -920,6 +920,7 @@ pub(crate) fn generate_expanded(
     clears: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_default: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
@@ -927,11 +928,19 @@ pub(crate) fn generate_expanded(
     let (impls, types, where_clause) = generics.split_for_impl();
 
     quote! {
-        #[derive(Default)]
         #(#[#derives])*
         #element_vis struct #map_name #impls {
             _store: ::multi_index_map::slab::Slab<#element_name #types>,
             #(#lookup_table_fields)*
+        }
+
+        impl #impls Default for #map_name #types #where_clause {
+            fn default() -> Self {
+                Self {
+                    _store: ::multi_index_map::slab::Slab::default(),
+                    #(#lookup_table_fields_default)*
+                }
+            }
         }
 
         impl #impls #map_name #types #where_clause {
