@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map_derive"
-version = "0.12.1"
+version = "0.13.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.62"

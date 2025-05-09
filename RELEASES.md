@@ -1,3 +1,8 @@
+Version 0.13.0 (2025-05-09)
+==========================
+
+- Allow generics in both indexed and unindexed fields. Unindexed fields can also be references with lifetimes. Generic fields must implement the traits Hash+Eq or Ord+Eq. Indexed generic fields must additionally implement Clone.
+
 Version 0.12.1 (2025-04-14)
 ==========================
 
