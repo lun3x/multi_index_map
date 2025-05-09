@@ -681,7 +681,7 @@ fn generate_field_iter_getter(
     };
 
     quote! {
-        #field_vis fn #iter_getter_name<'_mim_iter_lifetime>(&'_mim_iter_lifetime self) -> #iter_name #iter_types {
+        #field_vis fn #iter_getter_name<'__mim_iter_lifetime>(&'__mim_iter_lifetime self) -> #iter_name #iter_types {
             #iterator_def
         }
     }
@@ -803,15 +803,15 @@ pub(crate) fn generate_iterators<'a>(
         // TokenStream representing the actual type of the iterator
         let iter_type = match uniqueness {
             Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'_mim_iter_lifetime, #ty, usize>},
-                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'_mim_iter_lifetime, #ty, usize>},
+                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'__mim_iter_lifetime, #ty, usize>},
+                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'__mim_iter_lifetime, #ty, usize>},
             },
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => {
-                    quote! {::std::collections::hash_map::Iter<'_mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::hash_map::Iter<'__mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
                 Ordering::Ordered => {
-                    quote! {::std::collections::btree_map::Iter<'_mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::btree_map::Iter<'__mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
             },
         };
@@ -871,13 +871,13 @@ pub(crate) fn generate_iterators<'a>(
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
                 #field_vis struct #iter_name #iter_impls #iter_where_clause {
-                    _store_ref: &'_mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
+                    _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
-                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'_mim_iter_lifetime usize> + '_mim_iter_lifetime>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'__mim_iter_lifetime usize> + '__mim_iter_lifetime>>,
                 }
 
                 impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
-                    type Item = &'_mim_iter_lifetime #element_name #element_types;
+                    type Item = &'__mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }
@@ -885,14 +885,14 @@ pub(crate) fn generate_iterators<'a>(
             },
             Ordering::Ordered => quote! {
                 #field_vis struct #iter_name #iter_impls #iter_where_clause {
-                    _store_ref: &'_mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
+                    _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
                     _iter_rev: ::std::iter::Rev<#iter_type>,
-                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'_mim_iter_lifetime usize> +'_mim_iter_lifetime>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'__mim_iter_lifetime usize> +'__mim_iter_lifetime>>,
                 }
 
                 impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
-                    type Item = &'_mim_iter_lifetime #element_name #element_types;
+                    type Item = &'__mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }
