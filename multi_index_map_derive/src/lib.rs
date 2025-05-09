@@ -4,6 +4,7 @@ use ::syn::{parse_macro_input, DeriveInput};
 use convert_case::Casing;
 use generators::{FieldIdents, EXPECT_NAMED_FIELDS};
 use proc_macro_error2::OptionExt;
+use syn::parse_quote;
 
 mod generators;
 mod index_attributes;
@@ -13,6 +14,12 @@ mod index_attributes;
 pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
+
+    // let generics: (
+    //     syn::ImplGenerics<'_>,
+    //     syn::TypeGenerics<'_>,
+    //     Option<&syn::WhereClause>,
+    // ) = input.generics.split_for_impl();
 
     let extra_attrs = index_attributes::get_extra_attributes(&input);
 
@@ -104,14 +111,23 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &removes,
         &pre_modifies,
         &post_modifies,
+        &input.generics,
     );
 
-    let iterators = generators::generate_iterators(&indexed_fields, element_name);
+    let mut iter_generics = input.generics.clone();
+    iter_generics.params.push(parse_quote!('a));
+    let iterators = generators::generate_iterators(
+        &indexed_fields,
+        element_name,
+        &input.generics,
+        &iter_generics,
+    );
 
     let element_vis = input.vis;
 
     let expanded = generators::generate_expanded(
-        extra_attrs,
+        &extra_attrs,
+        &input.generics,
         &map_name,
         element_name,
         &element_vis,
