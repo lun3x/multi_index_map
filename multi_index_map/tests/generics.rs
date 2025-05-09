@@ -5,11 +5,13 @@ struct TestNonPrimitiveType(u64);
 
 #[derive(MultiIndexMap, Clone, Debug)]
 #[multi_index_derive(Clone, Debug)]
-struct TestElement<T> {
+struct TestElement<T, Q> {
     #[multi_index(hashed_unique)]
     field1: TestNonPrimitiveType,
     #[allow(dead_code)]
     field2: T,
+    #[allow(dead_code)]
+    field3: Q,
 }
 
 #[test]
@@ -22,9 +24,10 @@ fn should_compile() {
     assert!(!format!("{:?}", map).is_empty());
 
     // T is resolved to String
-    let elem1: TestElement<String> = TestElement {
+    let elem1 = TestElement {
         field1: TestNonPrimitiveType(42),
         field2: "ElementOne".to_string(),
+        field3: 62,
     };
     map.insert(elem1);
 

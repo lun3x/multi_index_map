@@ -346,27 +346,27 @@ fn generate_field_getter(
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            Q: ::std::hash::Hash + Eq + ?Sized
+            __MULTIINDEXMAP_KEY_TYPE: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            Q: Ord + ?Sized
+            __MULTIINDEXMAP_KEY_TYPE: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name #types>
+            #field_vis fn #getter_name<__MULTIINDEXMAP_KEY_TYPE>(&self, key: &__MULTIINDEXMAP_KEY_TYPE) -> Option<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
                 #key_bounds,
             {
                 Some(&self._store[*self.#index_name.get(key)?])
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name #types>
+            #field_vis fn #getter_name<__MULTIINDEXMAP_KEY_TYPE>(&self, key: &__MULTIINDEXMAP_KEY_TYPE) -> Vec<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
                 #key_bounds,
             {
                 if let Some(idxs) = self.#index_name.get(key) {
@@ -492,6 +492,7 @@ fn generate_field_remover(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_field_updater(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
@@ -511,22 +512,22 @@ fn generate_field_updater(
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            Q: ::std::hash::Hash + Eq + ?Sized
+            __MULTIINDEXMAP_KEY_TYPE: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            Q: Ord + ?Sized
+            __MULTIINDEXMAP_KEY_TYPE: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #updater_name<Q>(
+            #field_vis fn #updater_name<__MULTIINDEXMAP_KEY_TYPE>(
                 &mut self,
-                key: &Q,
+                key: &__MULTIINDEXMAP_KEY_TYPE,
                 f: impl FnOnce(#(&mut #unindexed_types,)*)
             ) -> Option<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
                 #key_bounds,
             {
                 let idx = *self.#index_name.get(key)?;
@@ -536,13 +537,13 @@ fn generate_field_updater(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #updater_name<Q>(
+            #field_vis fn #updater_name<__MULTIINDEXMAP_KEY_TYPE>(
                 &mut self,
-                key: &Q,
+                key: &__MULTIINDEXMAP_KEY_TYPE,
                 mut f: impl FnMut(#(&mut #unindexed_types,)*)
             ) -> Vec<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MULTIINDEXMAP_KEY_TYPE>,
                 #key_bounds,
             {
                 let empty = ::std::collections::BTreeSet::<usize>::new();
