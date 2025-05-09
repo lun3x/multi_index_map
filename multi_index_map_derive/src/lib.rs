@@ -4,6 +4,7 @@ use ::syn::{parse_macro_input, DeriveInput};
 use convert_case::Casing;
 use generators::{FieldIdents, EXPECT_NAMED_FIELDS};
 use proc_macro_error2::OptionExt;
+use syn::parse_quote;
 
 mod generators;
 mod index_attributes;
@@ -81,6 +82,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let lookup_table_fields_init = generators::generate_lookup_table_init(&indexed_fields);
 
+    let lookup_table_fields_default = generators::generate_lookup_table_init(&indexed_fields);
+
     let lookup_table_fields_reserve = generators::generate_lookup_table_reserve(&indexed_fields);
 
     let lookup_table_fields_shrink = generators::generate_lookup_table_shrink(&indexed_fields);
@@ -97,6 +100,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let clears = generators::generate_clears(&indexed_fields);
 
+    let mut iter_generics = input.generics.clone();
+    iter_generics
+        .params
+        .push(parse_quote!('__mim_iter_lifetime));
     let accessors = generators::generate_accessors(
         &indexed_fields,
         &unindexed_fields,
@@ -104,14 +111,22 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &removes,
         &pre_modifies,
         &post_modifies,
+        &input.generics,
+        &iter_generics,
     );
 
-    let iterators = generators::generate_iterators(&indexed_fields, element_name);
+    let iterators = generators::generate_iterators(
+        &indexed_fields,
+        element_name,
+        &input.generics,
+        &iter_generics,
+    );
 
     let element_vis = input.vis;
 
     let expanded = generators::generate_expanded(
-        extra_attrs,
+        &extra_attrs,
+        &input.generics,
         &map_name,
         element_name,
         &element_vis,
@@ -122,6 +137,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         clears,
         lookup_table_fields,
         lookup_table_fields_init,
+        lookup_table_fields_default,
         lookup_table_fields_shrink,
         lookup_table_fields_reserve,
     );

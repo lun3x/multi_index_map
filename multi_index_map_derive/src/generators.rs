@@ -2,7 +2,7 @@ use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
 use proc_macro2::Ident;
 use proc_macro_error2::OptionExt;
-use syn::Type;
+use syn::{Generics, Type};
 
 use crate::index_attributes::{ExtraAttributes, Ordering, Uniqueness};
 
@@ -336,35 +336,37 @@ fn generate_field_getter(
     element_name: &Ident,
     ordering: &Ordering,
     uniqueness: &Uniqueness,
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let getter_name = format_ident!("get_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
+    let (_, types, _) = generics.split_for_impl();
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            Q: ::std::hash::Hash + Eq + ?Sized
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            Q: Ord + ?Sized
+            __MultiIndexMapKeyType: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Option<&#element_name>
+            #field_vis fn #getter_name<__MultiIndexMapKeyType>(&self, key: &__MultiIndexMapKeyType) -> Option<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 Some(&self._store[*self.#index_name.get(key)?])
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #getter_name<Q>(&self, key: &Q) -> Vec<&#element_name>
+            #field_vis fn #getter_name<__MultiIndexMapKeyType>(&self, key: &__MultiIndexMapKeyType) -> Vec<&#element_name #types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 if let Some(idxs) = self.#index_name.get(key) {
@@ -388,12 +390,14 @@ fn generate_field_mut_getter(
     field_info: &FieldInfo,
     element_name: &Ident,
     uniqueness: &Uniqueness,
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let mut_getter_name = format_ident!("get_mut_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
+    let (_, types, _) = generics.split_for_impl();
 
     match uniqueness {
         Uniqueness::Unique => quote! {
@@ -402,7 +406,7 @@ fn generate_field_mut_getter(
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
             #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Option<&mut #element_name> {
+            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Option<&mut #element_name #types> {
                 Some(&mut self._store[*self.#index_name.get(key)?])
             }
         },
@@ -412,7 +416,7 @@ fn generate_field_mut_getter(
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
             #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<&mut #element_name> {
+            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<&mut #element_name #types> {
                 if let Some(idxs) = self.#index_name.get(key) {
                     let mut refs = Vec::with_capacity(idxs.len());
                     let mut mut_iter = self._store.iter_mut();
@@ -453,15 +457,17 @@ fn generate_field_remover(
     element_name: &Ident,
     uniqueness: &Uniqueness,
     removes: &[proc_macro2::TokenStream],
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let remover_name = format_ident!("remove_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
+    let (_, types, _) = generics.split_for_impl();
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Option<#element_name> {
+            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Option<#element_name #types> {
                 let idx = self.#index_name.remove(key)?;
                 let elem_orig = self._store.remove(idx);
                 #(#removes)*
@@ -469,7 +475,7 @@ fn generate_field_remover(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Vec<#element_name> {
+            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Vec<#element_name #types> {
                 if let Some(idxs) = self.#index_name.remove(key) {
                     let mut elems = Vec::with_capacity(idxs.len());
                     for idx in idxs {
@@ -486,6 +492,7 @@ fn generate_field_remover(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_field_updater(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
@@ -494,31 +501,33 @@ fn generate_field_updater(
     uniqueness: &Uniqueness,
     unindexed_types: &[&Type],
     unindexed_idents: &[&Ident],
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let updater_name = format_ident!("update_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
+    let (_, element_types, _) = generics.split_for_impl();
 
     let key_bounds = match ordering {
         Ordering::Hashed => quote! {
-            Q: ::std::hash::Hash + Eq + ?Sized
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
         },
         Ordering::Ordered => quote! {
-            Q: Ord + ?Sized
+            __MultiIndexMapKeyType: Ord + ?Sized
         },
     };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #updater_name<Q>(
+            #field_vis fn #updater_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &Q,
+                key: &__MultiIndexMapKeyType,
                 f: impl FnOnce(#(&mut #unindexed_types,)*)
-            ) -> Option<&#element_name>
+            ) -> Option<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 let idx = *self.#index_name.get(key)?;
@@ -528,13 +537,13 @@ fn generate_field_updater(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #updater_name<Q>(
+            #field_vis fn #updater_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &Q,
+                key: &__MultiIndexMapKeyType,
                 mut f: impl FnMut(#(&mut #unindexed_types,)*)
-            ) -> Vec<&#element_name>
+            ) -> Vec<&#element_name #element_types>
             where
-                #field_type: ::std::borrow::Borrow<Q>,
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
                 let empty = ::std::collections::BTreeSet::<usize>::new();
@@ -580,20 +589,22 @@ fn generate_field_modifier(
     uniqueness: &Uniqueness,
     pre_modifies: &[proc_macro2::TokenStream],
     post_modifies: &[proc_macro2::TokenStream],
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let modifier_name = format_ident!("modify_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
+    let (_, types, _) = generics.split_for_impl();
 
     match uniqueness {
         Uniqueness::Unique => quote! {
             #field_vis fn #modifier_name(
                 &mut self,
                 key: &#field_type,
-                f: impl FnOnce(&mut #element_name)
-            ) -> Option<&#element_name> {
+                f: impl FnOnce(&mut #element_name #types)
+            ) -> Option<&#element_name #types> {
                 let idx = *self.#index_name.get(key)?;
                 let elem = &mut self._store[idx];
                 #(#pre_modifies)*
@@ -606,8 +617,8 @@ fn generate_field_modifier(
             #field_vis fn #modifier_name(
                 &mut self,
                 key: &#field_type,
-                mut f: impl FnMut(&mut #element_name)
-            ) -> Vec<&#element_name> {
+                mut f: impl FnMut(&mut #element_name #types)
+            ) -> Vec<&#element_name #types> {
                 let idxs = match self.#index_name.get(key) {
                     Some(container) => container.clone(),
                     _ => ::std::collections::BTreeSet::<usize>::new()
@@ -643,11 +654,13 @@ fn generate_field_iter_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     ordering: &Ordering,
+    iter_generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let iter_getter_name = format_ident!("iter_by_{}", &field_idents.name);
     let iter_name = &field_idents.iter_name;
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
+    let (_, iter_types, _) = iter_generics.split_for_impl();
 
     let iterator_def = match ordering {
         Ordering::Hashed => quote! {
@@ -668,7 +681,7 @@ fn generate_field_iter_getter(
     };
 
     quote! {
-        #field_vis fn #iter_getter_name(&self) -> #iter_name {
+        #field_vis fn #iter_getter_name<'__mim_iter_lifetime>(&'__mim_iter_lifetime self) -> #iter_name #iter_types {
             #iterator_def
         }
     }
@@ -676,6 +689,7 @@ fn generate_field_iter_getter(
 
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_accessors<'a>(
     indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     unindexed_fields: &'a [Field],
@@ -683,6 +697,8 @@ pub(crate) fn generate_accessors<'a>(
     removes: &'a [proc_macro2::TokenStream],
     pre_modifies: &'a [proc_macro2::TokenStream],
     post_modifies: &'a [proc_macro2::TokenStream],
+    generics: &'a Generics,
+    iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
     let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
     let unindexed_idents = unindexed_fields
@@ -699,14 +715,26 @@ pub(crate) fn generate_accessors<'a>(
                 str: &idents.name.to_string(),
             };
 
-            let getter =
-                generate_field_getter(idents, &field_info, element_name, ordering, uniqueness);
+            let getter = generate_field_getter(
+                idents,
+                &field_info,
+                element_name,
+                ordering,
+                uniqueness,
+                generics,
+            );
 
             let mut_getter =
-                generate_field_mut_getter(idents, &field_info, element_name, uniqueness);
+                generate_field_mut_getter(idents, &field_info, element_name, uniqueness, generics);
 
-            let remover =
-                generate_field_remover(idents, &field_info, element_name, uniqueness, removes);
+            let remover = generate_field_remover(
+                idents,
+                &field_info,
+                element_name,
+                uniqueness,
+                removes,
+                generics,
+            );
 
             let updater = generate_field_updater(
                 idents,
@@ -716,6 +744,7 @@ pub(crate) fn generate_accessors<'a>(
                 uniqueness,
                 &unindexed_types,
                 &unindexed_idents,
+                generics,
             );
 
             let modifier = generate_field_modifier(
@@ -725,9 +754,11 @@ pub(crate) fn generate_accessors<'a>(
                 uniqueness,
                 pre_modifies,
                 post_modifies,
+                generics,
             );
 
-            let iter_getter = generate_field_iter_getter(idents, &field_info, ordering);
+            let iter_getter =
+                generate_field_iter_getter(idents, &field_info, ordering, iter_generics);
 
             // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
             //   on the end.
@@ -753,7 +784,12 @@ pub(crate) fn generate_accessors<'a>(
 pub(crate) fn generate_iterators<'a>(
     fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     element_name: &'a proc_macro2::Ident,
+    generics: &'a Generics,
+    iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+    let (_, element_types, _) = generics.split_for_impl();
+    let (iter_impls, iter_types, iter_where_clause) = iter_generics.split_for_impl();
+
     fields.iter().map(move |(f, idents, ordering, uniqueness)| {
         let field_name = &idents.name;
         let field_vis = &f.vis;
@@ -767,15 +803,15 @@ pub(crate) fn generate_iterators<'a>(
         // TokenStream representing the actual type of the iterator
         let iter_type = match uniqueness {
             Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'a, #ty, usize>},
-                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'a, #ty, usize>},
+                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'__mim_iter_lifetime, #ty, usize>},
+                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'__mim_iter_lifetime, #ty, usize>},
             },
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => {
-                    quote! {::std::collections::hash_map::Iter<'a, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::hash_map::Iter<'__mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
                 Ordering::Ordered => {
-                    quote! {::std::collections::btree_map::Iter<'a, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::btree_map::Iter<'__mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
             },
         };
@@ -834,35 +870,35 @@ pub(crate) fn generate_iterators<'a>(
         match ordering {
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
-                #field_vis struct #iter_name<'a> {
-                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name>,
+                #field_vis struct #iter_name #iter_impls #iter_where_clause {
+                    _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
-                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'a usize> +'a>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'__mim_iter_lifetime usize> + '__mim_iter_lifetime>>,
                 }
 
-                impl<'a> Iterator for #iter_name<'a> {
-                    type Item = &'a #element_name;
+                impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
+                    type Item = &'__mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }
                 }
             },
             Ordering::Ordered => quote! {
-                #field_vis struct #iter_name<'a> {
-                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name>,
+                #field_vis struct #iter_name #iter_impls #iter_where_clause {
+                    _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
                     _iter_rev: ::std::iter::Rev<#iter_type>,
-                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'a usize> +'a>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'__mim_iter_lifetime usize> +'__mim_iter_lifetime>>,
                 }
 
-                impl<'a> Iterator for #iter_name<'a> {
-                    type Item = &'a #element_name;
+                impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
+                    type Item = &'__mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }
                 }
 
-                impl<'a> DoubleEndedIterator for #iter_name<'a> {
+                impl #iter_impls DoubleEndedIterator for #iter_name #iter_types #iter_where_clause {
                     fn next_back(&mut self) -> Option<Self::Item> {
                         #rev_iter_action
                     }
@@ -875,7 +911,8 @@ pub(crate) fn generate_iterators<'a>(
 // Build the final output using quasi-quoting
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_expanded(
-    extra_attrs: ExtraAttributes,
+    extra_attrs: &ExtraAttributes,
+    generics: &Generics,
     map_name: &proc_macro2::Ident,
     element_name: &proc_macro2::Ident,
     element_vis: &Visibility,
@@ -886,22 +923,32 @@ pub(crate) fn generate_expanded(
     clears: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_init: impl Iterator<Item = proc_macro2::TokenStream>,
+    lookup_table_fields_default: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
 ) -> proc_macro2::TokenStream {
-    let derives = extra_attrs.derives;
+    let derives = &extra_attrs.derives;
+    let (impls, types, where_clause) = generics.split_for_impl();
 
     quote! {
-        #[derive(Default)]
         #(#[#derives])*
-        #element_vis struct #map_name {
-            _store: ::multi_index_map::slab::Slab<#element_name>,
+        #element_vis struct #map_name #impls {
+            _store: ::multi_index_map::slab::Slab<#element_name #types>,
             #(#lookup_table_fields)*
         }
 
-        impl #map_name {
-            #element_vis fn with_capacity(n: usize) -> #map_name {
-                #map_name {
+        impl #impls Default for #map_name #types #where_clause {
+            fn default() -> Self {
+                Self {
+                    _store: ::multi_index_map::slab::Slab::default(),
+                    #(#lookup_table_fields_default)*
+                }
+            }
+        }
+
+        impl #impls #map_name #types #where_clause {
+            #element_vis fn with_capacity(n: usize) -> Self {
+                Self {
                     _store: ::multi_index_map::slab::Slab::with_capacity(n),
                     #(#lookup_table_fields_init)*
                 }
@@ -931,7 +978,7 @@ pub(crate) fn generate_expanded(
                 #(#lookup_table_fields_shrink)*
             }
 
-            #element_vis fn try_insert(&mut self, elem: #element_name) -> Result<&#element_name, ::multi_index_map::UniquenessError<#element_name>> {
+            #element_vis fn try_insert(&mut self, elem: #element_name #types) -> Result<&#element_name #types, ::multi_index_map::UniquenessError<#element_name #types>> {
                 let store_entry = self._store.vacant_entry();
                 let idx = store_entry.key();
 
@@ -943,7 +990,7 @@ pub(crate) fn generate_expanded(
                 Ok(elem)
             }
 
-            #element_vis fn insert(&mut self, elem: #element_name) -> &#element_name {
+            #element_vis fn insert(&mut self, elem: #element_name #types) -> &#element_name #types {
                 self.try_insert(elem).expect("Unable to insert element")
             }
 
@@ -953,7 +1000,7 @@ pub(crate) fn generate_expanded(
             }
 
             // Allow iteration directly over the backing storage
-            #element_vis fn iter(&self) -> ::multi_index_map::slab::Iter<#element_name> {
+            #element_vis fn iter(&self) -> ::multi_index_map::slab::Iter<#element_name #types> {
                 self._store.iter()
             }
 
@@ -961,7 +1008,7 @@ pub(crate) fn generate_expanded(
             /// It is safe to mutate the non-indexed fields,
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis unsafe fn iter_mut(&mut self) -> ::multi_index_map::slab::IterMut<#element_name> {
+            #element_vis unsafe fn iter_mut(&mut self) -> ::multi_index_map::slab::IterMut<#element_name #types> {
                 self._store.iter_mut()
             }
 
