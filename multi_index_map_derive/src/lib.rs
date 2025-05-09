@@ -15,12 +15,6 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Parse the input tokens into a syntax tree.
     let input = parse_macro_input!(input as DeriveInput);
 
-    // let generics: (
-    //     syn::ImplGenerics<'_>,
-    //     syn::TypeGenerics<'_>,
-    //     Option<&syn::WhereClause>,
-    // ) = input.generics.split_for_impl();
-
     let extra_attrs = index_attributes::get_extra_attributes(&input);
 
     // Extract the struct fields if we are parsing a struct,
