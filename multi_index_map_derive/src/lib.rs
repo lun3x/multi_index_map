@@ -106,6 +106,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let clears = generators::generate_clears(&indexed_fields);
 
+    let mut iter_generics = input.generics.clone();
+    iter_generics.params.push(parse_quote!('_mim_iter_lifetime));
     let accessors = generators::generate_accessors(
         &indexed_fields,
         &unindexed_fields,
@@ -114,10 +116,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &pre_modifies,
         &post_modifies,
         &input.generics,
+        &iter_generics,
     );
 
-    let mut iter_generics = input.generics.clone();
-    iter_generics.params.push(parse_quote!('a));
     let iterators = generators::generate_iterators(
         &indexed_fields,
         element_name,

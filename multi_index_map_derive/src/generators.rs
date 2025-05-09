@@ -654,13 +654,13 @@ fn generate_field_iter_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     ordering: &Ordering,
-    generics: &Generics,
+    iter_generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let iter_getter_name = format_ident!("iter_by_{}", &field_idents.name);
     let iter_name = &field_idents.iter_name;
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
-    let (_, types, _) = generics.split_for_impl();
+    let (_, iter_types, _) = iter_generics.split_for_impl();
 
     let iterator_def = match ordering {
         Ordering::Hashed => quote! {
@@ -681,7 +681,7 @@ fn generate_field_iter_getter(
     };
 
     quote! {
-        #field_vis fn #iter_getter_name(&self) -> #iter_name #types {
+        #field_vis fn #iter_getter_name<'_mim_iter_lifetime>(&'_mim_iter_lifetime self) -> #iter_name #iter_types {
             #iterator_def
         }
     }
@@ -689,6 +689,7 @@ fn generate_field_iter_getter(
 
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_accessors<'a>(
     indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     unindexed_fields: &'a [Field],
@@ -697,6 +698,7 @@ pub(crate) fn generate_accessors<'a>(
     pre_modifies: &'a [proc_macro2::TokenStream],
     post_modifies: &'a [proc_macro2::TokenStream],
     generics: &'a Generics,
+    iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
     let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
     let unindexed_idents = unindexed_fields
@@ -755,7 +757,8 @@ pub(crate) fn generate_accessors<'a>(
                 generics,
             );
 
-            let iter_getter = generate_field_iter_getter(idents, &field_info, ordering, generics);
+            let iter_getter =
+                generate_field_iter_getter(idents, &field_info, ordering, iter_generics);
 
             // Put all these TokenStreams together, and put a TokenStream representing the iter_by_ accessor
             //   on the end.
@@ -800,15 +803,15 @@ pub(crate) fn generate_iterators<'a>(
         // TokenStream representing the actual type of the iterator
         let iter_type = match uniqueness {
             Uniqueness::Unique => match ordering {
-                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'a, #ty, usize>},
-                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'a, #ty, usize>},
+                Ordering::Hashed => quote! {::std::collections::hash_map::Iter<'_mim_iter_lifetime, #ty, usize>},
+                Ordering::Ordered => quote! {::std::collections::btree_map::Iter<'_mim_iter_lifetime, #ty, usize>},
             },
             Uniqueness::NonUnique => match ordering {
                 Ordering::Hashed => {
-                    quote! {::std::collections::hash_map::Iter<'a, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::hash_map::Iter<'_mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
                 Ordering::Ordered => {
-                    quote! {::std::collections::btree_map::Iter<'a, #ty, ::std::collections::BTreeSet::<usize>>}
+                    quote! {::std::collections::btree_map::Iter<'_mim_iter_lifetime, #ty, ::std::collections::BTreeSet::<usize>>}
                 }
             },
         };
@@ -868,13 +871,13 @@ pub(crate) fn generate_iterators<'a>(
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
                 #field_vis struct #iter_name #iter_impls #iter_where_clause {
-                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name #element_types>,
+                    _store_ref: &'_mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
-                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'a usize> +'a>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'_mim_iter_lifetime usize> + '_mim_iter_lifetime>>,
                 }
 
                 impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
-                    type Item = &'a #element_name #element_types;
+                    type Item = &'_mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }
@@ -882,14 +885,14 @@ pub(crate) fn generate_iterators<'a>(
             },
             Ordering::Ordered => quote! {
                 #field_vis struct #iter_name #iter_impls #iter_where_clause {
-                    _store_ref: &'a ::multi_index_map::slab::Slab<#element_name #element_types>,
+                    _store_ref: &'_mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
                     _iter_rev: ::std::iter::Rev<#iter_type>,
-                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'a usize> +'a>>,
+                    _inner_iter: Option<Box<dyn ::std::iter::DoubleEndedIterator<Item=&'_mim_iter_lifetime usize> +'_mim_iter_lifetime>>,
                 }
 
                 impl #iter_impls Iterator for #iter_name #iter_types #iter_where_clause {
-                    type Item = &'a #element_name #element_types;
+                    type Item = &'_mim_iter_lifetime #element_name #element_types;
                     fn next(&mut self) -> Option<Self::Item> {
                         #iter_action
                     }

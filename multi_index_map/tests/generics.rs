@@ -8,7 +8,7 @@ struct TestNonPrimitiveType2(u64);
 
 #[derive(MultiIndexMap, Clone, Debug)]
 #[multi_index_derive(Clone, Debug)]
-struct TestElement<F1: Clone + Eq + std::hash::Hash, F2: Clone + Eq + Ord, T, Q> {
+struct TestElement<'a, F1: Clone + Eq + std::hash::Hash, F2: Clone + Eq + Ord, T, Q> {
     #[multi_index(hashed_unique)]
     field1: F1,
     #[multi_index(ordered_unique)]
@@ -20,7 +20,7 @@ struct TestElement<F1: Clone + Eq + std::hash::Hash, F2: Clone + Eq + Ord, T, Q>
     #[allow(dead_code)]
     field5: T,
     #[allow(dead_code)]
-    field6: Q,
+    field6: &'a Q,
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn should_compile() {
         field3: TestNonPrimitiveType1(41),
         field4: TestNonPrimitiveType2(98),
         field5: "ElementOne".to_string(),
-        field6: 62,
+        field6: &62,
     };
     map.insert(elem1);
 }
