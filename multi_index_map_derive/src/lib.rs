@@ -9,7 +9,10 @@ use syn::parse_quote;
 mod generators;
 mod index_attributes;
 
-#[proc_macro_derive(MultiIndexMap, attributes(multi_index, multi_index_derive))]
+#[proc_macro_derive(
+    MultiIndexMap,
+    attributes(multi_index, multi_index_derive, multi_index_hash)
+)]
 #[proc_macro_error]
 pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input tokens into a syntax tree.
@@ -78,7 +81,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         .map(|(field, _)| field)
         .collect::<Vec<_>>();
 
-    let lookup_table_fields = generators::generate_lookup_tables(&indexed_fields);
+    let lookup_table_fields = generators::generate_lookup_tables(&indexed_fields, &extra_attrs);
 
     let lookup_table_fields_init = generators::generate_lookup_table_init(&indexed_fields);
 

@@ -19,6 +19,7 @@ impl<T> core::fmt::Debug for UniquenessError<T> {
 }
 
 #[doc(hidden)]
+#[cfg(feature = "rustc-hash")]
 pub use rustc_hash;
 #[doc(hidden)]
 pub use slab;
