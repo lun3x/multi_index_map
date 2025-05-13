@@ -30,9 +30,10 @@ Current implementation supports:
 * Each equal range of any non-unique index is stored as a BTreeSet, which we must iterate through the length of when retrieving all matching elements, and also when iterating over the whole index.
 
 # Default Hasher
-* The feature `rustc-hash` is enabled by default. It will set default hash as [`rustc-hash`](https://github.com/rust-lang/rustc-hash/).
+* The feature `rustc-hash` is enabled by default. It will set the default hash as [`rustc-hash`](https://github.com/rust-lang/rustc-hash/).
 * The hash can be changed by specifying a `BuildHasher` implementation in the `multi_index_hash` attribute, eg. `#[multi_index_hash(ahash::RandomState)]`.
-* With default features disabled hash will be the standard library default (currently SipHash). This is specified in `Cargo.toml` like so:
+* With default features disabled hash will be the standard library default (currently `SipHash`). This is specified in `Cargo.toml` like so:
+
 ```multi_index_map = { version = "*", default-features = false }```
 
 # How to use
