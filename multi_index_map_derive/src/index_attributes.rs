@@ -52,9 +52,21 @@ pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
     None
 }
 
-#[derive(Default)]
 pub(crate) struct ExtraAttributes {
     pub(crate) derives: Vec<Meta>,
+    pub(crate) hasher: syn::Path,
+}
+
+impl Default for ExtraAttributes {
+    fn default() -> Self {
+        Self {
+            derives: Default::default(),
+            #[cfg(feature = "rustc-hash")]
+            hasher: syn::parse_quote!(::multi_index_map::rustc_hash::FxBuildHasher),
+            #[cfg(not(feature = "rustc-hash"))]
+            hasher: syn::parse_quote!(::std::hash::RandomState),
+        }
+    }
 }
 
 impl ExtraAttributes {
@@ -103,6 +115,28 @@ pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
                 };
 
                 extra_attrs.add_derive(ident);
+            }
+        }
+
+        if attr.path.is_ident("multi_index_hash") {
+            let meta_list = match attr.parse_meta() {
+                Ok(syn::Meta::List(l)) => l,
+                _ => break,
+            };
+            for nested in meta_list.nested.iter() {
+                let nested_path = match nested {
+                    syn::NestedMeta::Meta(syn::Meta::Path(p)) => p,
+                    _ => {
+                        emit_error!(
+                            nested.span(),
+                            "Invalid multi_index_hash attribute, should be a struct implementing BuildHasher eg. FxBuildHasher"
+                        );
+                        continue;
+                    }
+                };
+
+                extra_attrs.hasher = nested_path.clone();
+                break;
             }
         }
     }

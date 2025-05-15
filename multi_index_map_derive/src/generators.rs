@@ -29,14 +29,15 @@ pub(crate) const EXPECT_NAMED_FIELDS: &str =
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
-pub(crate) fn generate_lookup_tables(
-    fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
-) -> impl Iterator<Item = ::proc_macro2::TokenStream> + '_ {
+pub(crate) fn generate_lookup_tables<'a>(
+    fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
+    extra_attrs: &'a ExtraAttributes,
+) -> impl Iterator<Item = ::proc_macro2::TokenStream> + 'a {
     fields.iter().map(|(f, idents, ordering, uniqueness)| {
         let ty = &f.ty;
         let index_name = &idents.index_name;
 
-        let field_type = index_field_type(ty, ordering, uniqueness);
+        let field_type = index_field_type(ty, ordering, uniqueness, extra_attrs);
 
         quote! {
             #index_name: #field_type,
@@ -48,11 +49,13 @@ fn index_field_type(
     ty: &Type,
     ordering: &Ordering,
     uniqueness: &Uniqueness,
+    extra_attrs: &ExtraAttributes,
 ) -> ::proc_macro2::TokenStream {
+    let hasher = extra_attrs.hasher.clone();
     match uniqueness {
         Uniqueness::Unique => match ordering {
             Ordering::Hashed => quote! {
-                ::multi_index_map::rustc_hash::FxHashMap<#ty, usize>
+                ::std::collections::HashMap<#ty, usize, #hasher>
             },
             Ordering::Ordered => quote! {
                 ::std::collections::BTreeMap<#ty, usize>
@@ -60,7 +63,7 @@ fn index_field_type(
         },
         Uniqueness::NonUnique => match ordering {
             Ordering::Hashed => quote! {
-                ::multi_index_map::rustc_hash::FxHashMap<#ty, ::std::collections::BTreeSet<usize>>
+                ::std::collections::HashMap<#ty, ::std::collections::BTreeSet<usize>, #hasher>
             },
             Ordering::Ordered => quote! {
                 ::std::collections::BTreeMap<#ty, ::std::collections::BTreeSet<usize>>
@@ -81,7 +84,7 @@ pub(crate) fn generate_lookup_table_init(
 
         match ordering {
             Ordering::Hashed => quote! {
-                #index_name: ::multi_index_map::rustc_hash::FxHashMap::default(),
+                #index_name: ::std::collections::HashMap::default(),
             },
             Ordering::Ordered => quote! {
                 #index_name: ::std::collections::BTreeMap::new(),
