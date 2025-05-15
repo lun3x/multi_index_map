@@ -31,8 +31,8 @@ Current implementation supports:
 
 # Default Hasher
 * The feature `rustc-hash` is enabled by default. It will set the default hash as [`rustc-hash`](https://github.com/rust-lang/rustc-hash/).
-* The hash can be changed by specifying a `BuildHasher` implementation in the `multi_index_hash` attribute, eg. `#[multi_index_hash(ahash::RandomState)]`.
-* With default features disabled hash will be the standard library default (currently `SipHash`). This is specified in `Cargo.toml` like so:
+* The hash can always be changed by specifying a `BuildHasher` implementation in the `multi_index_hash` attribute, eg. `#[multi_index_hash(ahash::RandomState)]`.
+* With default features disabled the default hash will be the standard library default (currently `SipHash`). Default features can be disabled in `Cargo.toml` like so:
 
 ```multi_index_map = { version = "*", default-features = false }```
 
