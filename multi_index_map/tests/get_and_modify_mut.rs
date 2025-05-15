@@ -28,14 +28,13 @@ fn test_non_unique_get_mut() {
             });
         }
     }
-    unsafe {
-        let mut_refs = map.get_mut_by_field1(&37);
-        for r in mut_refs {
-            r.field2 = r.field2 * r.field2;
-        }
+
+    let mut_refs: Vec<(&mut usize,)> = map.get_mut_by_field1(&37);
+    for r in mut_refs {
+        *r.0 = *r.0 * *r.0;
     }
 
-    let refs = map.get_by_field1(&37);
+    let refs: Vec<&TestElement> = map.get_by_field1(&37);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, (2 * i + 1) * (2 * i + 1));
     }
