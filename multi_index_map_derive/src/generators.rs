@@ -1,7 +1,6 @@
 use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
 use proc_macro2::Ident;
-use proc_macro_error2::OptionExt;
 use syn::{Generics, Type};
 
 use crate::index_attributes::{ExtraAttributes, Ordering, Uniqueness};
@@ -679,12 +678,38 @@ fn generate_field_iter_getter(
     }
 }
 
+pub(crate) fn generate_iter_mut(
+    iter_mut_name: &proc_macro2::Ident,
+    element_name: &proc_macro2::Ident,
+    element_vis: &Visibility,
+    unindexed_types: &[&Type],
+    unindexed_idents: &[&Ident],
+    generics: &Generics,
+    iter_generics: &Generics,
+) -> proc_macro2::TokenStream {
+    let (impls, types, _) = generics.split_for_impl();
+    let (iter_impls, iter_types, iter_where_clause) = iter_generics.split_for_impl();
+
+    quote! {
+        #element_vis struct #iter_mut_name #iter_types (::multi_index_map::slab::IterMut<'__mim_iter_lifetime, #element_name #types>);
+
+        impl #iter_impls Iterator for #iter_mut_name #iter_types #iter_where_clause {
+            type Item = (#(&'__mim_iter_lifetime mut #unindexed_types,)*);
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.0.next().map(|(_, elem)| (#(&mut elem.#unindexed_idents,)*))
+            }
+        }
+    }
+}
+
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_accessors<'a>(
     indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
-    unindexed_fields: &'a [Field],
+    unindexed_types: &'a [&Type],
+    unindexed_idents: &'a [&Ident],
     element_name: &'a proc_macro2::Ident,
     removes: &'a [proc_macro2::TokenStream],
     pre_modifies: &'a [proc_macro2::TokenStream],
@@ -692,12 +717,6 @@ pub(crate) fn generate_accessors<'a>(
     generics: &'a Generics,
     iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
-    let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
-    let unindexed_idents = unindexed_fields
-        .iter()
-        .map(|f| f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS))
-        .collect::<Vec<_>>();
-
     indexed_fields
         .iter()
         .map(move |(f, idents, ordering, uniqueness)| {
@@ -923,6 +942,8 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_default: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
+    iter_mut_name: &proc_macro2::Ident,
+    iter_mut: proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let derives = &extra_attrs.derives;
     let (impls, types, where_clause) = generics.split_for_impl();
@@ -1005,12 +1026,14 @@ pub(crate) fn generate_expanded(
             /// It is safe to mutate the non-indexed fields,
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis unsafe fn iter_mut(&mut self) -> ::multi_index_map::slab::IterMut<#element_name #types> {
-                self._store.iter_mut()
+            #element_vis fn iter_mut(&mut self) -> #iter_mut_name<'_> {
+                #iter_mut_name(self._store.iter_mut())
             }
 
             #(#accessors)*
         }
+
+        #iter_mut
 
         #(#iterators)*
 
