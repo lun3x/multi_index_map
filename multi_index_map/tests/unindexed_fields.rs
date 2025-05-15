@@ -1,4 +1,5 @@
 use multi_index_map::MultiIndexMap;
+use serde_json::map::Iter;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct TestCloneableType(u64);
