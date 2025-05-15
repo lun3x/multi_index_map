@@ -387,39 +387,28 @@ fn generate_field_getter(
 }
 
 // TokenStream representing the get_mut_by_ accessor for this field.
-// Note that these methods are deprecated, and will be removed in a future version.
 fn generate_field_mut_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
-    element_name: &Ident,
     uniqueness: &Uniqueness,
-    generics: &Generics,
+    unindexed_types: &[&Type],
+    unindexed_idents: &[&Ident],
 ) -> proc_macro2::TokenStream {
     let mut_getter_name = format_ident!("get_mut_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
-    let (_, types, _) = generics.split_for_impl();
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            /// SAFETY:
-            /// It is safe to mutate the non-indexed fields,
-            /// however mutating any of the indexed fields will break the internal invariants.
-            /// If the indexed fields need to be changed, the modify() method must be used.
-            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Option<&mut #element_name #types> {
-                Some(&mut self._store[*self.#index_name.get(key)?])
+            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Option<(#(&mut #unindexed_types,)*)> {
+                let elem = &mut self._store[*self.#index_name.get(key)?];
+                Some((#(&mut elem.#unindexed_idents,)*))
             }
         },
         Uniqueness::NonUnique => quote! {
-            /// SAFETY:
-            /// It is safe to mutate the non-indexed fields,
-            /// however mutating any of the indexed fields will break the internal invariants.
-            /// If the indexed fields need to be changed, the modify() method must be used.
-            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<&mut #element_name #types> {
+            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<(#(&mut #unindexed_types,)*)> {
                 if let Some(idxs) = self.#index_name.get(key) {
                     let mut refs = Vec::with_capacity(idxs.len());
                     let mut mut_iter = self._store.iter_mut();
@@ -427,7 +416,7 @@ fn generate_field_mut_getter(
                     for idx in idxs.iter() {
                         match mut_iter.nth(*idx - last_idx) {
                             Some(val) => {
-                                refs.push(val.1)
+                                refs.push((#(&mut val.1.#unindexed_idents,)*))
                             },
                             _ => {
                                 panic!(
@@ -727,8 +716,13 @@ pub(crate) fn generate_accessors<'a>(
                 generics,
             );
 
-            let mut_getter =
-                generate_field_mut_getter(idents, &field_info, element_name, uniqueness, generics);
+            let mut_getter = generate_field_mut_getter(
+                idents,
+                &field_info,
+                uniqueness,
+                &unindexed_types,
+                &unindexed_idents,
+            );
 
             let remover = generate_field_remover(
                 idents,
