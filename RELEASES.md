@@ -1,3 +1,8 @@
+Version 0.14.0 (2025-05-20)
+==========================
+
+- Allow hasher to be configured for each MultiIndexMap through the `#[multi_index_hash]` attribute.
+
 Version 0.13.0 (2025-05-09)
 ==========================
 
