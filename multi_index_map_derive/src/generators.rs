@@ -687,11 +687,11 @@ pub(crate) fn generate_iter_mut(
     generics: &Generics,
     iter_generics: &Generics,
 ) -> proc_macro2::TokenStream {
-    let (impls, types, _) = generics.split_for_impl();
+    let (_, types, _) = generics.split_for_impl();
     let (iter_impls, iter_types, iter_where_clause) = iter_generics.split_for_impl();
 
     quote! {
-        #element_vis struct #iter_mut_name #iter_types (::multi_index_map::slab::IterMut<'__mim_iter_lifetime, #element_name #types>);
+        #element_vis struct #iter_mut_name #iter_impls (::multi_index_map::slab::IterMut<'__mim_iter_lifetime, #element_name #types>);
 
         impl #iter_impls Iterator for #iter_mut_name #iter_types #iter_where_clause {
             type Item = (#(&'__mim_iter_lifetime mut #unindexed_types,)*);
@@ -739,8 +739,8 @@ pub(crate) fn generate_accessors<'a>(
                 idents,
                 &field_info,
                 uniqueness,
-                &unindexed_types,
-                &unindexed_idents,
+                unindexed_types,
+                unindexed_idents,
             );
 
             let remover = generate_field_remover(
@@ -758,8 +758,8 @@ pub(crate) fn generate_accessors<'a>(
                 element_name,
                 ordering,
                 uniqueness,
-                &unindexed_types,
-                &unindexed_idents,
+                unindexed_types,
+                unindexed_idents,
                 generics,
             );
 
@@ -944,9 +944,11 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
     iter_mut_name: &proc_macro2::Ident,
     iter_mut: proc_macro2::TokenStream,
+    iter_generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let derives = &extra_attrs.derives;
     let (impls, types, where_clause) = generics.split_for_impl();
+    let (_, iter_types, _) = iter_generics.split_for_impl();
 
     quote! {
         #(#[#derives])*
@@ -1026,7 +1028,7 @@ pub(crate) fn generate_expanded(
             /// It is safe to mutate the non-indexed fields,
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis fn iter_mut(&mut self) -> #iter_mut_name<'_> {
+            #element_vis fn iter_mut<'__mim_iter_lifetime>(&'__mim_iter_lifetime mut self) -> #iter_mut_name #iter_types {
                 #iter_mut_name(self._store.iter_mut())
             }
 

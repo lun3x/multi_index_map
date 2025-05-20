@@ -26,13 +26,13 @@ fn test_non_unique_reverse_iter() {
     }
 
     let mut prev = 6;
-    for (_i, elem) in s.iter_by_field1().rev().enumerate() {
+    for elem in s.iter_by_field1().rev() {
         assert!(elem.field1 <= prev);
         prev = elem.field1;
     }
 
     let mut prev = 20;
-    for (_i, elem) in s.iter_by_field2().rev().enumerate() {
+    for elem in s.iter_by_field2().rev() {
         assert!(elem.field2 <= prev);
         prev = elem.field2;
     }
@@ -40,13 +40,13 @@ fn test_non_unique_reverse_iter() {
     s.modify_by_field2(&12, |e| e.field1 = 2);
     s.modify_by_field2(&3, |e| e.field1 = 2);
     let mut prev = 6;
-    for (_i, elem) in s.iter_by_field1().rev().enumerate() {
+    for elem in s.iter_by_field1().rev() {
         assert!(elem.field1 <= prev);
         prev = elem.field1;
     }
 
     let mut prev = 20;
-    for (_i, elem) in s.iter_by_field2().rev().enumerate() {
+    for elem in s.iter_by_field2().rev() {
         assert!(elem.field2 <= prev);
         prev = elem.field2;
     }

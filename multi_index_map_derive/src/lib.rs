@@ -163,6 +163,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         lookup_table_fields_reserve,
         &iter_mut_name,
         iter_mut,
+        &iter_generics,
     );
 
     // Hand the output tokens back to the compiler.

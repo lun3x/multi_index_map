@@ -60,7 +60,7 @@ fn main() {
     // Set mutable so we can mutate the map.
     let mut map = map;
 
-    for (_, o) in unsafe { map.iter_mut() } {
+    for (o,) in map.iter_mut() {
         println!("iter_mut: {o:?}")
     }
 
