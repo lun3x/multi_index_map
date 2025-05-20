@@ -83,6 +83,13 @@ fn main() {
         .unwrap();
     println!("Updated note of order {o1_ref:?}, to {:?}", o1_ref.note,);
 
+    let (o1_note_ref,) = map.get_mut_by_order_id(&7).unwrap();
+    *o1_note_ref = "TestNoteUpdated".to_string();
+    println!(
+        "Updated note of order with order_id {:?}, to {:?}",
+        7, o1_note_ref,
+    );
+
     let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
     assert_eq!(toms_orders.len(), 2);
     println!("Removed Tom's order by name: {toms_orders:?}",);
@@ -100,4 +107,8 @@ fn main() {
         "Removed {}'s order by timestamp {}",
         o3.trader_name, o3.timestamp
     );
+
+    for (note,) in map.iter_mut() {
+        note.push_str(" extra appended data");
+    }
 }

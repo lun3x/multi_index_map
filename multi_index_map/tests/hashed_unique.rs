@@ -65,8 +65,8 @@ fn test_unsafe_mutate_by_field1() {
     };
     map.insert(elem1);
 
-    let elem1_ref: (&mut String,) = map.get_mut_by_field1(&TestNonPrimitiveType(42)).unwrap();
-    *elem1_ref.0 = "ModifiedElementOne".to_string();
+    let (elem1_field2_ref,) = map.get_mut_by_field1(&TestNonPrimitiveType(42)).unwrap();
+    *elem1_field2_ref = "ModifiedElementOne".to_string();
 
     let elem1_ref = map.get_by_field1(&TestNonPrimitiveType(42)).unwrap();
     assert_eq!(elem1_ref.field1.0, 42);
