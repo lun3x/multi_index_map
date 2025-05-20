@@ -700,6 +700,21 @@ pub(crate) fn generate_iter_mut(
                 self.0.next().map(|(_, elem)| (#(&mut elem.#unindexed_idents,)*))
             }
         }
+
+        impl #iter_impls DoubleEndedIterator for #iter_mut_name #iter_types #iter_where_clause {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                self.0.next_back().map(|(_, elem)| (#(&mut elem.#unindexed_idents,)*))
+            }
+        }
+
+        impl #iter_impls ExactSizeIterator for #iter_mut_name #iter_types #iter_where_clause {
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+        }
+
+        impl #iter_impls std::iter::FusedIterator for #iter_mut_name #iter_types #iter_where_clause {
+        }
     }
 }
 
