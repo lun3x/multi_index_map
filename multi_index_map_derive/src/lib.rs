@@ -2,7 +2,7 @@ use ::proc_macro_error2::{abort_call_site, proc_macro_error};
 use ::quote::format_ident;
 use ::syn::{parse_macro_input, DeriveInput};
 use convert_case::Casing;
-use generators::{FieldIdents, EXPECT_NAMED_FIELDS};
+use generators::{generate_iter_mut, FieldIdents, EXPECT_NAMED_FIELDS};
 use proc_macro_error2::OptionExt;
 use syn::parse_quote;
 
@@ -103,13 +103,20 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let clears = generators::generate_clears(&indexed_fields);
 
+    let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
+    let unindexed_idents = unindexed_fields
+        .iter()
+        .map(|f| f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS))
+        .collect::<Vec<_>>();
+
     let mut iter_generics = input.generics.clone();
     iter_generics
         .params
         .push(parse_quote!('__mim_iter_lifetime));
     let accessors = generators::generate_accessors(
         &indexed_fields,
-        &unindexed_fields,
+        &unindexed_types,
+        &unindexed_idents,
         element_name,
         &removes,
         &pre_modifies,
@@ -127,6 +134,17 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     let element_vis = input.vis;
 
+    let iter_mut_name = format_ident!("{}IterMut", element_name);
+    let iter_mut = generate_iter_mut(
+        &iter_mut_name,
+        element_name,
+        &element_vis,
+        &unindexed_types,
+        &unindexed_idents,
+        &input.generics,
+        &iter_generics,
+    );
+
     let expanded = generators::generate_expanded(
         &extra_attrs,
         &input.generics,
@@ -143,6 +161,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         lookup_table_fields_default,
         lookup_table_fields_shrink,
         lookup_table_fields_reserve,
+        &iter_mut_name,
+        iter_mut,
+        &iter_generics,
     );
 
     // Hand the output tokens back to the compiler.

@@ -20,8 +20,7 @@ Current implementation supports:
 * Iteration over ordered index is same as BTreeMap, plus a retrieval from the backing storage for each element.
 * Iteration over the backing store is the same as Slab, so contiguous memory but with potentially vacant slots.
 * Insertion, removal, and modification complexity grows as the number of indexed fields grow. All indexes must be updated during these operations so these are slower.
-* Modification of unindexed fields through unsafe mut methods is the same as regular retrieval time.
-* Modification such that uniqueness is violated, will result in a `panic`.
+* Modification of unindexed fields through get_mut_by_ methods is the same as regular retrieval time.
 * Insertion such that uniqueness would be violated does not mutate the map, instead the element is returned to the user wrapped in an Err variant.
 
 ## Non-Unique Indexes
@@ -167,6 +166,10 @@ struct MultiIndexOrderMapTraderNameIter<'a> {
     ...
 }
 
+struct OrderMutIter<'a> {
+    ...
+}
+
 impl MultiIndexOrderMap {
     fn try_insert(&mut self, elem: Order) -> Result<&Order, MultiIndexMapError<Order>>;
     fn insert(&mut self, elem: Order) -> &Order;
@@ -178,6 +181,10 @@ impl MultiIndexOrderMap {
     fn get_by_order_id(&self, key: &u32) -> Option<&Order>;
     fn get_by_timestamp(&self, key: &u64) -> Option<&Order>;
     fn get_by_trader_name(&self, key: &String) -> Vec<&Order>;
+
+    fn get_mut_by_order_id(&mut self, key: &u32) -> Option<(&mut bool, &mut u64)>;
+    fn get_mut_by_timestamp(&mut self, key: &u64) -> Option<(&mut bool, &mut u64)>;
+    fn get_mut_by_trader_name(&mut self, key: &String) -> Vec<(&mut bool, &mut u64)>;
 
     fn update_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
     fn update_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
@@ -192,11 +199,19 @@ impl MultiIndexOrderMap {
     fn remove_by_trader_name(&mut self, key: &String) -> Vec<Order>;
     
     fn iter(&self) -> slab::Iter<Order>;
-    unsafe fn iter_mut(&mut self) -> slab::IterMut<Order>;
+    fn iter_mut(&mut self) -> OrderMutIter;
     
     fn iter_by_order_id(&self) -> MultiIndexOrderMapOrderIdIter;
     fn iter_by_timestamp(&self) -> MultiIndexOrderMapTimestampIter;
     fn iter_by_trader_name(&self) -> MultiIndexOrderMapTraderNameIter;
+}
+
+impl<'a> Iterator for OrderMutIter<'a> {
+    type Item = (&mut bool, &mut u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        ...
+    }
 }
 ```
 

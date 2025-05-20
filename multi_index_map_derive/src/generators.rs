@@ -1,7 +1,6 @@
 use ::quote::{format_ident, quote};
 use ::syn::{Field, Visibility};
 use proc_macro2::Ident;
-use proc_macro_error2::OptionExt;
 use syn::{Generics, Type};
 
 use crate::index_attributes::{ExtraAttributes, Ordering, Uniqueness};
@@ -387,39 +386,28 @@ fn generate_field_getter(
 }
 
 // TokenStream representing the get_mut_by_ accessor for this field.
-// Note that these methods are deprecated, and will be removed in a future version.
 fn generate_field_mut_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
-    element_name: &Ident,
     uniqueness: &Uniqueness,
-    generics: &Generics,
+    unindexed_types: &[&Type],
+    unindexed_idents: &[&Ident],
 ) -> proc_macro2::TokenStream {
     let mut_getter_name = format_ident!("get_mut_by_{}", &field_idents.name);
     let index_name = &field_idents.index_name;
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
-    let (_, types, _) = generics.split_for_impl();
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            /// SAFETY:
-            /// It is safe to mutate the non-indexed fields,
-            /// however mutating any of the indexed fields will break the internal invariants.
-            /// If the indexed fields need to be changed, the modify() method must be used.
-            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Option<&mut #element_name #types> {
-                Some(&mut self._store[*self.#index_name.get(key)?])
+            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Option<(#(&mut #unindexed_types,)*)> {
+                let elem = &mut self._store[*self.#index_name.get(key)?];
+                Some((#(&mut elem.#unindexed_idents,)*))
             }
         },
         Uniqueness::NonUnique => quote! {
-            /// SAFETY:
-            /// It is safe to mutate the non-indexed fields,
-            /// however mutating any of the indexed fields will break the internal invariants.
-            /// If the indexed fields need to be changed, the modify() method must be used.
-            #[deprecated(since="0.7.0", note="please use `update_by_` methods to update non-indexed fields instead, these are equally performant but are safe")]
-            #field_vis unsafe fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<&mut #element_name #types> {
+            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<(#(&mut #unindexed_types,)*)> {
                 if let Some(idxs) = self.#index_name.get(key) {
                     let mut refs = Vec::with_capacity(idxs.len());
                     let mut mut_iter = self._store.iter_mut();
@@ -427,7 +415,7 @@ fn generate_field_mut_getter(
                     for idx in idxs.iter() {
                         match mut_iter.nth(*idx - last_idx) {
                             Some(val) => {
-                                refs.push(val.1)
+                                refs.push((#(&mut val.1.#unindexed_idents,)*))
                             },
                             _ => {
                                 panic!(
@@ -690,12 +678,53 @@ fn generate_field_iter_getter(
     }
 }
 
+pub(crate) fn generate_iter_mut(
+    iter_mut_name: &proc_macro2::Ident,
+    element_name: &proc_macro2::Ident,
+    element_vis: &Visibility,
+    unindexed_types: &[&Type],
+    unindexed_idents: &[&Ident],
+    generics: &Generics,
+    iter_generics: &Generics,
+) -> proc_macro2::TokenStream {
+    let (_, types, _) = generics.split_for_impl();
+    let (iter_impls, iter_types, iter_where_clause) = iter_generics.split_for_impl();
+
+    quote! {
+        #element_vis struct #iter_mut_name #iter_impls (::multi_index_map::slab::IterMut<'__mim_iter_lifetime, #element_name #types>);
+
+        impl #iter_impls Iterator for #iter_mut_name #iter_types #iter_where_clause {
+            type Item = (#(&'__mim_iter_lifetime mut #unindexed_types,)*);
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.0.next().map(|(_, elem)| (#(&mut elem.#unindexed_idents,)*))
+            }
+        }
+
+        impl #iter_impls DoubleEndedIterator for #iter_mut_name #iter_types #iter_where_clause {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                self.0.next_back().map(|(_, elem)| (#(&mut elem.#unindexed_idents,)*))
+            }
+        }
+
+        impl #iter_impls ExactSizeIterator for #iter_mut_name #iter_types #iter_where_clause {
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+        }
+
+        impl #iter_impls std::iter::FusedIterator for #iter_mut_name #iter_types #iter_where_clause {
+        }
+    }
+}
+
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_accessors<'a>(
     indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
-    unindexed_fields: &'a [Field],
+    unindexed_types: &'a [&Type],
+    unindexed_idents: &'a [&Ident],
     element_name: &'a proc_macro2::Ident,
     removes: &'a [proc_macro2::TokenStream],
     pre_modifies: &'a [proc_macro2::TokenStream],
@@ -703,12 +732,6 @@ pub(crate) fn generate_accessors<'a>(
     generics: &'a Generics,
     iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
-    let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
-    let unindexed_idents = unindexed_fields
-        .iter()
-        .map(|f| f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS))
-        .collect::<Vec<_>>();
-
     indexed_fields
         .iter()
         .map(move |(f, idents, ordering, uniqueness)| {
@@ -727,8 +750,13 @@ pub(crate) fn generate_accessors<'a>(
                 generics,
             );
 
-            let mut_getter =
-                generate_field_mut_getter(idents, &field_info, element_name, uniqueness, generics);
+            let mut_getter = generate_field_mut_getter(
+                idents,
+                &field_info,
+                uniqueness,
+                unindexed_types,
+                unindexed_idents,
+            );
 
             let remover = generate_field_remover(
                 idents,
@@ -745,8 +773,8 @@ pub(crate) fn generate_accessors<'a>(
                 element_name,
                 ordering,
                 uniqueness,
-                &unindexed_types,
-                &unindexed_idents,
+                unindexed_types,
+                unindexed_idents,
                 generics,
             );
 
@@ -929,9 +957,13 @@ pub(crate) fn generate_expanded(
     lookup_table_fields_default: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_shrink: impl Iterator<Item = proc_macro2::TokenStream>,
     lookup_table_fields_reserve: impl Iterator<Item = proc_macro2::TokenStream>,
+    iter_mut_name: &proc_macro2::Ident,
+    iter_mut: proc_macro2::TokenStream,
+    iter_generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let derives = &extra_attrs.derives;
     let (impls, types, where_clause) = generics.split_for_impl();
+    let (_, iter_types, _) = iter_generics.split_for_impl();
 
     quote! {
         #(#[#derives])*
@@ -1011,12 +1043,14 @@ pub(crate) fn generate_expanded(
             /// It is safe to mutate the non-indexed fields,
             /// however mutating any of the indexed fields will break the internal invariants.
             /// If the indexed fields need to be changed, the modify() method must be used.
-            #element_vis unsafe fn iter_mut(&mut self) -> ::multi_index_map::slab::IterMut<#element_name #types> {
-                self._store.iter_mut()
+            #element_vis fn iter_mut<'__mim_iter_lifetime>(&'__mim_iter_lifetime mut self) -> #iter_mut_name #iter_types {
+                #iter_mut_name(self._store.iter_mut())
             }
 
             #(#accessors)*
         }
+
+        #iter_mut
 
         #(#iterators)*
 

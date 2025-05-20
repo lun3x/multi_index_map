@@ -28,16 +28,49 @@ fn test_non_unique_get_mut() {
             });
         }
     }
-    unsafe {
-        let mut_refs = map.get_mut_by_field1(&37);
-        for r in mut_refs {
-            r.field2 = r.field2 * r.field2;
+
+    let mut_refs: Vec<(&mut usize,)> = map.get_mut_by_field1(&37);
+    for (r,) in mut_refs {
+        *r *= *r
+    }
+
+    let refs: Vec<&TestElement> = map.get_by_field1(&37);
+    for (i, r) in refs.iter().enumerate() {
+        assert_eq!(r.field2, (2 * i + 1) * (2 * i + 1));
+    }
+}
+
+#[test]
+fn test_non_unique_iter_mut() {
+    let mut map = MultiIndexTestElementMap::default();
+    for i in 0..10 {
+        if i % 2 == 0 {
+            map.insert(TestElement {
+                field1: 42,
+                field2: i,
+                field3: i,
+            });
+        } else {
+            map.insert(TestElement {
+                field1: 37,
+                field2: i,
+                field3: i,
+            });
         }
     }
 
-    let refs = map.get_by_field1(&37);
+    for (field2,) in map.iter_mut() {
+        *field2 *= *field2
+    }
+
+    let refs: Vec<&TestElement> = map.get_by_field1(&37);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, (2 * i + 1) * (2 * i + 1));
+    }
+
+    let refs: Vec<&TestElement> = map.get_by_field1(&42);
+    for (i, r) in refs.iter().enumerate() {
+        assert_eq!(r.field2, (2 * i) * (2 * i));
     }
 }
 
