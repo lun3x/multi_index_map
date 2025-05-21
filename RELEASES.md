@@ -1,3 +1,8 @@
+Version 0.15.0 (2025-05-21)
+==========================
+
+- Modify get_mut_by_ methods such that they return only the unindexed fields of the element, allowing full mutable access without risk of breaking the index.
+
 Version 0.14.0 (2025-05-20)
 ==========================
 
