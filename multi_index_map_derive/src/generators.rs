@@ -25,6 +25,37 @@ struct FieldInfo<'a> {
 pub(crate) const EXPECT_NAMED_FIELDS: &str =
     "Internal logic broken, all fields should have named identifiers";
 
+// IMPORTANT NOTE ABOUT BACKING STORE AND INDEX KEYS
+// -------------------------------------------------
+// The backing storage is a slab (slab::Slab<T>). Slab indices (usize) are stable
+// keys, but iteration over the slab (iter/iter_mut) yields only occupied entries
+// and may skip over vacant ones ("holes"). Using Iterator::nth() on iter_mut and
+// treating the nth yielded element as if it corresponded to a desired slab key
+// is incorrect whenever holes exist. This caused panics in non-unique modify paths
+// when elements had been removed earlier.
+//
+// Design choices applied below to fix and harden behavior:
+// - For non-unique get_mut_by_: we must return multiple &mut references. We use a
+//   single iter_mut() and advance it with .find(|(k,_)| *k == target_idx) for each
+//   target index. This preserves aliasing guarantees while traversing the slab in
+//   key order and avoids creating multiple concurrent mutable borrows to self._store.
+//   Trying to gather &mut via repeated self._store.get_mut(idx) into a Vec leads to
+//   borrow-checker violations (E0499: cannot borrow as mutable more than once).
+//
+// - For non-unique update_by_ and modify_by_: we perform a two-pass approach:
+//   1) Collect target indices into a Vec<usize> from the index set at the time of
+//      the call (cloning the set for modify_by_ to avoid aliasing with updates).
+//   2) First pass: for each idx, get_mut the element and apply the closures. For
+//      modify_by_ we also run pre/post index maintenance to keep lookup tables
+//      consistent when indexed fields change.
+//   3) Second pass: collect immutable & references to return. This avoids returning
+//      &mut references from a FnMut closure and prevents the closure from letting
+//      references escape (previous attempts hit "captured variable cannot escape
+//      FnMut closure body").
+//
+// These approaches eliminate reliance on nth-offset semantics, respect the borrow
+// rules, and keep indexes consistent even in presence of slab holes.
+
 // For each indexed field generate a TokenStream representing the lookup table for that field
 // Each lookup table maps it's index to a position in the backing storage,
 // or multiple positions in the backing storage in the non-unique indexes.
@@ -198,7 +229,7 @@ pub(crate) fn generate_inserts_for_entries(
 //   - When the field is non-unique, get a reference to the container that
 //     contains all back storage indices under the same key (elem_orig.#field_name),
 //     + If there are more than one indices in the container, remove idx from it
-//     + If there are exactly one index in the container, then the index has to be idx,
+//     + If there is exactly one index in the container, then the index has to be idx,
 //       remove the key from the lookup table
 pub(crate) fn generate_removes(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
@@ -409,24 +440,27 @@ fn generate_field_mut_getter(
         Uniqueness::NonUnique => quote! {
             #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<(#(&mut #unindexed_types,)*)> {
                 if let Some(idxs) = self.#index_name.get(key) {
-                    let mut refs = Vec::with_capacity(idxs.len());
-                    let mut mut_iter = self._store.iter_mut();
-                    let mut last_idx: usize = 0;
-                    for idx in idxs.iter() {
-                        match mut_iter.nth(*idx - last_idx) {
-                            Some(val) => {
-                                refs.push((#(&mut val.1.#unindexed_idents,)*))
-                            },
-                            _ => {
+                    // Use a single iterator over the slab and advance it to each desired key,
+                    // matching by slab index to safely build multiple &mut refs without UB.
+                    // Avoids E0499 (multiple mutable borrows) that would arise from repeatedly
+                    // calling self._store.get_mut(idx) and collecting &mut refs simultaneously.
+                    let mut out = Vec::with_capacity(idxs.len());
+                    let mut it = self._store.iter_mut();
+                    for &target in idxs {
+                        match it.by_ref().find(|(k, _)| *k == target) {
+                            Some((_k, elem)) => {
+                                out.push((#(&mut elem.#unindexed_idents,)*));
+                            }
+                            None => {
                                 panic!(
-                                    "Error getting mutable reference of non-unique field `{}` in getter.",
+                                    "Internal invariants broken, unable to find element at index {} in store despite being present in index '{}'",
+                                    target,
                                     #field_name_str
                                 );
                             }
                         }
-                        last_idx = *idx + 1;
                     }
-                    refs
+                    out
                 } else {
                     Vec::new()
                 }
@@ -537,30 +571,34 @@ fn generate_field_updater(
                 #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
                 #key_bounds,
             {
-                let empty = ::std::collections::BTreeSet::<usize>::new();
-                let idxs = match self.#index_name.get(key) {
+                let idxs_ref = match self.#index_name.get(key) {
                     Some(container) => container,
-                    _ => &empty,
+                    None => return Vec::new(),
                 };
 
-                let mut refs = Vec::with_capacity(idxs.len());
-                let mut mut_iter = self._store.iter_mut();
-                let mut last_idx: usize = 0;
-                for idx in idxs {
-                    match mut_iter.nth(idx - last_idx) {
-                        Some(val) => {
-                            let elem = val.1;
-                            f(#(&mut elem.#unindexed_idents,)*);
-                            refs.push(&*elem);
-                        }
-                        _ => {
-                            panic!(
-                                "Error getting mutable reference of non-unique field `{}` in updater.",
-                                #field_name_str
-                            );
-                        }
+                // Two-pass approach to satisfy the borrow checker and avoid aliasing:
+                // 1) clone indices to a Vec so we have a stable snapshot even if the index
+                //    structure changes (it shouldn't for update_by_, but this is cheap and safe),
+                // 2) mutate each target via get_mut,
+                // 3) collect & references to return in a second pass.
+                let targets: ::std::vec::Vec<usize> = idxs_ref.iter().copied().collect();
+
+                for &idx in &targets {
+                    if let Some(elem) = self._store.get_mut(idx) {
+                        f(#(&mut elem.#unindexed_idents,)*)
+                    } else {
+                        panic!(
+                            "Internal invariants broken, unable to find element at index {} in store despite being present in index '{}'",
+                            idx,
+                            #field_name_str
+                        );
                     }
-                    last_idx = idx + 1;
+                }
+
+                let mut refs = ::std::vec![];
+                refs.reserve(targets.len());
+                for &idx in &targets {
+                    refs.push(&self._store[idx]);
                 }
                 refs
             }
@@ -610,30 +648,36 @@ fn generate_field_modifier(
                 key: &#field_type,
                 mut f: impl FnMut(&mut #element_name #types)
             ) -> Vec<&#element_name #types> {
-                let idxs = match self.#index_name.get(key) {
-                    Some(container) => container.clone(),
-                    _ => ::std::collections::BTreeSet::<usize>::new()
+                let idxs_set = match self.#index_name.get(key) {
+                    Some(container) => container.clone(), // clone to decouple from mutations during post_modifies
+                    None => return Vec::new(),
                 };
-                let mut refs = Vec::with_capacity(idxs.len());
-                let mut mut_iter = self._store.iter_mut();
-                let mut last_idx: usize = 0;
-                for idx in idxs {
-                    match mut_iter.nth(idx - last_idx) {
-                        Some(val) => {
-                            let elem = val.1;
-                            #(#pre_modifies)*
-                            f(elem);
-                            #(#post_modifies)*
-                            refs.push(&*elem);
-                        },
-                        _ => {
-                            panic!(
-                                "Error getting mutable reference of non-unique field `{}` in modifier.",
-                                #field_name_str
-                            );
-                        }
+
+                // Two-pass approach for modify_by_:
+                // - Work from a stable list of slab indices (targets) captured before any modifications.
+                // - First pass applies the user closure and updates indices (pre_/post_modifies) in-place
+                //   using direct keyed access (self._store.get_mut(idx)). This avoids relying on iterator
+                //   position and is robust to holes in the slab.
+                // - Second pass collects immutable references to the modified elements to return.
+                let targets: ::std::vec::Vec<usize> = idxs_set.iter().copied().collect();
+
+                for &idx in &targets {
+                    if let Some(elem) = self._store.get_mut(idx) {
+                        #(#pre_modifies)*
+                        f(elem);
+                        #(#post_modifies)*
+                    } else {
+                        panic!(
+                            "Internal invariants broken, unable to find element at index {} in store despite being present in index '{}'",
+                            idx,
+                            #field_name_str
+                        );
                     }
-                    last_idx = idx + 1;
+                }
+
+                let mut refs = ::std::vec::Vec::with_capacity(targets.len());
+                for &idx in &targets {
+                    refs.push(&self._store[idx]);
                 }
                 refs
             }
