@@ -22,5 +22,5 @@ fn should_compile() {
     };
     map.insert(elem1);
 
-    let s = serde_json::to_string(&map);
+    let _s = serde_json::to_string(&map);
 }
