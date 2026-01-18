@@ -1,3 +1,9 @@
+Version 0.15.1 (2026-01-18)
+==========================
+
+- Merge @diegomrsantos PR to implement the following changes:
+    - Issue #65: Fix non-unique iteration over slab holes
+
 Version 0.15.0 (2025-05-21)
 ==========================
 
