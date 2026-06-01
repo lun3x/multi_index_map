@@ -1,5 +1,5 @@
 use ::quote::{format_ident, quote};
-use ::syn::{Field, Visibility};
+use ::syn::{Field, Visibility, parse_quote};
 use proc_macro2::Ident;
 use syn::{Generics, Type};
 
@@ -1009,6 +1009,17 @@ pub(crate) fn generate_expanded(
     let (impls, types, where_clause) = generics.split_for_impl();
     let (_, iter_types, _) = iter_generics.split_for_impl();
 
+    let foreign_iter_type = Ident::new("__ForeignIter", proc_macro2::Span::call_site());
+
+    let mut generics_with_iterator_lifetime;
+
+    let impls_with_iterator_lifetime = {
+        generics_with_iterator_lifetime = generics.clone();
+        generics_with_iterator_lifetime.params.push(parse_quote!('__mim_iter_lifetime));
+        let (impls_with_iterator_lifetime, _, _) = generics_with_iterator_lifetime.split_for_impl();
+        impls_with_iterator_lifetime
+    };
+
     quote! {
         #(#[#derives])*
         #element_vis struct #map_name #impls {
@@ -1095,6 +1106,30 @@ pub(crate) fn generate_expanded(
         }
 
         #iter_mut
+
+        impl #impls_with_iterator_lifetime IntoIterator for &'__mim_iter_lifetime #map_name #types {
+            type Item = (usize, &'__mim_iter_lifetime #element_name #types);
+            type IntoIter = ::multi_index_map::slab::Iter<'__mim_iter_lifetime, #element_name #types>;
+            fn into_iter(self) -> Self::IntoIter {
+                self.iter()
+            }
+        }
+
+        /// Build a #map_name from any IntoIterator of elements.
+        /// Among any sets of duplicate elements, "duplicate" referring to any unique index or indices,
+        /// the _first_ such element silently wins the conflict,
+        /// in contrast to [`std::collections::HashMap`] or [`std::collections::BTreeMap`]
+        /// who silently keep the _last_ duplicate elements.
+        impl #impls FromIterator<#element_name #types> for #map_name #types #where_clause {
+            fn from_iter<#foreign_iter_type: IntoIterator<Item = #element_name #types>>(iter: #foreign_iter_type) -> Self {
+                let mut iter = iter.into_iter();
+                let mut this = Self::with_capacity(iter.size_hint().0);
+                iter.for_each(|item| {
+                    let _ = this.try_insert(item);
+                });
+                this
+            }
+        }
 
         #(#iterators)*
 

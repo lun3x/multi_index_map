@@ -4,6 +4,7 @@ use multi_index_map::MultiIndexMap;
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u32);
 
+#[allow(clippy::struct_field_names)]
 #[derive(MultiIndexMap, Debug, Clone)]
 #[multi_index_derive(Clone, Debug)]
 pub struct TestElementWithOnlyIndexedFields {
@@ -17,12 +18,12 @@ pub struct TestElementWithOnlyIndexedFields {
     field_ordered_non_unique: u32,
 }
 
-const BENCH_SIZES: &[u32] = &[100u32, 1000u32, 10000u32, 100000u32];
+const BENCH_SIZES: &[u32] = &[100u32, 1_000u32, 10_000u32, 100_000u32];
 
 fn insert_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
         let mut map = black_box(MultiIndexTestElementWithOnlyIndexedFieldsMap::default());
-        c.bench_function(&format!("insert_bench_{}", n), |b| {
+        c.bench_function(&format!("insert_bench_{n}"), |b| {
             b.iter(|| {
                 for i in 0..n {
                     map.insert(black_box(TestElementWithOnlyIndexedFields {
@@ -33,7 +34,7 @@ fn insert_benchmark(c: &mut Criterion) {
                     }));
                     map.clear();
                 }
-            })
+            });
         });
     }
 
@@ -53,7 +54,7 @@ fn delete_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                 field_ordered_non_unique: i / 5,
             }));
         }
-        c.bench_function(&format!("delete_hashed_unique_key_bench_{}", n), |b| {
+        c.bench_function(&format!("delete_hashed_unique_key_bench_{n}"), |b| {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..n {
@@ -62,7 +63,7 @@ fn delete_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                             .remove_by_field_hashed_unique(black_box(&TestNonPrimitiveType(i))),
                     );
                 }
-            })
+            });
         });
     }
 
@@ -82,7 +83,7 @@ fn delete_by_hashed_non_unique_key_benchmark(c: &mut Criterion) {
                 field_ordered_non_unique: i / 5,
             }));
         }
-        c.bench_function(&format!("delete_hashed_non_unique_key_bench_{}", n), |b| {
+        c.bench_function(&format!("delete_hashed_non_unique_key_bench_{n}"), |b| {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..10 {
@@ -90,7 +91,7 @@ fn delete_by_hashed_non_unique_key_benchmark(c: &mut Criterion) {
                         &TestNonPrimitiveType(42 + i % 5),
                     )));
                 }
-            })
+            });
         });
     }
 
@@ -110,13 +111,13 @@ fn delete_by_ordered_unique_key_benchmark(c: &mut Criterion) {
                 field_ordered_non_unique: i / 5,
             }));
         }
-        c.bench_function(&format!("delete_ordered_unique_key_bench_{}", n), |b| {
+        c.bench_function(&format!("delete_ordered_unique_key_bench_{n}"), |b| {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..n {
                     black_box(map_clone.remove_by_field_ordered_unique(black_box(&i)));
                 }
-            })
+            });
         });
     }
 
@@ -136,13 +137,13 @@ fn delete_by_ordered_non_unique_key_benchmark(c: &mut Criterion) {
                 field_ordered_non_unique: i / 5,
             }));
         }
-        c.bench_function(&format!("delete_ordered_non_unique_key_bench_{}", n), |b| {
+        c.bench_function(&format!("delete_ordered_non_unique_key_bench_{n}"), |b| {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..n {
                     black_box(map_clone.remove_by_field_ordered_non_unique(black_box(&(i / 5))));
                 }
-            })
+            });
         });
     }
 
@@ -163,7 +164,7 @@ fn modify_hashed_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
             }));
         }
         c.bench_function(
-            &format!("modify_hashed_unique_key_by_hashed_unique_key_bench_{}", n),
+            &format!("modify_hashed_unique_key_by_hashed_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -176,7 +177,7 @@ fn modify_hashed_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -199,8 +200,7 @@ fn modify_hashed_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion
         }
         c.bench_function(
             &format!(
-                "modify_hashed_non_unique_key_by_hashed_unique_key_bench_{}",
-                n
+                "modify_hashed_non_unique_key_by_hashed_unique_key_bench_{n}"
             ),
             |b| {
                 b.iter(|| {
@@ -215,7 +215,7 @@ fn modify_hashed_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -237,7 +237,7 @@ fn modify_ordered_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
             }));
         }
         c.bench_function(
-            &format!("modify_ordered_unique_key_by_hashed_unique_key_bench_{}", n),
+            &format!("modify_ordered_unique_key_by_hashed_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -249,7 +249,7 @@ fn modify_ordered_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -272,8 +272,7 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
         }
         c.bench_function(
             &format!(
-                "modify_ordered_non_unique_key_by_hashed_unique_key_bench_{}",
-                n
+                "modify_ordered_non_unique_key_by_hashed_unique_key_bench_{n}"
             ),
             |b| {
                 b.iter(|| {
@@ -286,7 +285,7 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
                             }),
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -308,7 +307,7 @@ fn modify_hashed_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) {
             }));
         }
         c.bench_function(
-            &format!("modify_hashed_unique_key_by_ordered_unique_key_bench_{}", n),
+            &format!("modify_hashed_unique_key_by_ordered_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -321,7 +320,7 @@ fn modify_hashed_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) {
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -344,8 +343,7 @@ fn modify_hashed_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterio
         }
         c.bench_function(
             &format!(
-                "modify_hashed_non_unique_key_by_ordered_unique_key_bench_{}",
-                n
+                "modify_hashed_non_unique_key_by_ordered_unique_key_bench_{n}"
             ),
             |b| {
                 b.iter(|| {
@@ -360,7 +358,7 @@ fn modify_hashed_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterio
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -383,8 +381,7 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
         }
         c.bench_function(
             &format!(
-                "modify_ordered_unique_key_by_ordered_unique_key_bench_{}",
-                n
+                "modify_ordered_unique_key_by_ordered_unique_key_bench_{n}"
             ),
             |b| {
                 b.iter(|| {
@@ -397,7 +394,7 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -420,8 +417,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
         }
         c.bench_function(
             &format!(
-                "modify_ordered_non_unique_key_by_ordered_unique_key_bench_{}",
-                n
+                "modify_ordered_non_unique_key_by_ordered_unique_key_bench_{n}"
             ),
             |b| {
                 b.iter(|| {
@@ -434,7 +430,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
                             },
                         ));
                     }
-                })
+                });
             },
         );
     }
@@ -456,13 +452,13 @@ fn hashed_unique_key_iter_benchmark(c: &mut Criterion) {
             }));
             map.clear();
         }
-        c.bench_function(&format!("hashed_unique_key_iter_bench_{}", n), |b| {
+        c.bench_function(&format!("hashed_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
                 let mut a = black_box(map.iter_by_field_hashed_unique());
                 for _ in 0..n {
                     black_box(a.next());
                 }
-            })
+            });
         });
     }
 
@@ -483,13 +479,13 @@ fn hashed_non_unique_key_iter_benchmark(c: &mut Criterion) {
             }));
             map.clear();
         }
-        c.bench_function(&format!("hashed_non_unique_key_iter_bench_{}", n), |b| {
+        c.bench_function(&format!("hashed_non_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
                 let mut a = black_box(map.iter_by_field_hashed_non_unique());
                 for _ in 0..n {
                     black_box(a.next());
                 }
-            })
+            });
         });
     }
 
@@ -510,13 +506,13 @@ fn ordered_unique_key_iter_benchmark(c: &mut Criterion) {
             }));
             map.clear();
         }
-        c.bench_function(&format!("ordered_unique_key_iter_bench_{}", n), |b| {
+        c.bench_function(&format!("ordered_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
                 let mut a = black_box(map.iter_by_field_ordered_unique());
                 for _ in 0..n {
                     black_box(a.next());
                 }
-            })
+            });
         });
     }
 
@@ -537,13 +533,13 @@ fn ordered_non_unique_key_iter_benchmark(c: &mut Criterion) {
             }));
             map.clear();
         }
-        c.bench_function(&format!("ordered_non_unique_key_iter_bench_{}", n), |b| {
+        c.bench_function(&format!("ordered_non_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
                 let mut a = black_box(map.iter_by_field_ordered_non_unique());
                 for _ in 0..n {
                     black_box(a.next());
                 }
-            })
+            });
         });
     }
 
