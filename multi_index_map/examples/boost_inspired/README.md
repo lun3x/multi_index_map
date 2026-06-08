@@ -14,6 +14,7 @@ cargo test --example boost_inspired
 
 - `index.rs` represents reusable library machinery. It contains safe, integer-linked hashed and
   ordered index engines.
+- `view.rs` defines the public capability traits shared by generated index views.
 - `order_map.rs` represents code that a future proc macro could generate for one concrete element
   type.
 - `main.rs` demonstrates the intended typed-view API and contains correctness tests.
@@ -38,6 +39,26 @@ and color fields.
 
 Immutable iteration follows the embedded links without allocating. Batch mutation deliberately
 snapshots the original matching `NodeId`s so each original match is processed exactly once.
+
+## View Capabilities
+
+Views implement small, composable traits that describe the operations their index category
+supports:
+
+- every view implements `IndexView`
+- unique views implement `UniqueView`
+- non-unique views implement `NonUniqueView`
+- ordered views additionally implement `OrderedView`
+- mutable views implement the corresponding read traits plus `UniqueViewMut` or
+  `NonUniqueViewMut`
+
+The generated inherent methods remain the primary ergonomic API and support richer borrowed-query
+types. Capability-trait methods use the exact associated key type, making them suitable for generic
+algorithms without forcing hashed and ordered borrowed-query bounds into one trait.
+
+Because public traits expose iterator associated types, `order_map.rs` defines thin, named iterator
+wrappers for each generated traversal type. These wrappers hide private node and index-spec types
+without boxing or allocation.
 
 ## Mutation Semantics
 

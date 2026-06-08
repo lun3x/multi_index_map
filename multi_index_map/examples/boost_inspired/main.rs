@@ -2,6 +2,8 @@
 mod index;
 #[allow(dead_code)]
 mod order_map;
+#[allow(dead_code)]
+mod view;
 
 use order_map::{Order, OrderMap};
 
@@ -51,6 +53,10 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::order_map::{Conflict, ModifyAllResult, OrderUpdate};
+    use crate::view::{
+        IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
+    };
     use std::collections::{BTreeMap, HashMap};
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -99,6 +105,133 @@ mod tests {
         assert_eq!(map.by_price().range(..25).count(), 0);
         assert_eq!(map.by_price().range(41..).count(), 0);
         assert_eq!(map.by_price().range(31..30).count(), 0);
+        map.validate().unwrap();
+    }
+
+    #[test]
+    fn capability_traits_support_generic_index_algorithms() {
+        fn ids<V>(view: &V) -> Vec<u64>
+        where
+            V: IndexView<Value = Order>,
+        {
+            assert_eq!(view.is_empty(), view.len() == 0);
+            view.iter().map(|order| order.id).collect()
+        }
+
+        fn unique_id<V>(view: &V, key: &V::Key) -> Option<u64>
+        where
+            V: UniqueView<Value = Order>,
+        {
+            assert_eq!(view.contains_key(key), view.get(key).is_some());
+            view.get(key).map(|order| order.id)
+        }
+
+        fn equal_ids<V>(view: &V, key: &V::Key) -> Vec<u64>
+        where
+            V: NonUniqueView<Value = Order>,
+        {
+            view.equal_range(key).map(|order| order.id).collect()
+        }
+
+        fn range_ids<V>(view: &V, range: impl std::ops::RangeBounds<u64>) -> Vec<u64>
+        where
+            V: OrderedView<Value = Order, Key = u64>,
+        {
+            view.range(range).map(|order| order.id).collect()
+        }
+
+        fn mutate_unique<V>(view: &mut V, key: &V::Key)
+        where
+            V: UniqueViewMut<Value = Order, Conflict = Conflict>,
+            for<'a> V: UniqueViewMut<Update<'a> = OrderUpdate<'a>>,
+        {
+            view.modify(key, |order| order.price += 1).unwrap();
+            view.update(key, |fields| {
+                *fields.filled = true;
+            });
+        }
+
+        fn replace_unique<V>(
+            view: &mut V,
+            key: &V::Key,
+            replacement: Order,
+        ) -> Result<Option<Order>, Conflict>
+        where
+            V: UniqueViewMut<Value = Order, Conflict = Conflict>,
+        {
+            view.replace(key, replacement)
+        }
+
+        fn remove_unique<V>(view: &mut V, key: &V::Key) -> Option<Order>
+        where
+            V: UniqueViewMut<Value = Order>,
+        {
+            view.remove(key)
+        }
+
+        fn mutate_non_unique<V>(view: &mut V, key: &V::Key) -> ModifyAllResult
+        where
+            V: NonUniqueViewMut<Value = Order, ModifyAllResult = ModifyAllResult>,
+            for<'a> V: NonUniqueViewMut<Update<'a> = OrderUpdate<'a>>,
+        {
+            let result = view.modify_all(key, |order| order.price += 10);
+            view.update_all(key, |fields| {
+                fields.note.push_str("trait update");
+            });
+            result
+        }
+
+        fn remove_non_unique<V>(view: &mut V, key: &V::Key) -> Vec<Order>
+        where
+            V: NonUniqueViewMut<Value = Order>,
+        {
+            view.remove_all(key)
+        }
+
+        let mut map = populated();
+        assert_eq!(ids(&map.by_id()).len(), 4);
+        assert_eq!(unique_id(&map.by_timestamp(), &100), Some(1));
+        assert_eq!(equal_ids(&map.by_trader(), "John"), vec![1, 2]);
+        assert_eq!(range_ids(&map.by_price(), 25..=30).len(), 3);
+
+        {
+            let mut view = map.by_id_mut();
+            assert_eq!(unique_id(&view, &1), Some(1));
+            mutate_unique(&mut view, &1);
+        }
+        assert!(map.by_id().get(&1).unwrap().filled);
+
+        {
+            let mut view = map.by_trader_mut();
+            assert_eq!(equal_ids(&view, "John").len(), 2);
+            assert_eq!(mutate_non_unique(&mut view, "John").modified, 2);
+        }
+        assert!(map
+            .by_trader()
+            .equal_range("John")
+            .all(|order| order.note == "trait update"));
+
+        {
+            let view = map.by_price_mut();
+            assert_eq!(range_ids(&view, 35..=40).len(), 3);
+        }
+
+        {
+            let mut view = map.by_id_mut();
+            assert_eq!(
+                replace_unique(&mut view, &4, Order::new(40, 140, "Replacement", 50))
+                    .unwrap()
+                    .unwrap()
+                    .id,
+                4
+            );
+            assert_eq!(remove_unique(&mut view, &40).unwrap().id, 40);
+        }
+
+        {
+            let mut view = map.by_price_mut();
+            assert_eq!(remove_non_unique(&mut view, &25)[0].id, 3);
+        }
         map.validate().unwrap();
     }
 
