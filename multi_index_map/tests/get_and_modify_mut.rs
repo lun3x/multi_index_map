@@ -31,7 +31,7 @@ fn test_non_unique_get_mut() {
 
     let mut_refs: Vec<(&mut usize,)> = map.get_mut_by_field1(&37);
     for (r,) in mut_refs {
-        *r *= *r
+        *r *= *r;
     }
 
     let refs: Vec<&TestElement> = map.get_by_field1(&37);
@@ -60,7 +60,7 @@ fn test_non_unique_iter_mut() {
     }
 
     for (field2,) in map.iter_mut() {
-        *field2 *= *field2
+        *field2 *= *field2;
     }
 
     let refs: Vec<&TestElement> = map.get_by_field1(&37);

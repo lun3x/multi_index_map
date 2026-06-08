@@ -20,7 +20,7 @@ fn test_non_unique_update() {
         if i % 2 == 0 {
             map.insert(TestElement {
                 field1: 42,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "42".to_string(),
@@ -28,7 +28,7 @@ fn test_non_unique_update() {
         } else {
             map.insert(TestElement {
                 field1: 37,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "37".to_string(),
@@ -38,9 +38,9 @@ fn test_non_unique_update() {
 
     let refs = map.update_by_field1(&37, |field2, field4| {
         *field2 = 99.0;
-        *field4 = "NinetyNine".to_string()
+        *field4 = "NinetyNine".to_string();
     });
-    for r in refs.iter() {
+    for r in &refs {
         assert_eq!(r.field2, 99.0);
         assert_eq!(r.field4, "NinetyNine");
     }
@@ -59,7 +59,7 @@ fn test_non_unique_update_borrow() {
         if i % 2 == 0 {
             map.insert(TestElement {
                 field1: 42,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "42".to_string(),
@@ -67,7 +67,7 @@ fn test_non_unique_update_borrow() {
         } else {
             map.insert(TestElement {
                 field1: 37,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "37".to_string(),
@@ -77,9 +77,9 @@ fn test_non_unique_update_borrow() {
 
     let refs = map.update_by_field5("37", |field2, field4| {
         *field2 = 99.0;
-        *field4 = "NinetyNine".to_string()
+        *field4 = "NinetyNine".to_string();
     });
-    for r in refs.iter() {
+    for r in &refs {
         assert_eq!(r.field2, 99.0);
         assert_eq!(r.field4, "NinetyNine");
     }
@@ -98,7 +98,7 @@ fn test_unique_update() {
         if i % 2 == 0 {
             map.insert(TestElement {
                 field1: 42,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "42".to_string(),
@@ -106,7 +106,7 @@ fn test_unique_update() {
         } else {
             map.insert(TestElement {
                 field1: 37,
-                field2: i as f64,
+                field2: f64::from(i),
                 field3: i,
                 field4: i.to_string(),
                 field5: "37".to_string(),
@@ -116,7 +116,7 @@ fn test_unique_update() {
 
     let elem = map.update_by_field3(&0, |field2, field4| {
         *field2 = 99.0;
-        *field4 = "NinetyNine".to_string()
+        *field4 = "NinetyNine".to_string();
     });
 
     assert_eq!(

@@ -19,7 +19,7 @@ fn should_compile() {
     // check that formatting produces non empty strings
     assert!(!format!("{:?}", map._field1_index).is_empty());
     assert!(!format!("{:?}", map._store).is_empty());
-    assert!(!format!("{:?}", map).is_empty());
+    assert!(!format!("{map:?}").is_empty());
 
     let elem1 = TestElement {
         field1: TestNonPrimitiveType(42),
@@ -27,7 +27,7 @@ fn should_compile() {
     };
     map.insert(elem1);
 
-    let msg = format!("{:?}", map);
+    let msg = format!("{map:?}");
     // check if indexed fields are present in debug output
     assert!(msg.contains("42"));
 

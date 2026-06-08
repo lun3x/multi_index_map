@@ -17,8 +17,8 @@ struct Entry {
 
 fn make_with_holes() -> MultiIndexEntryMap {
     let mut map = MultiIndexEntryMap::default();
-    for id in 0..6usize {
-        map.insert(Entry { group: 1, value: id as i32, id });
+    for id in 0..6u16 {
+        map.insert(Entry { group: 1, value: id.into(), id: id.into() });
     }
     // Create holes at indices 0 and 1
     assert!(map.remove_by_id(&0).is_some());
@@ -81,7 +81,7 @@ fn non_unique_get_mut_after_holes_aliasing_safe() {
     // Obtain multiple &mut safely via a single iter_mut()-driven traversal
     let mut_refs: Vec<(&mut i32,)> = map.get_mut_by_group(&1);
     assert_eq!(mut_refs.len(), 4);
-    for (v,) in mut_refs.into_iter() {
+    for (v,) in mut_refs {
         *v += 100;
     }
 

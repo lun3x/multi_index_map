@@ -29,11 +29,10 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
     // Verify the struct fields are named fields,
     // otherwise throw an error as we do not support Unnamed or Unit structs.
-    let named_fields = match fields {
-        syn::Fields::Named(f) => f,
-        _ => abort_call_site!(
+    let syn::Fields::Named(named_fields) = fields else {
+        abort_call_site!(
             "Struct fields must be named, unnamed tuple structs and unit structs are not supported"
-        ),
+        )
     };
 
     // Filter out all the fields that do not have a multi_index attribute,

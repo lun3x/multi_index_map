@@ -6,6 +6,7 @@ mod inner {
     #[derive(MultiIndexMap, Debug, Clone)]
     #[multi_index_derive(Clone, Debug)]
     pub(crate) struct Order {
+        #[allow(clippy::struct_field_names)]
         #[multi_index(hashed_unique)]
         pub(crate) order_id: u32,
         #[multi_index(ordered_unique)]
@@ -16,39 +17,35 @@ mod inner {
     }
 }
 
+
+
 fn main() {
     let o1 = Order {
         order_id: 1,
         timestamp: 111,
         trader_name: "John".to_string(),
-        note: "".to_string(),
+        note: String::new(),
     };
 
     let o2 = Order {
         order_id: 2,
         timestamp: 22,
         trader_name: "Tom".to_string(),
-        note: "".to_string(),
+        note: String::new(),
     };
 
-    let mut map = MultiIndexOrderMap::default();
-
-    let _o1_ref: &Order = map.insert(o1);
-    let _o2_ref: &Order = map.try_insert(o2).unwrap();
-
-    // Set non-mutable, non mutating iter methods still work.
-    let map = map;
+    let map = [o1, o2].into_iter().collect::<MultiIndexOrderMap>();
 
     for o in map.iter_by_timestamp() {
-        println!("iter_by_timestamp: {o:?}")
+        println!("iter_by_timestamp: {o:?}");
     }
 
     for o in map.iter_by_order_id() {
-        println!("iter_by_order_id: {o:?}")
+        println!("iter_by_order_id: {o:?}");
     }
 
-    for (_, o) in map.iter() {
-        println!("iter: {o:?}")
+    for (_, o) in &map {
+        println!("iter: {o:?}");
     }
 
     let o1_ref = map.get_by_order_id(&1).unwrap();
@@ -61,7 +58,7 @@ fn main() {
     let mut map = map;
 
     for (o,) in map.iter_mut() {
-        println!("iter_mut: {o:?}")
+        println!("iter_mut: {o:?}");
     }
 
     let o1_ref = map
@@ -81,7 +78,7 @@ fn main() {
             *note = "TestNote".to_string();
         })
         .unwrap();
-    println!("Updated note of order {o1_ref:?}, to {:?}", o1_ref.note,);
+    println!("Updated note of order {o1_ref:?}, to {:?}", o1_ref.note);
 
     let (o1_note_ref,) = map.get_mut_by_order_id(&7).unwrap();
     *o1_note_ref = "TestNoteUpdated".to_string();
@@ -92,13 +89,13 @@ fn main() {
 
     let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
     assert_eq!(toms_orders.len(), 2);
-    println!("Removed Tom's order by name: {toms_orders:?}",);
+    println!("Removed Tom's order by name: {toms_orders:?}");
 
     let o3 = Order {
         order_id: 3,
         timestamp: 33,
         trader_name: "Jimbo".to_string(),
-        note: "".to_string(),
+        note: String::new(),
     };
 
     map.insert(o3);

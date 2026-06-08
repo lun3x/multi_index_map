@@ -79,7 +79,7 @@ fn test_modify_by_field1() {
         assert_eq!(&elem_at_index_2.field2, "ElementTwo");
     }
     map.modify_by_field1(&TestNonPrimitiveType(42), |test_elem| {
-        test_elem.field1 = TestNonPrimitiveType(44)
+        test_elem.field1 = TestNonPrimitiveType(44);
     });
 
     let mut field_1_iter = map.iter_by_field1();
@@ -130,7 +130,7 @@ fn test_modify_violate_uniqueness() {
 
     let res = std::panic::catch_unwind(move || {
         map.modify_by_field1(&TestNonPrimitiveType(43), |e| {
-            e.field1 = TestNonPrimitiveType(42)
+            e.field1 = TestNonPrimitiveType(42);
         });
     });
 
