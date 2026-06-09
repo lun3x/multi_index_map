@@ -1,13 +1,12 @@
-use crate::index::{
+use multi_index_map::__private::{
     HashEqualIds, HashIds, HashLink, HashSpec, HashedIndex, NodeId, NodeValue, OrderedIds,
-    OrderedIndex, OrderedLink, OrderedRangeIds, OrderedSpec,
+    OrderedIndex, OrderedLink, OrderedRangeIds, OrderedSpec, Slab,
 };
-use crate::view::{
+use multi_index_map::{Conflict as GenericConflict, ModifyAllResult as GenericModifyAllResult};
+use multi_index_map::{
     IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
 };
-use slab::Slab;
 use std::borrow::Borrow;
-use std::fmt;
 use std::hash::Hash;
 use std::ops::RangeBounds;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
@@ -35,28 +34,14 @@ impl Order {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Conflict {
-    pub(crate) index: &'static str,
-    pub(crate) value: Order,
-}
-
-impl fmt::Display for Conflict {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unique index '{}' rejected the value", self.index)
-    }
-}
+pub(crate) type Conflict = GenericConflict<Order>;
 
 pub(crate) struct OrderUpdate<'a> {
     pub(crate) note: &'a mut String,
     pub(crate) filled: &'a mut bool,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct ModifyAllResult {
-    pub(crate) modified: usize,
-    pub(crate) removed: Vec<Conflict>,
-}
+pub(crate) type ModifyAllResult = GenericModifyAllResult<Order>;
 
 #[derive(Debug)]
 struct OrderNode {
@@ -551,7 +536,7 @@ impl OrderMap {
         if self
             .id
             .find(&replacement.id, &self.nodes)
-            .map_or(false, |other| other != id)
+            .is_some_and(|other| other != id)
         {
             return Err(Conflict {
                 index: ById::NAME,
@@ -561,7 +546,7 @@ impl OrderMap {
         if self
             .timestamp
             .find(&replacement.timestamp, &self.nodes)
-            .map_or(false, |other| other != id)
+            .is_some_and(|other| other != id)
         {
             return Err(Conflict {
                 index: ByTimestamp::NAME,

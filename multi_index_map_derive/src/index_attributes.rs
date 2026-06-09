@@ -27,11 +27,18 @@ pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
     for attr in &f.attrs {
         if attr.path.is_ident("multi_index") {
             return {
-                let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else { return None };
+                let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else {
+                    return None;
+                };
                 let nested = meta_list.nested.first()?;
-                let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else { return None };
+                let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else {
+                    return None;
+                };
 
-                match nested_path.get_ident().map(|i| { ident_buf = i.to_string(); &*ident_buf }) {
+                match nested_path.get_ident().map(|i| {
+                    ident_buf = i.to_string();
+                    &*ident_buf
+                }) {
                     Some("hashed_unique") => Some((Ordering::Hashed, Uniqueness::Unique)),
                     Some("ordered_unique") => Some((Ordering::Ordered, Uniqueness::Unique)),
                     Some("hashed_non_unique") => Some((Ordering::Hashed, Uniqueness::NonUnique)),
@@ -41,7 +48,7 @@ pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
                         None
                     }
                 }
-            }
+            };
         }
     }
     None
@@ -90,7 +97,7 @@ pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
     for attr in &f.attrs {
         if attr.path.is_ident("multi_index_derive") {
             let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else {
-                break
+                break;
             };
             for nested in &meta_list.nested {
                 let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else {
@@ -111,7 +118,7 @@ pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
 
         if attr.path.is_ident("multi_index_hash") {
             let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else {
-                break
+                break;
             };
             for nested in &meta_list.nested {
                 let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else {

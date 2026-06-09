@@ -5,7 +5,7 @@ use std::ops::RangeBounds;
 /// Trait methods use the index's exact key type. Generated inherent methods can
 /// additionally accept richer borrowed-query types without complicating these
 /// capability traits.
-pub(crate) trait IndexView {
+pub trait IndexView {
     type Value;
     type Key: ?Sized;
     type Iter<'a>: Iterator<Item = &'a Self::Value>
@@ -23,7 +23,7 @@ pub(crate) trait IndexView {
 }
 
 /// Read capabilities provided by unique indices.
-pub(crate) trait UniqueView: IndexView {
+pub trait UniqueView: IndexView {
     fn get(&self, key: &Self::Key) -> Option<&Self::Value>;
 
     fn contains_key(&self, key: &Self::Key) -> bool {
@@ -32,7 +32,7 @@ pub(crate) trait UniqueView: IndexView {
 }
 
 /// Read capabilities provided by non-unique indices.
-pub(crate) trait NonUniqueView: IndexView {
+pub trait NonUniqueView: IndexView {
     type EqualRange<'a>: Iterator<Item = &'a Self::Value>
     where
         Self: 'a,
@@ -42,7 +42,7 @@ pub(crate) trait NonUniqueView: IndexView {
 }
 
 /// Additional sorted traversal provided by ordered indices.
-pub(crate) trait OrderedView: IndexView {
+pub trait OrderedView: IndexView {
     type Range<'a>: DoubleEndedIterator<Item = &'a Self::Value>
     where
         Self: 'a,
@@ -56,7 +56,7 @@ pub(crate) trait OrderedView: IndexView {
 /// Mutation capabilities provided by unique indices.
 ///
 /// A mutable unique view also implements its corresponding read capabilities.
-pub(crate) trait UniqueViewMut: UniqueView {
+pub trait UniqueViewMut: UniqueView {
     type Conflict;
     type Update<'a>;
 
@@ -80,7 +80,7 @@ pub(crate) trait UniqueViewMut: UniqueView {
 /// Mutation capabilities provided by non-unique indices.
 ///
 /// Batch methods snapshot the original equal range before making changes.
-pub(crate) trait NonUniqueViewMut: NonUniqueView {
+pub trait NonUniqueViewMut: NonUniqueView {
     type ModifyAllResult;
     type Update<'a>;
 

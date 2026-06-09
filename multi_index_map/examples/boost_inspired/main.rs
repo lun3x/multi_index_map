@@ -1,9 +1,5 @@
 #[allow(dead_code)]
-mod index;
-#[allow(dead_code)]
 mod order_map;
-#[allow(dead_code)]
-mod view;
 
 use order_map::{Order, OrderMap};
 
@@ -54,7 +50,7 @@ fn main() {
 mod tests {
     use super::*;
     use crate::order_map::{Conflict, ModifyAllResult, OrderUpdate};
-    use crate::view::{
+    use multi_index_map::{
         IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
     };
     use std::collections::{BTreeMap, HashMap};

@@ -1,0 +1,11 @@
+error: MultiIndexMap2 requires a struct with named fields
+ --> tests/ui/tuple.rs:4:13
+  |
+4 | struct Tuple(#[multi_index(hashed_unique)] u64);
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: MultiIndexMap2 requires at least one #[multi_index(...)] field
+ --> tests/ui/tuple.rs:4:8
+  |
+4 | struct Tuple(#[multi_index(hashed_unique)] u64);
+  |        ^^^^^

@@ -3,7 +3,7 @@ name = "multi_index_map"
 version = "0.15.1"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
-rust-version = "1.65"
+rust-version = "1.71"
 license = "MIT"
 description = "MultiIndexMap: A generic multi index map inspired by boost multi index containers"
 repository = "https://github.com/lun3x/multi_index_map"
@@ -15,6 +15,7 @@ readme = "README.md"
 
 [dependencies]
 multi_index_map_derive = { version = "0.15.1", path = "../multi_index_map_derive" }
+multi_index_map_derive2 = { version = "0.1.0", path = "../multi_index_map_derive2" }
 
 # Used as the backing store of all the elements.
 slab = { version = "0.4" }

@@ -1,5 +1,5 @@
 use ::quote::{format_ident, quote};
-use ::syn::{Field, Visibility, parse_quote};
+use ::syn::{parse_quote, Field, Visibility};
 use proc_macro2::Ident;
 use syn::{Generics, Type};
 
@@ -1015,7 +1015,9 @@ pub(crate) fn generate_expanded(
 
     let impls_with_iterator_lifetime = {
         generics_with_iterator_lifetime = generics.clone();
-        generics_with_iterator_lifetime.params.push(parse_quote!('__mim_iter_lifetime));
+        generics_with_iterator_lifetime
+            .params
+            .push(parse_quote!('__mim_iter_lifetime));
         let (impls_with_iterator_lifetime, _, _) = generics_with_iterator_lifetime.split_for_impl();
         impls_with_iterator_lifetime
     };

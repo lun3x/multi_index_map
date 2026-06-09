@@ -1,0 +1,11 @@
+error: #[multi_index(...)] requires exactly one index kind
+ --> tests/ui/empty.rs:5:5
+  |
+5 |     #[multi_index()]
+  |     ^
+
+error: MultiIndexMap2 requires at least one #[multi_index(...)] field
+ --> tests/ui/empty.rs:4:8
+  |
+4 | struct Empty {
+  |        ^^^^^

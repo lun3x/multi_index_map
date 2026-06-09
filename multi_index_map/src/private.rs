@@ -1,44 +1,49 @@
 use slab::Slab;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
 use std::ops::{Bound, RangeBounds};
 
+#[cfg(feature = "rustc-hash")]
+pub type DefaultHashBuilder = rustc_hash::FxBuildHasher;
+#[cfg(not(feature = "rustc-hash"))]
+pub type DefaultHashBuilder = std::hash::RandomState;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct NodeId(pub(crate) usize);
+pub struct NodeId(pub usize);
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct HashLink {
-    pub(crate) prev: Option<NodeId>,
-    pub(crate) next: Option<NodeId>,
-    pub(crate) hash: u64,
-    pub(crate) linked: bool,
+pub struct HashLink {
+    prev: Option<NodeId>,
+    next: Option<NodeId>,
+    hash: u64,
+    linked: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Color {
+enum Color {
     Red,
     #[default]
     Black,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct OrderedLink {
-    pub(crate) parent: Option<NodeId>,
-    pub(crate) left: Option<NodeId>,
-    pub(crate) right: Option<NodeId>,
-    pub(crate) color: Color,
-    pub(crate) linked: bool,
+pub struct OrderedLink {
+    parent: Option<NodeId>,
+    left: Option<NodeId>,
+    right: Option<NodeId>,
+    color: Color,
+    linked: bool,
 }
 
-pub(crate) trait NodeValue {
+pub trait NodeValue {
     type Value;
 
     fn value(&self) -> &Self::Value;
 }
 
-pub(crate) trait HashSpec<N: NodeValue> {
+pub trait HashSpec<N: NodeValue> {
     type Key: Eq + Hash + ?Sized;
 
     const NAME: &'static str;
@@ -48,7 +53,7 @@ pub(crate) trait HashSpec<N: NodeValue> {
     fn link_mut(node: &mut N) -> &mut HashLink;
 }
 
-pub(crate) trait OrderedSpec<N: NodeValue> {
+pub trait OrderedSpec<N: NodeValue> {
     type Key: Ord + ?Sized;
 
     const NAME: &'static str;
@@ -58,7 +63,7 @@ pub(crate) trait OrderedSpec<N: NodeValue> {
     fn link_mut(node: &mut N) -> &mut OrderedLink;
 }
 
-pub(crate) struct HashedIndex<S, const UNIQUE: bool, H = std::hash::RandomState> {
+pub struct HashedIndex<S, const UNIQUE: bool, H = DefaultHashBuilder> {
     buckets: Vec<Option<NodeId>>,
     len: usize,
     hash_builder: H,
@@ -76,7 +81,7 @@ impl<S, const UNIQUE: bool, H: Default> Default for HashedIndex<S, UNIQUE, H> {
     }
 }
 
-pub(crate) struct HashIds<'a, N, S, const UNIQUE: bool, H = std::hash::RandomState> {
+pub struct HashIds<'a, N, S, const UNIQUE: bool, H = DefaultHashBuilder> {
     index: &'a HashedIndex<S, UNIQUE, H>,
     nodes: &'a Slab<N>,
     bucket: usize,
@@ -122,7 +127,7 @@ where
 {
 }
 
-pub(crate) struct HashEqualIds<'a, N, S, const UNIQUE: bool, H = std::hash::RandomState> {
+pub struct HashEqualIds<'a, N, S, const UNIQUE: bool, H = DefaultHashBuilder> {
     nodes: &'a Slab<N>,
     current: Option<NodeId>,
     remaining: usize,
@@ -169,21 +174,23 @@ impl<S, const UNIQUE: bool, H> HashedIndex<S, UNIQUE, H>
 where
     H: BuildHasher,
 {
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> u64 {
-        let mut hasher = self.hash_builder.build_hasher();
-        key.hash(&mut hasher);
-        hasher.finish()
+        self.hash_builder.hash_one(key)
     }
 
     fn bucket(&self, hash: u64) -> usize {
         hash as usize % self.buckets.len()
     }
 
-    pub(crate) fn reserve_for_insert<N>(&mut self, nodes: &mut Slab<N>)
+    pub fn reserve_for_insert<N>(&mut self, nodes: &mut Slab<N>)
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -212,7 +219,7 @@ where
         }
     }
 
-    pub(crate) fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
+    pub fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -232,7 +239,7 @@ where
         None
     }
 
-    pub(crate) fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
+    pub fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -255,7 +262,7 @@ where
         ids
     }
 
-    pub(crate) fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> HashIds<'a, N, S, UNIQUE, H>
+    pub fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> HashIds<'a, N, S, UNIQUE, H>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -269,7 +276,7 @@ where
         }
     }
 
-    pub(crate) fn equal_iter_ids<'a, N, Q>(
+    pub fn equal_iter_ids<'a, N, Q>(
         &'a self,
         key: &Q,
         nodes: &'a Slab<N>,
@@ -300,7 +307,7 @@ where
         }
     }
 
-    pub(crate) fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
+    pub fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -348,7 +355,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn remove<N>(&mut self, id: NodeId, nodes: &mut Slab<N>)
+    pub fn remove<N>(&mut self, id: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -370,7 +377,7 @@ where
         self.len -= 1;
     }
 
-    pub(crate) fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
+    pub fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -419,7 +426,7 @@ where
         saw_id
     }
 
-    pub(crate) fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
+    pub fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
     where
         N: NodeValue,
         S: HashSpec<N>,
@@ -472,7 +479,7 @@ where
     }
 }
 
-pub(crate) struct OrderedIndex<S, const UNIQUE: bool> {
+pub struct OrderedIndex<S, const UNIQUE: bool> {
     root: Option<NodeId>,
     first: Option<NodeId>,
     last: Option<NodeId>,
@@ -492,7 +499,7 @@ impl<S, const UNIQUE: bool> Default for OrderedIndex<S, UNIQUE> {
     }
 }
 
-pub(crate) struct OrderedIds<'a, N, S, const UNIQUE: bool> {
+pub struct OrderedIds<'a, N, S, const UNIQUE: bool> {
     index: &'a OrderedIndex<S, UNIQUE>,
     nodes: &'a Slab<N>,
     front: Option<NodeId>,
@@ -554,7 +561,7 @@ where
 {
 }
 
-pub(crate) struct OrderedRangeIds<'a, N, S, const UNIQUE: bool> {
+pub struct OrderedRangeIds<'a, N, S, const UNIQUE: bool> {
     index: &'a OrderedIndex<S, UNIQUE>,
     nodes: &'a Slab<N>,
     front: Option<NodeId>,
@@ -610,8 +617,12 @@ where
 }
 
 impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     fn color<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Color
@@ -656,7 +667,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         id.and_then(|id| S::link(&nodes[id.0]).right)
     }
 
-    pub(crate) fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
+    pub fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -678,7 +689,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         found
     }
 
-    pub(crate) fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
+    pub fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -697,7 +708,39 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         ids
     }
 
-    pub(crate) fn ids<N>(&self, nodes: &Slab<N>) -> Vec<NodeId>
+    pub fn equal_iter_ids<'a, N, Q>(
+        &'a self,
+        key: &Q,
+        nodes: &'a Slab<N>,
+    ) -> OrderedRangeIds<'a, N, S, UNIQUE>
+    where
+        N: NodeValue,
+        S: OrderedSpec<N>,
+        S::Key: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        let front = self.lower_bound(key, nodes);
+        let back = match self.upper_bound(key, nodes) {
+            Some(id) => self.predecessor(id, nodes),
+            None => self.last,
+        };
+        let done = match (front, back) {
+            (Some(front), Some(back)) => {
+                S::key(nodes[front.0].value()).borrow() != key
+                    || S::key(nodes[back.0].value()).borrow() != key
+            }
+            _ => true,
+        };
+        OrderedRangeIds {
+            index: self,
+            nodes,
+            front,
+            back,
+            done,
+        }
+    }
+
+    pub fn ids<N>(&self, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -711,7 +754,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         ids
     }
 
-    pub(crate) fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> OrderedIds<'a, N, S, UNIQUE>
+    pub fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> OrderedIds<'a, N, S, UNIQUE>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -725,7 +768,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         }
     }
 
-    pub(crate) fn range_iter_ids<'a, N, Q, R>(
+    pub fn range_iter_ids<'a, N, Q, R>(
         &'a self,
         range: R,
         nodes: &'a Slab<N>,
@@ -870,7 +913,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         None
     }
 
-    pub(crate) fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
+    pub fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -1040,7 +1083,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         }
     }
 
-    pub(crate) fn remove<N>(&mut self, z: NodeId, nodes: &mut Slab<N>)
+    pub fn remove<N>(&mut self, z: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -1174,7 +1217,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         self.set_color(x, Color::Black, nodes);
     }
 
-    pub(crate) fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
+    pub fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -1213,7 +1256,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         after_previous && before_next
     }
 
-    pub(crate) fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
+    pub fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
     where
         N: NodeValue,
         S: OrderedSpec<N>,
@@ -1272,8 +1315,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             return Err(format!("{} contains an unlinked node", S::NAME));
         }
         let key = S::key(node.value());
-        if min.map_or(false, |min| if UNIQUE { key <= min } else { key < min })
-            || max.map_or(false, |max| if UNIQUE { key >= max } else { key > max })
+        if min.is_some_and(|min| if UNIQUE { key <= min } else { key < min })
+            || max.is_some_and(|max| if UNIQUE { key >= max } else { key > max })
         {
             return Err(format!("{} violates tree ordering", S::NAME));
         }

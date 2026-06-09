@@ -18,7 +18,11 @@ struct Entry {
 fn make_with_holes() -> MultiIndexEntryMap {
     let mut map = MultiIndexEntryMap::default();
     for id in 0..6u16 {
-        map.insert(Entry { group: 1, value: id.into(), id: id.into() });
+        map.insert(Entry {
+            group: 1,
+            value: id.into(),
+            id: id.into(),
+        });
     }
     // Create holes at indices 0 and 1
     assert!(map.remove_by_id(&0).is_some());

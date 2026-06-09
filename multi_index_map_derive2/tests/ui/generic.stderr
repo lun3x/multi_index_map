@@ -1,0 +1,5 @@
+error: MultiIndexMap2 does not support generic structs yet
+ --> tests/ui/generic.rs:4:15
+  |
+4 | struct Generic<T> {
+  |               ^

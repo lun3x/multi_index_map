@@ -1,7 +1,7 @@
 # Boost-Inspired Prototype
 
-This example is a manually expanded design target for a future proc-macro implementation. It does
-not change the existing `MultiIndexMap` derive.
+This example is a manually expanded design reference for the experimental `MultiIndexMap2` derive.
+It does not change the existing `MultiIndexMap` derive.
 
 Run it with:
 
@@ -12,9 +12,9 @@ cargo test --example boost_inspired
 
 ## File Roles
 
-- `index.rs` represents reusable library machinery. It contains safe, integer-linked hashed and
-  ordered index engines.
-- `view.rs` defines the public capability traits shared by generated index views.
+- `multi_index_map::__private` contains the safe, integer-linked hashed and ordered index engines
+  shared with generated maps.
+- `multi_index_map::views` defines the public capability traits shared by generated index views.
 - `order_map.rs` represents code that a future proc macro could generate for one concrete element
   type.
 - `main.rs` demonstrates the intended typed-view API and contains correctness tests.
@@ -62,8 +62,8 @@ without boxing or allocation.
 
 ## Compatibility Facade
 
-`OrderMap` also demonstrates the deprecated field-named methods that a future generated map can
-provide during migration:
+`OrderMap` also demonstrates the deprecated field-named methods generated maps can provide during
+migration:
 
 ```text
 get_by_*
@@ -99,6 +99,6 @@ modifiers finish processing the original snapshotted batch before reporting a co
 
 ## Deliberate Deferrals
 
-The prototype does not include proc-macro generation, persistent handles, projection, packed
-red-black color bits, Boost's specialized hashed group-skip encoding, custom comparators, serde,
-or capacity APIs.
+The prototype and initial derive do not include persistent handles, projection, packed red-black
+color bits, Boost's specialized hashed group-skip encoding, custom comparators, serde, or capacity
+APIs.
