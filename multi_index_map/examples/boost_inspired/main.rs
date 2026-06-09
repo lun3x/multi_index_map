@@ -189,9 +189,10 @@ mod tests {
         }
 
         let mut map = populated();
+        let john = "John".to_string();
         assert_eq!(ids(&map.by_id()).len(), 4);
         assert_eq!(unique_id(&map.by_timestamp(), &100), Some(1));
-        assert_eq!(equal_ids(&map.by_trader(), "John"), vec![1, 2]);
+        assert_eq!(equal_ids(&map.by_trader(), &john), vec![1, 2]);
         assert_eq!(range_ids(&map.by_price(), 25..=30).len(), 3);
 
         {
@@ -203,8 +204,8 @@ mod tests {
 
         {
             let mut view = map.by_trader_mut();
-            assert_eq!(equal_ids(&view, "John").len(), 2);
-            assert_eq!(mutate_non_unique(&mut view, "John").modified, 2);
+            assert_eq!(equal_ids(&view, &john).len(), 2);
+            assert_eq!(mutate_non_unique(&mut view, &john).modified, 2);
         }
         assert!(map
             .by_trader()
@@ -398,6 +399,192 @@ mod tests {
         map.clear();
         assert!(map.is_empty());
         map.validate().unwrap();
+    }
+
+    #[allow(deprecated)]
+    mod compatibility {
+        use super::*;
+
+        fn sorted_ids(orders: Vec<&Order>) -> Vec<u64> {
+            let mut ids = orders.into_iter().map(|order| order.id).collect::<Vec<_>>();
+            ids.sort_unstable();
+            ids
+        }
+
+        #[test]
+        fn field_named_getters_and_iterators_wrap_all_index_kinds() {
+            let map = populated();
+            let john = "John".to_string();
+
+            assert_eq!(map.get_by_id(&2).unwrap().trader, "John");
+            assert_eq!(map.get_by_timestamp(&100).unwrap().id, 1);
+            assert_eq!(sorted_ids(map.get_by_trader("John")), vec![1, 2]);
+            assert_eq!(sorted_ids(map.get_by_trader(&john)), vec![1, 2]);
+            assert_eq!(sorted_ids(map.get_by_price(&25)), vec![1, 3]);
+
+            assert_eq!(map.iter_by_id().count(), 4);
+            assert_eq!(
+                map.iter_by_timestamp()
+                    .map(|order| order.timestamp)
+                    .collect::<Vec<_>>(),
+                vec![90, 100, 110, 120]
+            );
+            assert_eq!(map.iter_by_trader().count(), 4);
+            assert_eq!(
+                map.iter_by_price()
+                    .rev()
+                    .map(|order| order.price)
+                    .collect::<Vec<_>>(),
+                vec![40, 30, 25, 25]
+            );
+        }
+
+        #[test]
+        fn field_named_get_mut_accesses_only_unindexed_fields_with_holes() {
+            let mut map = populated();
+            map.remove_by_id(&2);
+            map.insert(Order::new(20, 200, "John", 25)).unwrap();
+
+            {
+                let (note, filled) = map.get_mut_by_id(&20).unwrap();
+                note.push_str("id");
+                *filled = true;
+            }
+            {
+                let (note, _) = map.get_mut_by_timestamp(&100).unwrap();
+                note.push_str(" timestamp");
+            }
+            {
+                let john = "John".to_string();
+                for (note, filled) in map.get_mut_by_trader(&john) {
+                    note.push_str(" trader");
+                    *filled = true;
+                }
+            }
+            for (note, _) in map.get_mut_by_price(&25) {
+                note.push_str(" price");
+            }
+
+            assert_eq!(map.by_id().get(&20).unwrap().note, "id trader price");
+            assert!(map.by_id().get(&20).unwrap().filled);
+            assert_eq!(map.by_id().get(&1).unwrap().note, " timestamp trader price");
+            assert_eq!(map.by_id().get(&3).unwrap().note, " price");
+            map.validate().unwrap();
+        }
+
+        #[test]
+        fn field_named_updates_preserve_legacy_closure_and_return_shapes() {
+            let mut map = populated();
+            let john = "John".to_string();
+
+            let order = map
+                .update_by_id(&1, |note, filled| {
+                    note.push_str("id");
+                    *filled = true;
+                })
+                .unwrap();
+            assert_eq!(order.id, 1);
+
+            let order = map
+                .update_by_timestamp(&90, |note, _| note.push_str(" timestamp"))
+                .unwrap();
+            assert_eq!(order.id, 2);
+
+            assert_eq!(
+                sorted_ids(map.update_by_trader("John", |note, _| note.push_str(" str"))),
+                vec![1, 2]
+            );
+            assert_eq!(
+                sorted_ids(map.update_by_trader(&john, |note, _| note.push_str(" string"))),
+                vec![1, 2]
+            );
+            assert_eq!(
+                sorted_ids(map.update_by_price(&25, |note, _| note.push_str(" price"))),
+                vec![1, 3]
+            );
+
+            assert_eq!(map.by_id().get(&1).unwrap().note, "id str string price");
+            assert_eq!(map.by_id().get(&2).unwrap().note, " timestamp str string");
+            map.validate().unwrap();
+        }
+
+        #[test]
+        fn field_named_modifiers_relocate_and_process_original_batches_once() {
+            let mut map = populated();
+
+            let modified = map
+                .modify_by_id(&1, |order| {
+                    order.timestamp = 130;
+                    order.trader = "Moved".to_string();
+                    order.price = 50;
+                })
+                .unwrap();
+            assert_eq!(modified.id, 1);
+
+            let modified = map
+                .modify_by_timestamp(&90, |order| order.price = 25)
+                .unwrap();
+            assert_eq!(modified.id, 2);
+
+            let john = "John".to_string();
+            let mut trader_calls = 0;
+            let modified = map.modify_by_trader(&john, |order| {
+                trader_calls += 1;
+                order.trader = "Moved".to_string();
+            });
+            assert_eq!(trader_calls, 1);
+            assert_eq!(sorted_ids(modified), vec![2]);
+
+            let mut price_calls = 0;
+            let modified = map.modify_by_price(&25, |order| {
+                price_calls += 1;
+                order.price = 60;
+            });
+            assert_eq!(price_calls, 2);
+            assert_eq!(sorted_ids(modified), vec![2, 3]);
+            assert_eq!(map.by_price().equal_range(&25).count(), 0);
+            assert_eq!(map.by_price().equal_range(&60).count(), 2);
+            map.validate().unwrap();
+        }
+
+        #[test]
+        fn compatibility_modifiers_panic_after_new_conflict_cleanup() {
+            let mut map = populated();
+            let unique_result = catch_unwind(AssertUnwindSafe(|| {
+                map.modify_by_id(&2, |order| order.timestamp = 100);
+            }));
+            assert!(unique_result.is_err());
+            assert!(!map.by_id().contains_key(&2));
+            map.validate().unwrap();
+
+            let mut map = populated();
+            let john = "John".to_string();
+            let mut calls = 0;
+            let batch_result = catch_unwind(AssertUnwindSafe(|| {
+                map.modify_by_trader(&john, |order| {
+                    calls += 1;
+                    order.timestamp = 90;
+                });
+            }));
+            assert!(batch_result.is_err());
+            assert_eq!(calls, 2);
+            assert!(!map.by_id().contains_key(&1));
+            assert!(map.by_id().contains_key(&2));
+            map.validate().unwrap();
+        }
+
+        #[test]
+        fn field_named_removers_wrap_all_index_kinds() {
+            let mut map = populated();
+            let ada = "Ada".to_string();
+
+            assert_eq!(map.remove_by_id(&1).unwrap().id, 1);
+            assert_eq!(map.remove_by_timestamp(&90).unwrap().id, 2);
+            assert_eq!(map.remove_by_trader(&ada)[0].id, 3);
+            assert_eq!(map.remove_by_price(&40)[0].id, 4);
+            assert!(map.is_empty());
+            map.validate().unwrap();
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]

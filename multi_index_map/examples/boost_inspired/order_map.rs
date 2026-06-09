@@ -129,7 +129,7 @@ impl OrderedSpec<OrderNode> for ByTimestamp {
 }
 
 impl HashSpec<OrderNode> for ByTrader {
-    type Key = str;
+    type Key = String;
 
     const NAME: &'static str = "trader";
 
@@ -251,6 +251,277 @@ impl OrderMap {
 
     pub(crate) fn by_price_mut(&mut self) -> PriceViewMut<'_> {
         PriceViewMut { map: self }
+    }
+
+    fn update_fields_for_ids(&mut self, mut ids: Vec<NodeId>) -> Vec<(&mut String, &mut bool)> {
+        ids.sort_unstable_by_key(|id| id.0);
+        assert!(
+            !ids.windows(2).any(|pair| pair[0] == pair[1]),
+            "compatibility accessor received a duplicate arena node"
+        );
+
+        let mut fields = Vec::with_capacity(ids.len());
+        let mut targets = ids.into_iter();
+        let mut target = targets.next();
+        for (slot, node) in self.nodes.iter_mut() {
+            if target.map(|id| id.0) == Some(slot) {
+                fields.push((&mut node.order.note, &mut node.order.filled));
+                target = targets.next();
+            }
+        }
+        assert!(
+            target.is_none(),
+            "compatibility accessor targeted a missing arena node"
+        );
+        fields
+    }
+
+    fn order_refs_for_ids(&self, ids: &[NodeId]) -> Vec<&Order> {
+        ids.iter()
+            .map(|id| {
+                &self
+                    .nodes
+                    .get(id.0)
+                    .expect("compatibility accessor targeted a missing arena node")
+                    .order
+            })
+            .collect()
+    }
+
+    fn panic_on_modify_conflicts(result: ModifyAllResult) {
+        if let Some(conflict) = result.removed.first() {
+            panic!(
+                "compatibility modifier removed {} element(s) after uniqueness conflict on index '{}'",
+                result.removed.len(),
+                conflict.index
+            );
+        }
+    }
+
+    #[deprecated(note = "use by_id().get(key)")]
+    pub(crate) fn get_by_id<Q>(&self, key: &Q) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.id
+            .find(key, &self.nodes)
+            .map(|id| &self.nodes[id.0].order)
+    }
+
+    #[deprecated(note = "use by_id_mut().update(key, ...)")]
+    pub(crate) fn get_mut_by_id(&mut self, key: &u64) -> Option<(&mut String, &mut bool)> {
+        let id = self.id.find(key, &self.nodes)?;
+        self.update_fields_for_ids(vec![id]).into_iter().next()
+    }
+
+    #[deprecated(note = "use by_id_mut().modify(key, ...)")]
+    pub(crate) fn modify_by_id(&mut self, key: &u64, f: impl FnOnce(&mut Order)) -> Option<&Order> {
+        let id = self.id.find(key, &self.nodes)?;
+        match self.modify_id(id, f) {
+            Ok(order) => Some(order),
+            Err(conflict) => panic!(
+                "compatibility modifier removed an element after uniqueness conflict on index '{}'",
+                conflict.index
+            ),
+        }
+    }
+
+    #[deprecated(note = "use by_id_mut().update(key, ...)")]
+    pub(crate) fn update_by_id<Q>(
+        &mut self,
+        key: &Q,
+        f: impl FnOnce(&mut String, &mut bool),
+    ) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        let id = self.id.find(key, &self.nodes)?;
+        Some(self.update_id(id, |fields| f(fields.note, fields.filled)))
+    }
+
+    #[deprecated(note = "use by_id_mut().remove(key)")]
+    pub(crate) fn remove_by_id(&mut self, key: &u64) -> Option<Order> {
+        self.by_id_mut().remove(key)
+    }
+
+    #[deprecated(note = "use by_id().iter()")]
+    pub(crate) fn iter_by_id(&self) -> IdIter<'_> {
+        IdIter::new(OrderRefs::new(&self.nodes, self.id.iter_ids(&self.nodes)))
+    }
+
+    #[deprecated(note = "use by_timestamp().get(key)")]
+    pub(crate) fn get_by_timestamp<Q>(&self, key: &Q) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.timestamp
+            .find(key, &self.nodes)
+            .map(|id| &self.nodes[id.0].order)
+    }
+
+    #[deprecated(note = "use by_timestamp_mut().update(key, ...)")]
+    pub(crate) fn get_mut_by_timestamp(&mut self, key: &u64) -> Option<(&mut String, &mut bool)> {
+        let id = self.timestamp.find(key, &self.nodes)?;
+        self.update_fields_for_ids(vec![id]).into_iter().next()
+    }
+
+    #[deprecated(note = "use by_timestamp_mut().modify(key, ...)")]
+    pub(crate) fn modify_by_timestamp(
+        &mut self,
+        key: &u64,
+        f: impl FnOnce(&mut Order),
+    ) -> Option<&Order> {
+        let id = self.timestamp.find(key, &self.nodes)?;
+        match self.modify_id(id, f) {
+            Ok(order) => Some(order),
+            Err(conflict) => panic!(
+                "compatibility modifier removed an element after uniqueness conflict on index '{}'",
+                conflict.index
+            ),
+        }
+    }
+
+    #[deprecated(note = "use by_timestamp_mut().update(key, ...)")]
+    pub(crate) fn update_by_timestamp<Q>(
+        &mut self,
+        key: &Q,
+        f: impl FnOnce(&mut String, &mut bool),
+    ) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        let id = self.timestamp.find(key, &self.nodes)?;
+        Some(self.update_id(id, |fields| f(fields.note, fields.filled)))
+    }
+
+    #[deprecated(note = "use by_timestamp_mut().remove(key)")]
+    pub(crate) fn remove_by_timestamp(&mut self, key: &u64) -> Option<Order> {
+        self.by_timestamp_mut().remove(key)
+    }
+
+    #[deprecated(note = "use by_timestamp().iter()")]
+    pub(crate) fn iter_by_timestamp(&self) -> TimestampIter<'_> {
+        TimestampIter::new(OrderRefs::new(
+            &self.nodes,
+            self.timestamp.iter_ids(&self.nodes),
+        ))
+    }
+
+    #[deprecated(note = "use by_trader().equal_range(key)")]
+    pub(crate) fn get_by_trader<Q>(&self, key: &Q) -> Vec<&Order>
+    where
+        String: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.by_trader().equal_range(key).collect()
+    }
+
+    #[deprecated(note = "use by_trader_mut().update_all(key, ...)")]
+    pub(crate) fn get_mut_by_trader(&mut self, key: &String) -> Vec<(&mut String, &mut bool)> {
+        let ids = self.trader.equal_ids(key, &self.nodes);
+        self.update_fields_for_ids(ids)
+    }
+
+    #[deprecated(note = "use by_trader_mut().modify_all(key, ...)")]
+    pub(crate) fn modify_by_trader(
+        &mut self,
+        key: &String,
+        f: impl FnMut(&mut Order),
+    ) -> Vec<&Order> {
+        let ids = self.trader.equal_ids(key, &self.nodes);
+        let result = self.by_trader_mut().modify_all(key, f);
+        Self::panic_on_modify_conflicts(result);
+        self.order_refs_for_ids(&ids)
+    }
+
+    #[deprecated(note = "use by_trader_mut().update_all(key, ...)")]
+    pub(crate) fn update_by_trader<Q>(
+        &mut self,
+        key: &Q,
+        mut f: impl FnMut(&mut String, &mut bool),
+    ) -> Vec<&Order>
+    where
+        String: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        let ids = self.trader.equal_ids(key, &self.nodes);
+        self.by_trader_mut()
+            .update_all(key, |fields| f(fields.note, fields.filled));
+        self.order_refs_for_ids(&ids)
+    }
+
+    #[deprecated(note = "use by_trader_mut().remove_all(key)")]
+    pub(crate) fn remove_by_trader(&mut self, key: &String) -> Vec<Order> {
+        self.by_trader_mut().remove_all(key)
+    }
+
+    #[deprecated(note = "use by_trader().iter()")]
+    pub(crate) fn iter_by_trader(&self) -> TraderIter<'_> {
+        TraderIter::new(OrderRefs::new(
+            &self.nodes,
+            self.trader.iter_ids(&self.nodes),
+        ))
+    }
+
+    #[deprecated(note = "use by_price().equal_range(key)")]
+    pub(crate) fn get_by_price<Q>(&self, key: &Q) -> Vec<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        self.price
+            .equal_ids(key, &self.nodes)
+            .into_iter()
+            .map(|id| &self.nodes[id.0].order)
+            .collect()
+    }
+
+    #[deprecated(note = "use by_price_mut().update_all(key, ...)")]
+    pub(crate) fn get_mut_by_price(&mut self, key: &u64) -> Vec<(&mut String, &mut bool)> {
+        let ids = self.price.equal_ids(key, &self.nodes);
+        self.update_fields_for_ids(ids)
+    }
+
+    #[deprecated(note = "use by_price_mut().modify_all(key, ...)")]
+    pub(crate) fn modify_by_price(&mut self, key: &u64, f: impl FnMut(&mut Order)) -> Vec<&Order> {
+        let ids = self.price.equal_ids(key, &self.nodes);
+        let result = self.by_price_mut().modify_all(key, f);
+        Self::panic_on_modify_conflicts(result);
+        self.order_refs_for_ids(&ids)
+    }
+
+    #[deprecated(note = "use by_price_mut().update_all(key, ...)")]
+    pub(crate) fn update_by_price<Q>(
+        &mut self,
+        key: &Q,
+        mut f: impl FnMut(&mut String, &mut bool),
+    ) -> Vec<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        let ids = self.price.equal_ids(key, &self.nodes);
+        for id in &ids {
+            self.update_id(*id, |fields| f(fields.note, fields.filled));
+        }
+        self.order_refs_for_ids(&ids)
+    }
+
+    #[deprecated(note = "use by_price_mut().remove_all(key)")]
+    pub(crate) fn remove_by_price(&mut self, key: &u64) -> Vec<Order> {
+        self.by_price_mut().remove_all(key)
+    }
+
+    #[deprecated(note = "use by_price().iter()")]
+    pub(crate) fn iter_by_price(&self) -> PriceIter<'_> {
+        PriceIter::new(OrderRefs::new(
+            &self.nodes,
+            self.price.iter_ids(&self.nodes),
+        ))
     }
 
     fn link_all(&mut self, id: NodeId) {
@@ -535,10 +806,11 @@ impl<'a> IdView<'a> {
         self.get(key).is_some()
     }
 
-    pub(crate) fn iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = &'a Order> + std::iter::FusedIterator + 'a {
-        OrderRefs::new(&self.map.nodes, self.map.id.iter_ids(&self.map.nodes))
+    pub(crate) fn iter(&self) -> IdIter<'a> {
+        IdIter::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map.id.iter_ids(&self.map.nodes),
+        ))
     }
 }
 
@@ -598,27 +870,21 @@ impl<'a> TimestampView<'a> {
         self.get(key).is_some()
     }
 
-    pub(crate) fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &'a Order> + ExactSizeIterator + std::iter::FusedIterator + 'a
-    {
-        OrderRefs::new(
+    pub(crate) fn iter(&self) -> TimestampIter<'a> {
+        TimestampIter::new(OrderRefs::new(
             &self.map.nodes,
             self.map.timestamp.iter_ids(&self.map.nodes),
-        )
+        ))
     }
 
-    pub(crate) fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = &'a Order> + std::iter::FusedIterator + 'a
+    pub(crate) fn range<R>(&self, range: R) -> TimestampRange<'a>
     where
         R: RangeBounds<u64>,
     {
-        OrderRefs::new(
+        TimestampRange::new(OrderRefs::new(
             &self.map.nodes,
             self.map.timestamp.range_iter_ids(range, &self.map.nodes),
-        )
+        ))
     }
 }
 
@@ -667,24 +933,22 @@ pub(crate) struct TraderView<'a> {
 }
 
 impl<'a> TraderView<'a> {
-    pub(crate) fn equal_range<Q>(
-        &self,
-        key: &Q,
-    ) -> impl ExactSizeIterator<Item = &'a Order> + std::iter::FusedIterator + 'a
+    pub(crate) fn equal_range<Q>(&self, key: &Q) -> TraderEqualRange<'a>
     where
-        str: Borrow<Q>,
+        String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        OrderRefs::new(
+        TraderEqualRange::new(OrderRefs::new(
             &self.map.nodes,
             self.map.trader.equal_iter_ids(key, &self.map.nodes),
-        )
+        ))
     }
 
-    pub(crate) fn iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = &'a Order> + std::iter::FusedIterator + 'a {
-        OrderRefs::new(&self.map.nodes, self.map.trader.iter_ids(&self.map.nodes))
+    pub(crate) fn iter(&self) -> TraderIter<'a> {
+        TraderIter::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map.trader.iter_ids(&self.map.nodes),
+        ))
     }
 }
 
@@ -695,7 +959,7 @@ pub(crate) struct TraderViewMut<'a> {
 impl TraderViewMut<'_> {
     pub(crate) fn remove_all<Q>(&mut self, key: &Q) -> Vec<Order>
     where
-        str: Borrow<Q>,
+        String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let ids = self.map.trader.equal_ids(key, &self.map.nodes);
@@ -706,7 +970,7 @@ impl TraderViewMut<'_> {
 
     pub(crate) fn modify_all<Q>(&mut self, key: &Q, f: impl FnMut(&mut Order)) -> ModifyAllResult
     where
-        str: Borrow<Q>,
+        String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let ids = self.map.trader.equal_ids(key, &self.map.nodes);
@@ -715,7 +979,7 @@ impl TraderViewMut<'_> {
 
     pub(crate) fn update_all<Q>(&mut self, key: &Q, f: impl FnMut(OrderUpdate<'_>)) -> usize
     where
-        str: Borrow<Q>,
+        String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let ids = self.map.trader.equal_ids(key, &self.map.nodes);
@@ -728,34 +992,28 @@ pub(crate) struct PriceView<'a> {
 }
 
 impl<'a> PriceView<'a> {
-    pub(crate) fn equal_range(
-        &self,
-        key: &u64,
-    ) -> impl DoubleEndedIterator<Item = &'a Order> + std::iter::FusedIterator + 'a {
-        OrderRefs::new(
+    pub(crate) fn equal_range(&self, key: &u64) -> PriceRange<'a> {
+        PriceRange::new(OrderRefs::new(
             &self.map.nodes,
             self.map.price.range_iter_ids(*key..=*key, &self.map.nodes),
-        )
+        ))
     }
 
-    pub(crate) fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &'a Order> + ExactSizeIterator + std::iter::FusedIterator + 'a
-    {
-        OrderRefs::new(&self.map.nodes, self.map.price.iter_ids(&self.map.nodes))
+    pub(crate) fn iter(&self) -> PriceIter<'a> {
+        PriceIter::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map.price.iter_ids(&self.map.nodes),
+        ))
     }
 
-    pub(crate) fn range<R>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = &'a Order> + std::iter::FusedIterator + 'a
+    pub(crate) fn range<R>(&self, range: R) -> PriceRange<'a>
     where
         R: RangeBounds<u64>,
     {
-        OrderRefs::new(
+        PriceRange::new(OrderRefs::new(
             &self.map.nodes,
             self.map.price.range_iter_ids(range, &self.map.nodes),
-        )
+        ))
     }
 }
 
@@ -996,7 +1254,7 @@ impl UniqueViewMut for TimestampViewMut<'_> {
 
 impl IndexView for TraderView<'_> {
     type Value = Order;
-    type Key = str;
+    type Key = String;
     type Iter<'a>
         = TraderIter<'a>
     where
@@ -1030,7 +1288,7 @@ impl NonUniqueView for TraderView<'_> {
 
 impl IndexView for TraderViewMut<'_> {
     type Value = Order;
-    type Key = str;
+    type Key = String;
     type Iter<'a>
         = TraderIter<'a>
     where

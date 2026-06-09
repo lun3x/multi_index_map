@@ -60,6 +60,34 @@ Because public traits expose iterator associated types, `order_map.rs` defines t
 wrappers for each generated traversal type. These wrappers hide private node and index-spec types
 without boxing or allocation.
 
+## Compatibility Facade
+
+`OrderMap` also demonstrates the deprecated field-named methods that a future generated map can
+provide during migration:
+
+```text
+get_by_*
+get_mut_by_*
+modify_by_*
+update_by_*
+remove_by_*
+iter_by_*
+```
+
+These methods preserve the existing closure shapes and `Option`/`Vec` return types while delegating
+to the new index and coordinated-mutation machinery. Each method is deprecated with its view-based
+replacement. `get_by_*` and `update_by_*` continue to support borrowed queries, including both
+`&String` and `&str` for the `trader` field.
+
+Legacy non-unique methods allocate their returned `Vec`; its ordering is not part of the
+compatibility contract. `get_mut_by_*` safely exposes only the unindexed `note` and `filled` fields
+by sorting snapshotted node IDs and walking the slab mutably once.
+
+The new conflict semantics remain authoritative. A compatibility `modify_by_*` method panics when a
+uniqueness conflict occurs, because its legacy signature cannot return `Conflict`, but conflicting
+elements are removed and all indices are repaired before the panic. Non-unique compatibility
+modifiers finish processing the original snapshotted batch before reporting a conflict.
+
 ## Mutation Semantics
 
 - `replace` is atomic. Every unique constraint is checked before the stored value changes.
@@ -73,4 +101,4 @@ without boxing or allocation.
 
 The prototype does not include proc-macro generation, persistent handles, projection, packed
 red-black color bits, Boost's specialized hashed group-skip encoding, custom comparators, serde,
-capacity APIs, or compatibility wrappers for the current field-named API.
+or capacity APIs.
