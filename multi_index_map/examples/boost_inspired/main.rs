@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod order_map;
 
-use order_map::{Order, OrderMap};
+use order_map::{ById, ByPrice, ByTimestamp, ByTrader, Order, OrderMap};
 
 fn main() {
     let mut orders = OrderMap::new();
@@ -16,30 +16,30 @@ fn main() {
         .expect("third order must be unique");
 
     println!("John's orders:");
-    for order in orders.by_trader().equal_range("John") {
+    for order in orders.by::<ByTrader>().equal_range("John") {
         println!("  {order:?}");
     }
 
     println!("Orders by timestamp:");
-    for order in orders.by_timestamp().iter() {
+    for order in orders.by::<ByTimestamp>().iter() {
         println!("  {order:?}");
     }
 
     orders
-        .by_id_mut()
+        .by_mut::<ById>()
         .modify(&2, |order| {
             order.timestamp = 120;
             order.price = 25;
         })
         .expect("modification must preserve uniqueness");
 
-    orders.by_trader_mut().update_all("John", |fields| {
+    orders.by_mut::<ByTrader>().update_all("John", |fields| {
         fields.note.push_str("priority");
         *fields.filled = true;
     });
 
     println!("Orders priced at 25 after mutation:");
-    for order in orders.by_price().equal_range(&25) {
+    for order in orders.by::<ByPrice>().equal_range(&25) {
         println!("  {order:?}");
     }
 
@@ -72,36 +72,52 @@ mod tests {
     #[test]
     fn supports_all_views_and_borrowed_lookup() {
         let map = populated();
-        assert_eq!(map.by_id().get(&2).unwrap().trader, "John");
-        assert!(map.by_id().contains_key(&4));
-        assert_eq!(map.by_trader().equal_range("John").count(), 2);
-        assert_eq!(map.by_price().equal_range(&25).count(), 2);
+        assert_eq!(map.by::<ById>().get(&2).unwrap().trader, "John");
+        assert!(map.by::<ById>().contains_key(&4));
+        assert_eq!(map.by::<ByTrader>().equal_range("John").count(), 2);
+        assert_eq!(map.by::<ByPrice>().equal_range(&25).count(), 2);
         assert_eq!(
-            map.by_timestamp()
+            map.by::<ByTimestamp>()
                 .range(95..=115)
                 .map(|order| order.id)
                 .collect::<Vec<_>>(),
             vec![1, 3]
         );
         assert_eq!(
-            map.by_price()
+            map.by::<ByPrice>()
                 .iter()
                 .rev()
                 .map(|order| order.price)
                 .collect::<Vec<_>>(),
             vec![40, 30, 25, 25]
         );
-        assert_eq!(map.by_id().iter().len(), 4);
-        assert_eq!(map.by_trader().equal_range("John").len(), 2);
+        assert_eq!(map.by::<ById>().iter().len(), 4);
+        assert_eq!(map.by::<ByTrader>().equal_range("John").len(), 2);
 
-        let mut range = map.by_price().range(25..=40);
+        let mut range = map.by::<ByPrice>().range(25..=40);
         assert_eq!(range.next().unwrap().price, 25);
         assert_eq!(range.next_back().unwrap().price, 40);
         assert_eq!(range.count(), 2);
-        assert_eq!(map.by_price().range(..25).count(), 0);
-        assert_eq!(map.by_price().range(41..).count(), 0);
-        assert_eq!(map.by_price().range(31..30).count(), 0);
+        assert_eq!(map.by::<ByPrice>().range(..25).count(), 0);
+        assert_eq!(map.by::<ByPrice>().range(41..).count(), 0);
+        assert_eq!(map.by::<ByPrice>().range(31..30).count(), 0);
         map.validate().unwrap();
+    }
+
+    #[test]
+    fn generic_selection_preserves_normal_borrowing() {
+        let mut map = populated();
+        {
+            let ids = map.by::<ById>();
+            let timestamps = map.by::<ByTimestamp>();
+            assert_eq!(ids.get(&1).unwrap().timestamp, 100);
+            assert_eq!(timestamps.get(&100).unwrap().id, 1);
+        }
+        {
+            let mut ids = map.by_mut::<ById>();
+            ids.update(&1, |fields| *fields.filled = true);
+        }
+        assert!(map.by::<ById>().get(&1).unwrap().filled);
     }
 
     #[test]
@@ -186,35 +202,35 @@ mod tests {
 
         let mut map = populated();
         let john = "John".to_string();
-        assert_eq!(ids(&map.by_id()).len(), 4);
-        assert_eq!(unique_id(&map.by_timestamp(), &100), Some(1));
-        assert_eq!(equal_ids(&map.by_trader(), &john), vec![1, 2]);
-        assert_eq!(range_ids(&map.by_price(), 25..=30).len(), 3);
+        assert_eq!(ids(&map.by::<ById>()).len(), 4);
+        assert_eq!(unique_id(&map.by::<ByTimestamp>(), &100), Some(1));
+        assert_eq!(equal_ids(&map.by::<ByTrader>(), &john), vec![1, 2]);
+        assert_eq!(range_ids(&map.by::<ByPrice>(), 25..=30).len(), 3);
 
         {
-            let mut view = map.by_id_mut();
+            let mut view = map.by_mut::<ById>();
             assert_eq!(unique_id(&view, &1), Some(1));
             mutate_unique(&mut view, &1);
         }
-        assert!(map.by_id().get(&1).unwrap().filled);
+        assert!(map.by::<ById>().get(&1).unwrap().filled);
 
         {
-            let mut view = map.by_trader_mut();
+            let mut view = map.by_mut::<ByTrader>();
             assert_eq!(equal_ids(&view, &john).len(), 2);
             assert_eq!(mutate_non_unique(&mut view, &john).modified, 2);
         }
         assert!(map
-            .by_trader()
+            .by::<ByTrader>()
             .equal_range("John")
             .all(|order| order.note == "trait update"));
 
         {
-            let view = map.by_price_mut();
+            let view = map.by_mut::<ByPrice>();
             assert_eq!(range_ids(&view, 35..=40).len(), 3);
         }
 
         {
-            let mut view = map.by_id_mut();
+            let mut view = map.by_mut::<ById>();
             assert_eq!(
                 replace_unique(&mut view, &4, Order::new(40, 140, "Replacement", 50))
                     .unwrap()
@@ -226,7 +242,7 @@ mod tests {
         }
 
         {
-            let mut view = map.by_price_mut();
+            let mut view = map.by_mut::<ByPrice>();
             assert_eq!(remove_non_unique(&mut view, &25)[0].id, 3);
         }
         map.validate().unwrap();
@@ -248,10 +264,10 @@ mod tests {
     #[test]
     fn removal_through_every_index_updates_all_other_indices() {
         let mut map = populated();
-        assert_eq!(map.by_id_mut().remove(&1).unwrap().id, 1);
-        assert_eq!(map.by_timestamp_mut().remove(&90).unwrap().id, 2);
-        assert_eq!(map.by_trader_mut().remove_all("Ada")[0].id, 3);
-        assert_eq!(map.by_price_mut().remove_all(&40)[0].id, 4);
+        assert_eq!(map.by_mut::<ById>().remove(&1).unwrap().id, 1);
+        assert_eq!(map.by_mut::<ByTimestamp>().remove(&90).unwrap().id, 2);
+        assert_eq!(map.by_mut::<ByTrader>().remove_all("Ada")[0].id, 3);
+        assert_eq!(map.by_mut::<ByPrice>().remove_all(&40)[0].id, 4);
         assert!(map.is_empty());
         map.validate().unwrap();
     }
@@ -260,41 +276,41 @@ mod tests {
     fn replace_is_atomic_on_conflict() {
         let mut map = populated();
         let replacement = Order::new(1, 90, "Replacement", 5);
-        let conflict = map.by_id_mut().replace(&1, replacement).unwrap_err();
+        let conflict = map.by_mut::<ById>().replace(&1, replacement).unwrap_err();
         assert_eq!(conflict.index, "timestamp");
-        assert_eq!(map.by_id().get(&1).unwrap().timestamp, 100);
+        assert_eq!(map.by::<ById>().get(&1).unwrap().timestamp, 100);
 
         let old = map
-            .by_id_mut()
+            .by_mut::<ById>()
             .replace(&1, Order::new(10, 101, "Replacement", 5))
             .unwrap()
             .unwrap();
         assert_eq!(old.id, 1);
-        assert!(map.by_id().get(&1).is_none());
-        assert_eq!(map.by_id().get(&10).unwrap().timestamp, 101);
+        assert!(map.by::<ById>().get(&1).is_none());
+        assert_eq!(map.by::<ById>().get(&10).unwrap().timestamp, 101);
         map.validate().unwrap();
     }
 
     #[test]
     fn modify_relocates_only_as_needed_and_erases_on_conflict() {
         let mut map = populated();
-        map.by_id_mut()
+        map.by_mut::<ById>()
             .modify(&1, |order| {
                 order.timestamp = 130;
                 order.trader = "Grace".to_string();
                 order.price = 50;
             })
             .unwrap();
-        assert_eq!(map.by_timestamp().iter().last().unwrap().id, 1);
-        assert_eq!(map.by_trader().equal_range("Grace").count(), 2);
+        assert_eq!(map.by::<ByTimestamp>().iter().last().unwrap().id, 1);
+        assert_eq!(map.by::<ByTrader>().equal_range("Grace").count(), 2);
 
         let conflict = map
-            .by_id_mut()
+            .by_mut::<ById>()
             .modify(&1, |order| order.timestamp = 90)
             .unwrap_err();
         assert_eq!(conflict.index, "timestamp");
         assert_eq!(conflict.value.id, 1);
-        assert!(!map.by_id().contains_key(&1));
+        assert!(!map.by::<ById>().contains_key(&1));
         assert_eq!(map.len(), 3);
         map.validate().unwrap();
     }
@@ -303,38 +319,38 @@ mod tests {
     fn panicking_modifier_removes_the_partially_modified_node() {
         let mut map = populated();
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = map.by_id_mut().modify(&2, |order| {
+            let _ = map.by_mut::<ById>().modify(&2, |order| {
                 order.price = 999;
                 panic!("stop");
             });
         }));
         assert!(result.is_err());
-        assert!(!map.by_id().contains_key(&2));
-        assert_eq!(map.by_price().equal_range(&999).count(), 0);
+        assert!(!map.by::<ById>().contains_key(&2));
+        assert_eq!(map.by::<ByPrice>().equal_range(&999).count(), 0);
         map.validate().unwrap();
     }
 
     #[test]
     fn batch_mutation_snapshots_original_matches() {
         let mut map = populated();
-        let result = map.by_trader_mut().modify_all("John", |order| {
+        let result = map.by_mut::<ByTrader>().modify_all("John", |order| {
             order.trader = "Moved".to_string();
             order.price += 100;
         });
         assert_eq!(result.modified, 2);
         assert!(result.removed.is_empty());
-        assert_eq!(map.by_trader().equal_range("John").count(), 0);
-        assert_eq!(map.by_trader().equal_range("Moved").count(), 2);
+        assert_eq!(map.by::<ByTrader>().equal_range("John").count(), 0);
+        assert_eq!(map.by::<ByTrader>().equal_range("Moved").count(), 2);
 
         assert_eq!(
-            map.by_trader_mut().update_all("Moved", |fields| {
+            map.by_mut::<ByTrader>().update_all("Moved", |fields| {
                 fields.note.push_str("updated");
                 *fields.filled = true;
             }),
             2
         );
         assert!(map
-            .by_trader()
+            .by::<ByTrader>()
             .equal_range("Moved")
             .all(|order| order.filled && order.note == "updated"));
         map.validate().unwrap();
@@ -344,53 +360,56 @@ mod tests {
     fn complete_typed_view_api_stays_coordinated() {
         let mut map = populated();
 
-        assert_eq!(map.by_id().iter().count(), 4);
-        map.by_id_mut().update(&1, |fields| {
+        assert_eq!(map.by::<ById>().iter().count(), 4);
+        map.by_mut::<ById>().update(&1, |fields| {
             fields.note.push_str("id update");
             *fields.filled = true;
         });
-        assert!(map.by_id().get(&1).unwrap().filled);
+        assert!(map.by::<ById>().get(&1).unwrap().filled);
 
-        assert_eq!(map.by_timestamp().get(&100).unwrap().id, 1);
-        assert!(map.by_timestamp().contains_key(&90));
+        assert_eq!(map.by::<ByTimestamp>().get(&100).unwrap().id, 1);
+        assert!(map.by::<ByTimestamp>().contains_key(&90));
         let old = map
-            .by_timestamp_mut()
+            .by_mut::<ByTimestamp>()
             .replace(&100, Order::new(10, 101, "Replacement", 5))
             .unwrap()
             .unwrap();
         assert_eq!(old.id, 1);
-        map.by_timestamp_mut()
+        map.by_mut::<ByTimestamp>()
             .modify(&101, |order| order.price = 55)
             .unwrap();
-        map.by_timestamp_mut().update(&101, |fields| {
+        map.by_mut::<ByTimestamp>().update(&101, |fields| {
             fields.note.push_str("timestamp update");
         });
 
-        assert_eq!(map.by_trader().iter().count(), 4);
+        assert_eq!(map.by::<ByTrader>().iter().count(), 4);
         assert_eq!(
-            map.by_price().range(25..=55).map(|order| order.id).count(),
+            map.by::<ByPrice>()
+                .range(25..=55)
+                .map(|order| order.id)
+                .count(),
             4
         );
         let result = map
-            .by_price_mut()
+            .by_mut::<ByPrice>()
             .modify_all(&25, |order| order.trader = "At25".to_string());
         assert_eq!(result.modified, 1);
         assert_eq!(
-            map.by_price_mut().update_all(&55, |fields| {
+            map.by_mut::<ByPrice>().update_all(&55, |fields| {
                 *fields.filled = true;
             }),
             1
         );
-        assert!(map.by_id().get(&10).unwrap().filled);
+        assert!(map.by::<ById>().get(&10).unwrap().filled);
         map.validate().unwrap();
     }
 
     #[test]
     fn clear_and_slab_slot_reuse_preserve_links() {
         let mut map = populated();
-        map.by_id_mut().remove(&2);
+        map.by_mut::<ById>().remove(&2);
         map.insert(Order::new(20, 200, "Reuse", 20)).unwrap();
-        assert_eq!(map.by_id().get(&20).unwrap().trader, "Reuse");
+        assert_eq!(map.by::<ById>().get(&20).unwrap().trader, "Reuse");
         map.validate().unwrap();
         map.clear();
         assert!(map.is_empty());
@@ -461,10 +480,13 @@ mod tests {
                 note.push_str(" price");
             }
 
-            assert_eq!(map.by_id().get(&20).unwrap().note, "id trader price");
-            assert!(map.by_id().get(&20).unwrap().filled);
-            assert_eq!(map.by_id().get(&1).unwrap().note, " timestamp trader price");
-            assert_eq!(map.by_id().get(&3).unwrap().note, " price");
+            assert_eq!(map.by::<ById>().get(&20).unwrap().note, "id trader price");
+            assert!(map.by::<ById>().get(&20).unwrap().filled);
+            assert_eq!(
+                map.by::<ById>().get(&1).unwrap().note,
+                " timestamp trader price"
+            );
+            assert_eq!(map.by::<ById>().get(&3).unwrap().note, " price");
             map.validate().unwrap();
         }
 
@@ -499,8 +521,14 @@ mod tests {
                 vec![1, 3]
             );
 
-            assert_eq!(map.by_id().get(&1).unwrap().note, "id str string price");
-            assert_eq!(map.by_id().get(&2).unwrap().note, " timestamp str string");
+            assert_eq!(
+                map.by::<ById>().get(&1).unwrap().note,
+                "id str string price"
+            );
+            assert_eq!(
+                map.by::<ById>().get(&2).unwrap().note,
+                " timestamp str string"
+            );
             map.validate().unwrap();
         }
 
@@ -538,8 +566,8 @@ mod tests {
             });
             assert_eq!(price_calls, 2);
             assert_eq!(sorted_ids(modified), vec![2, 3]);
-            assert_eq!(map.by_price().equal_range(&25).count(), 0);
-            assert_eq!(map.by_price().equal_range(&60).count(), 2);
+            assert_eq!(map.by::<ByPrice>().equal_range(&25).count(), 0);
+            assert_eq!(map.by::<ByPrice>().equal_range(&60).count(), 2);
             map.validate().unwrap();
         }
 
@@ -550,7 +578,7 @@ mod tests {
                 map.modify_by_id(&2, |order| order.timestamp = 100);
             }));
             assert!(unique_result.is_err());
-            assert!(!map.by_id().contains_key(&2));
+            assert!(!map.by::<ById>().contains_key(&2));
             map.validate().unwrap();
 
             let mut map = populated();
@@ -564,8 +592,8 @@ mod tests {
             }));
             assert!(batch_result.is_err());
             assert_eq!(calls, 2);
-            assert!(!map.by_id().contains_key(&1));
-            assert!(map.by_id().contains_key(&2));
+            assert!(!map.by::<ById>().contains_key(&1));
+            assert!(map.by::<ById>().contains_key(&2));
             map.validate().unwrap();
         }
 
@@ -594,14 +622,14 @@ mod tests {
         map.validate().unwrap();
         assert_eq!(map.len(), model.len());
         for (&id, expected) in model {
-            let actual = map.by_id().get(&id).unwrap();
+            let actual = map.by::<ById>().get(&id).unwrap();
             assert_eq!(actual.timestamp, expected.timestamp);
             assert_eq!(actual.trader, expected.trader);
             assert_eq!(actual.price, expected.price);
         }
 
         let actual_by_timestamp: Vec<_> = map
-            .by_timestamp()
+            .by::<ByTimestamp>()
             .iter()
             .map(|order| (order.timestamp, order.id))
             .collect();
@@ -642,14 +670,14 @@ mod tests {
                     }
                 }
                 1 => {
-                    let removed = map.by_id_mut().remove(&id);
+                    let removed = map.by_mut::<ById>().remove(&id);
                     let expected = model.remove(&id);
                     assert_eq!(removed.is_some(), expected.is_some());
                 }
                 2 => {
                     if let Some(expected) = model.get_mut(&id) {
                         let new_price = (step + id) % 11;
-                        map.by_id_mut()
+                        map.by_mut::<ById>()
                             .modify(&id, |order| order.price = new_price)
                             .unwrap();
                         expected.price = new_price;
@@ -661,7 +689,7 @@ mod tests {
                         .values_mut()
                         .filter(|order| order.trader == trader)
                         .count();
-                    let updated = map.by_trader_mut().update_all(&trader, |fields| {
+                    let updated = map.by_mut::<ByTrader>().update_all(&trader, |fields| {
                         fields.note.push('.');
                     });
                     assert_eq!(updated, expected);

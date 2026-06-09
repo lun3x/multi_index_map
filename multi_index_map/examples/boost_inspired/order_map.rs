@@ -72,10 +72,10 @@ impl NodeValue for OrderNode {
     }
 }
 
-struct ById;
-struct ByTimestamp;
-struct ByTrader;
-struct ByPrice;
+pub(crate) struct ById;
+pub(crate) struct ByTimestamp;
+pub(crate) struct ByTrader;
+pub(crate) struct ByPrice;
 
 impl HashSpec<OrderNode> for ById {
     type Key = u64;
@@ -154,6 +154,71 @@ type TimestampIndex = OrderedIndex<ByTimestamp, true>;
 type TraderIndex = HashedIndex<ByTrader, false>;
 type PriceIndex = OrderedIndex<ByPrice, false>;
 
+pub(crate) trait OrderMapIndex {
+    type View<'a>
+    where
+        Self: 'a;
+
+    type ViewMut<'a>
+    where
+        Self: 'a;
+
+    fn view(map: &OrderMap) -> Self::View<'_>;
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_>;
+}
+
+impl OrderMapIndex for ById {
+    type View<'a> = IdView<'a>;
+    type ViewMut<'a> = IdViewMut<'a>;
+
+    fn view(map: &OrderMap) -> Self::View<'_> {
+        IdView { map }
+    }
+
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_> {
+        IdViewMut { map }
+    }
+}
+
+impl OrderMapIndex for ByTimestamp {
+    type View<'a> = TimestampView<'a>;
+    type ViewMut<'a> = TimestampViewMut<'a>;
+
+    fn view(map: &OrderMap) -> Self::View<'_> {
+        TimestampView { map }
+    }
+
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_> {
+        TimestampViewMut { map }
+    }
+}
+
+impl OrderMapIndex for ByTrader {
+    type View<'a> = TraderView<'a>;
+    type ViewMut<'a> = TraderViewMut<'a>;
+
+    fn view(map: &OrderMap) -> Self::View<'_> {
+        TraderView { map }
+    }
+
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_> {
+        TraderViewMut { map }
+    }
+}
+
+impl OrderMapIndex for ByPrice {
+    type View<'a> = PriceView<'a>;
+    type ViewMut<'a> = PriceViewMut<'a>;
+
+    fn view(map: &OrderMap) -> Self::View<'_> {
+        PriceView { map }
+    }
+
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_> {
+        PriceViewMut { map }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct OrderMap {
     nodes: Slab<OrderNode>,
@@ -206,36 +271,12 @@ impl OrderMap {
         self.validate_debug();
     }
 
-    pub(crate) fn by_id(&self) -> IdView<'_> {
-        IdView { map: self }
+    pub(crate) fn by<I: OrderMapIndex>(&self) -> I::View<'_> {
+        I::view(self)
     }
 
-    pub(crate) fn by_id_mut(&mut self) -> IdViewMut<'_> {
-        IdViewMut { map: self }
-    }
-
-    pub(crate) fn by_timestamp(&self) -> TimestampView<'_> {
-        TimestampView { map: self }
-    }
-
-    pub(crate) fn by_timestamp_mut(&mut self) -> TimestampViewMut<'_> {
-        TimestampViewMut { map: self }
-    }
-
-    pub(crate) fn by_trader(&self) -> TraderView<'_> {
-        TraderView { map: self }
-    }
-
-    pub(crate) fn by_trader_mut(&mut self) -> TraderViewMut<'_> {
-        TraderViewMut { map: self }
-    }
-
-    pub(crate) fn by_price(&self) -> PriceView<'_> {
-        PriceView { map: self }
-    }
-
-    pub(crate) fn by_price_mut(&mut self) -> PriceViewMut<'_> {
-        PriceViewMut { map: self }
+    pub(crate) fn by_mut<I: OrderMapIndex>(&mut self) -> I::ViewMut<'_> {
+        I::view_mut(self)
     }
 
     fn update_fields_for_ids(&mut self, mut ids: Vec<NodeId>) -> Vec<(&mut String, &mut bool)> {
@@ -328,7 +369,7 @@ impl OrderMap {
 
     #[deprecated(note = "use by_id_mut().remove(key)")]
     pub(crate) fn remove_by_id(&mut self, key: &u64) -> Option<Order> {
-        self.by_id_mut().remove(key)
+        self.by_mut::<ById>().remove(key)
     }
 
     #[deprecated(note = "use by_id().iter()")]
@@ -385,7 +426,7 @@ impl OrderMap {
 
     #[deprecated(note = "use by_timestamp_mut().remove(key)")]
     pub(crate) fn remove_by_timestamp(&mut self, key: &u64) -> Option<Order> {
-        self.by_timestamp_mut().remove(key)
+        self.by_mut::<ByTimestamp>().remove(key)
     }
 
     #[deprecated(note = "use by_timestamp().iter()")]
@@ -402,7 +443,7 @@ impl OrderMap {
         String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        self.by_trader().equal_range(key).collect()
+        self.by::<ByTrader>().equal_range(key).collect()
     }
 
     #[deprecated(note = "use by_trader_mut().update_all(key, ...)")]
@@ -418,7 +459,7 @@ impl OrderMap {
         f: impl FnMut(&mut Order),
     ) -> Vec<&Order> {
         let ids = self.trader.equal_ids(key, &self.nodes);
-        let result = self.by_trader_mut().modify_all(key, f);
+        let result = self.by_mut::<ByTrader>().modify_all(key, f);
         Self::panic_on_modify_conflicts(result);
         self.order_refs_for_ids(&ids)
     }
@@ -434,14 +475,14 @@ impl OrderMap {
         Q: Eq + Hash + ?Sized,
     {
         let ids = self.trader.equal_ids(key, &self.nodes);
-        self.by_trader_mut()
+        self.by_mut::<ByTrader>()
             .update_all(key, |fields| f(fields.note, fields.filled));
         self.order_refs_for_ids(&ids)
     }
 
     #[deprecated(note = "use by_trader_mut().remove_all(key)")]
     pub(crate) fn remove_by_trader(&mut self, key: &String) -> Vec<Order> {
-        self.by_trader_mut().remove_all(key)
+        self.by_mut::<ByTrader>().remove_all(key)
     }
 
     #[deprecated(note = "use by_trader().iter()")]
@@ -474,7 +515,7 @@ impl OrderMap {
     #[deprecated(note = "use by_price_mut().modify_all(key, ...)")]
     pub(crate) fn modify_by_price(&mut self, key: &u64, f: impl FnMut(&mut Order)) -> Vec<&Order> {
         let ids = self.price.equal_ids(key, &self.nodes);
-        let result = self.by_price_mut().modify_all(key, f);
+        let result = self.by_mut::<ByPrice>().modify_all(key, f);
         Self::panic_on_modify_conflicts(result);
         self.order_refs_for_ids(&ids)
     }
@@ -498,7 +539,7 @@ impl OrderMap {
 
     #[deprecated(note = "use by_price_mut().remove_all(key)")]
     pub(crate) fn remove_by_price(&mut self, key: &u64) -> Vec<Order> {
-        self.by_price_mut().remove_all(key)
+        self.by_mut::<ByPrice>().remove_all(key)
     }
 
     #[deprecated(note = "use by_price().iter()")]

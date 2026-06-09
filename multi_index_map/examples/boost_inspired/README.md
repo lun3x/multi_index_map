@@ -40,6 +40,21 @@ and color fields.
 Immutable iteration follows the embedded links without allocating. Batch mutation deliberately
 snapshots the original matching `NodeId`s so each original match is processed exactly once.
 
+## Generic Index Selection
+
+`OrderMap` selects an index through its marker type rather than generating a different accessor
+method for every indexed field:
+
+```rust
+orders.by::<ByTimestamp>().range(start..end);
+orders.by_mut::<ByTrader>().remove_all("John");
+```
+
+The example-local `OrderMapIndex` trait uses generic associated types to map each marker to its
+immutable and mutable named view types. Its constructor methods let the two map accessors construct
+the selected views while preserving the borrow lifetime. `ById`, `ByTimestamp`, `ByTrader`, and
+`ByPrice` also remain the corresponding internal hash/tree index specs.
+
 ## View Capabilities
 
 Views implement small, composable traits that describe the operations their index category
