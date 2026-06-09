@@ -1,10 +1,10 @@
-error: #[multi_index(...)] requires exactly one index kind
- --> tests/ui/extra_arguments.rs:5:5
+error: expected `,`
+ --> tests/ui/extra_arguments.rs:5:25
   |
-5 |     #[multi_index(hashed_unique, ordered_unique)]
-  |     ^
+5 |     #[multi_index(ByKey = unexpected)]
+  |                         ^
 
-error: MultiIndexMap2 requires at least one #[multi_index(...)] field
+error: MultiIndexMap2 requires at least one #[multi_index(Accessor, ...)] field
  --> tests/ui/extra_arguments.rs:4:8
   |
 4 | struct ExtraArguments {

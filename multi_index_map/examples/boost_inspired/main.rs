@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod order_map;
 
-use order_map::{ById, ByPrice, ByTimestamp, ByTrader, Order, OrderMap};
+use order_map::{ById, ByPrice, ByTimestamp, ByTrader, ByTraderTimestamp, Order, OrderMap};
 
 fn main() {
     let mut orders = OrderMap::new();
@@ -17,6 +17,13 @@ fn main() {
 
     println!("John's orders:");
     for order in orders.by::<ByTrader>().equal_range("John") {
+        println!("  {order:?}");
+    }
+    println!("John's orders through the compound accessor:");
+    for order in orders
+        .by::<ByTraderTimestamp>()
+        .range(("John", &0)..=("John", &u64::MAX))
+    {
         println!("  {order:?}");
     }
 
@@ -101,6 +108,46 @@ mod tests {
         assert_eq!(map.by::<ByPrice>().range(..25).count(), 0);
         assert_eq!(map.by::<ByPrice>().range(41..).count(), 0);
         assert_eq!(map.by::<ByPrice>().range(31..30).count(), 0);
+        map.validate().unwrap();
+    }
+
+    #[test]
+    fn compound_accessor_supports_full_key_queries_ranges_and_relocation() {
+        let mut map = populated();
+        assert_eq!(
+            map.by::<ByTraderTimestamp>()
+                .equal_range(("John", &90))
+                .next()
+                .unwrap()
+                .id,
+            2
+        );
+        assert_eq!(
+            map.by::<ByTraderTimestamp>()
+                .range(("John", &0)..=("John", &u64::MAX))
+                .map(|order| order.id)
+                .collect::<Vec<_>>(),
+            vec![2, 1]
+        );
+
+        map.by_mut::<ById>()
+            .modify(&1, |order| {
+                order.trader = "Grace".to_owned();
+                order.timestamp = 105;
+            })
+            .unwrap();
+        assert_eq!(
+            map.by::<ByTraderTimestamp>()
+                .equal_range(("Grace", &105))
+                .count(),
+            1
+        );
+        assert_eq!(
+            map.by_mut::<ByTraderTimestamp>()
+                .remove_all(("Grace", &105))
+                .len(),
+            1
+        );
         map.validate().unwrap();
     }
 
@@ -252,11 +299,11 @@ mod tests {
     fn insertion_checks_unique_indices_without_consuming_stored_values() {
         let mut map = populated();
         let conflict = map.insert(Order::new(1, 999, "Other", 1)).unwrap_err();
-        assert_eq!(conflict.index, "id");
+        assert_eq!(conflict.index, "ById");
         assert_eq!(conflict.value.timestamp, 999);
 
         let conflict = map.insert(Order::new(99, 100, "Other", 1)).unwrap_err();
-        assert_eq!(conflict.index, "timestamp");
+        assert_eq!(conflict.index, "ByTimestamp");
         assert_eq!(map.len(), 4);
         map.validate().unwrap();
     }
@@ -277,7 +324,7 @@ mod tests {
         let mut map = populated();
         let replacement = Order::new(1, 90, "Replacement", 5);
         let conflict = map.by_mut::<ById>().replace(&1, replacement).unwrap_err();
-        assert_eq!(conflict.index, "timestamp");
+        assert_eq!(conflict.index, "ByTimestamp");
         assert_eq!(map.by::<ById>().get(&1).unwrap().timestamp, 100);
 
         let old = map
@@ -308,7 +355,7 @@ mod tests {
             .by_mut::<ById>()
             .modify(&1, |order| order.timestamp = 90)
             .unwrap_err();
-        assert_eq!(conflict.index, "timestamp");
+        assert_eq!(conflict.index, "ByTimestamp");
         assert_eq!(conflict.value.id, 1);
         assert!(!map.by::<ById>().contains_key(&1));
         assert_eq!(map.len(), 3);

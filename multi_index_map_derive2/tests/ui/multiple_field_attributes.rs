@@ -1,8 +1,9 @@
 use multi_index_map_derive2::MultiIndexMap;
 
 #[derive(MultiIndexMap)]
-struct ExtraArguments {
-    #[multi_index(ByKey = unexpected)]
+struct MultipleAttributes {
+    #[multi_index(ById)]
+    #[multi_index(ByTimestamp)]
     key: u64,
 }
 

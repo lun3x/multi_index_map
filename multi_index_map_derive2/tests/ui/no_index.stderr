@@ -1,4 +1,4 @@
-error: MultiIndexMap2 requires at least one #[multi_index(...)] field
+error: MultiIndexMap2 requires at least one #[multi_index(Accessor, ...)] field
  --> tests/ui/no_index.rs:4:8
   |
 4 | struct NoIndex {

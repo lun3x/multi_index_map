@@ -1,0 +1,14 @@
+error: MultiIndexAccessor does not support generic structs
+ --> tests/ui/accessor_generic.rs:5:15
+  |
+5 | struct Generic<T>;
+  |               ^
+
+error[E0392]: type parameter `T` is never used
+ --> tests/ui/accessor_generic.rs:5:16
+  |
+5 | struct Generic<T>;
+  |                ^ unused type parameter
+  |
+  = help: consider removing `T`, referring to it in a field, or using a marker such as `PhantomData`
+  = help: if you intended `T` to be a const parameter, use `const T: /* Type */` instead

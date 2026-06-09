@@ -1,5 +1,5 @@
-error: duplicate #[multi_index(...)] attribute
- --> tests/ui/duplicate.rs:6:5
+error: duplicate use of this accessor on the same field
+ --> tests/ui/duplicate.rs:5:26
   |
-6 |     #[multi_index(ordered_unique)]
-  |     ^
+5 |     #[multi_index(ByKey, ByKey)]
+  |                          ^^^^^

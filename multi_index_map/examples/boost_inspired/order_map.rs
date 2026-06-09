@@ -1,10 +1,11 @@
 use multi_index_map::__private::{
-    HashEqualIds, HashIds, HashLink, HashSpec, HashedIndex, NodeId, NodeValue, OrderedIds,
-    OrderedIndex, OrderedLink, OrderedRangeIds, OrderedSpec, Slab,
+    HashEqualIds, HashIds, HashLink, HashedIndex, IndexSpec, NodeId, NodeValue, OrderedIds,
+    OrderedIndex, OrderedLink, OrderedRangeIds, Slab,
 };
 use multi_index_map::{Conflict as GenericConflict, ModifyAllResult as GenericModifyAllResult};
 use multi_index_map::{
-    IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
+    IndexView, MultiIndexAccessor, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
+    UniqueViewMut,
 };
 use std::borrow::Borrow;
 use std::hash::Hash;
@@ -50,6 +51,7 @@ struct OrderNode {
     timestamp_link: OrderedLink,
     trader_link: HashLink,
     price_link: OrderedLink,
+    trader_timestamp_link: OrderedLink,
 }
 
 impl OrderNode {
@@ -60,6 +62,7 @@ impl OrderNode {
             timestamp_link: OrderedLink::default(),
             trader_link: HashLink::default(),
             price_link: OrderedLink::default(),
+            trader_timestamp_link: OrderedLink::default(),
         }
     }
 }
@@ -72,17 +75,29 @@ impl NodeValue for OrderNode {
     }
 }
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_unique)]
 pub(crate) struct ById;
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_unique)]
 pub(crate) struct ByTimestamp;
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_non_unique)]
 pub(crate) struct ByTrader;
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
 pub(crate) struct ByPrice;
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
+pub(crate) struct ByTraderTimestamp;
 
-impl HashSpec<OrderNode> for ById {
-    type Key = u64;
+impl IndexSpec<OrderNode> for ById {
+    type Key<'a> = &'a u64;
+    type Link = HashLink;
 
     const NAME: &'static str = "id";
 
-    fn key(value: &Order) -> &Self::Key {
+    fn key(value: &Order) -> Self::Key<'_> {
         &value.id
     }
 
@@ -95,12 +110,13 @@ impl HashSpec<OrderNode> for ById {
     }
 }
 
-impl OrderedSpec<OrderNode> for ByTimestamp {
-    type Key = u64;
+impl IndexSpec<OrderNode> for ByTimestamp {
+    type Key<'a> = &'a u64;
+    type Link = OrderedLink;
 
     const NAME: &'static str = "timestamp";
 
-    fn key(value: &Order) -> &Self::Key {
+    fn key(value: &Order) -> Self::Key<'_> {
         &value.timestamp
     }
 
@@ -113,12 +129,13 @@ impl OrderedSpec<OrderNode> for ByTimestamp {
     }
 }
 
-impl HashSpec<OrderNode> for ByTrader {
-    type Key = String;
+impl IndexSpec<OrderNode> for ByTrader {
+    type Key<'a> = &'a String;
+    type Link = HashLink;
 
     const NAME: &'static str = "trader";
 
-    fn key(value: &Order) -> &Self::Key {
+    fn key(value: &Order) -> Self::Key<'_> {
         &value.trader
     }
 
@@ -131,12 +148,13 @@ impl HashSpec<OrderNode> for ByTrader {
     }
 }
 
-impl OrderedSpec<OrderNode> for ByPrice {
-    type Key = u64;
+impl IndexSpec<OrderNode> for ByPrice {
+    type Key<'a> = &'a u64;
+    type Link = OrderedLink;
 
     const NAME: &'static str = "price";
 
-    fn key(value: &Order) -> &Self::Key {
+    fn key(value: &Order) -> Self::Key<'_> {
         &value.price
     }
 
@@ -149,12 +167,32 @@ impl OrderedSpec<OrderNode> for ByPrice {
     }
 }
 
+impl IndexSpec<OrderNode> for ByTraderTimestamp {
+    type Key<'a> = (&'a String, &'a u64);
+    type Link = OrderedLink;
+
+    const NAME: &'static str = "ByTraderTimestamp";
+
+    fn key(value: &Order) -> Self::Key<'_> {
+        (&value.trader, &value.timestamp)
+    }
+
+    fn link(node: &OrderNode) -> &OrderedLink {
+        &node.trader_timestamp_link
+    }
+
+    fn link_mut(node: &mut OrderNode) -> &mut OrderedLink {
+        &mut node.trader_timestamp_link
+    }
+}
+
 type IdIndex = HashedIndex<ById, true>;
 type TimestampIndex = OrderedIndex<ByTimestamp, true>;
 type TraderIndex = HashedIndex<ByTrader, false>;
 type PriceIndex = OrderedIndex<ByPrice, false>;
+type TraderTimestampIndex = OrderedIndex<ByTraderTimestamp, false>;
 
-pub(crate) trait OrderMapIndex {
+pub(crate) trait OrderMapIndex: MultiIndexAccessor {
     type View<'a>
     where
         Self: 'a;
@@ -219,6 +257,19 @@ impl OrderMapIndex for ByPrice {
     }
 }
 
+impl OrderMapIndex for ByTraderTimestamp {
+    type View<'a> = TraderTimestampView<'a>;
+    type ViewMut<'a> = TraderTimestampViewMut<'a>;
+
+    fn view(map: &OrderMap) -> Self::View<'_> {
+        TraderTimestampView { map }
+    }
+
+    fn view_mut(map: &mut OrderMap) -> Self::ViewMut<'_> {
+        TraderTimestampViewMut { map }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct OrderMap {
     nodes: Slab<OrderNode>,
@@ -226,6 +277,7 @@ pub(crate) struct OrderMap {
     timestamp: TimestampIndex,
     trader: TraderIndex,
     price: PriceIndex,
+    trader_timestamp: TraderTimestampIndex,
 }
 
 impl OrderMap {
@@ -244,13 +296,13 @@ impl OrderMap {
     pub(crate) fn insert(&mut self, order: Order) -> Result<&Order, Conflict> {
         if self.id.find(&order.id, &self.nodes).is_some() {
             return Err(Conflict {
-                index: ById::NAME,
+                index: <ById as MultiIndexAccessor>::NAME,
                 value: order,
             });
         }
         if self.timestamp.find(&order.timestamp, &self.nodes).is_some() {
             return Err(Conflict {
-                index: ByTimestamp::NAME,
+                index: <ByTimestamp as MultiIndexAccessor>::NAME,
                 value: order,
             });
         }
@@ -555,10 +607,12 @@ impl OrderMap {
         let timestamp_result = self.timestamp.insert(id, &mut self.nodes);
         let trader_result = self.trader.insert(id, &mut self.nodes);
         let price_result = self.price.insert(id, &mut self.nodes);
+        let trader_timestamp_result = self.trader_timestamp.insert(id, &mut self.nodes);
         debug_assert!(id_result.is_ok());
         debug_assert!(timestamp_result.is_ok());
         debug_assert!(trader_result.is_ok());
         debug_assert!(price_result.is_ok());
+        debug_assert!(trader_timestamp_result.is_ok());
     }
 
     fn unlink_all(&mut self, id: NodeId) {
@@ -566,6 +620,7 @@ impl OrderMap {
         self.timestamp.remove(id, &mut self.nodes);
         self.trader.remove(id, &mut self.nodes);
         self.price.remove(id, &mut self.nodes);
+        self.trader_timestamp.remove(id, &mut self.nodes);
     }
 
     fn remove_id(&mut self, id: NodeId) -> Order {
@@ -580,7 +635,7 @@ impl OrderMap {
             .is_some_and(|other| other != id)
         {
             return Err(Conflict {
-                index: ById::NAME,
+                index: <ById as MultiIndexAccessor>::NAME,
                 value: replacement,
             });
         }
@@ -590,7 +645,7 @@ impl OrderMap {
             .is_some_and(|other| other != id)
         {
             return Err(Conflict {
-                index: ByTimestamp::NAME,
+                index: <ByTimestamp as MultiIndexAccessor>::NAME,
                 value: replacement,
             });
         }
@@ -614,24 +669,30 @@ impl OrderMap {
             .id
             .reconcile(id, &mut self.nodes)
             .err()
-            .map(|_| ById::NAME)
+            .map(|_| <ById as MultiIndexAccessor>::NAME)
             .or_else(|| {
                 self.timestamp
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| ByTimestamp::NAME)
+                    .map(|_| <ByTimestamp as MultiIndexAccessor>::NAME)
             })
             .or_else(|| {
                 self.trader
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| ByTrader::NAME)
+                    .map(|_| <ByTrader as MultiIndexAccessor>::NAME)
             })
             .or_else(|| {
                 self.price
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| ByPrice::NAME)
+                    .map(|_| <ByPrice as MultiIndexAccessor>::NAME)
+            })
+            .or_else(|| {
+                self.trader_timestamp
+                    .reconcile(id, &mut self.nodes)
+                    .err()
+                    .map(|_| <ByTraderTimestamp as MultiIndexAccessor>::NAME)
             });
 
         if let Some(index) = conflict {
@@ -682,12 +743,14 @@ impl OrderMap {
         self.timestamp.validate(&self.nodes)?;
         self.trader.validate(&self.nodes)?;
         self.price.validate(&self.nodes)?;
+        self.trader_timestamp.validate(&self.nodes)?;
         let len = self.nodes.len();
         if [
             self.id.len(),
             self.timestamp.len(),
             self.trader.len(),
             self.price.len(),
+            self.trader_timestamp.len(),
         ]
         .into_iter()
         .any(|index_len| index_len != len)
@@ -815,6 +878,19 @@ impl_double_ended_iterator!(TimestampRange);
 
 define_order_iterator!(PriceRange, OrderedRangeIds<'a, OrderNode, ByPrice, false>);
 impl_double_ended_iterator!(PriceRange);
+
+define_order_iterator!(
+    TraderTimestampIter,
+    OrderedIds<'a, OrderNode, ByTraderTimestamp, false>
+);
+impl_exact_size_iterator!(TraderTimestampIter);
+impl_double_ended_iterator!(TraderTimestampIter);
+
+define_order_iterator!(
+    TraderTimestampRange,
+    OrderedRangeIds<'a, OrderNode, ByTraderTimestamp, false>
+);
+impl_double_ended_iterator!(TraderTimestampRange);
 
 pub(crate) struct IdView<'a> {
     map: &'a OrderMap,
@@ -1062,6 +1138,102 @@ impl PriceViewMut<'_> {
 
     pub(crate) fn update_all(&mut self, key: &u64, f: impl FnMut(OrderUpdate<'_>)) -> usize {
         let ids = self.map.price.equal_ids(key, &self.map.nodes);
+        self.map.update_ids(ids, f)
+    }
+}
+
+pub(crate) struct TraderTimestampView<'a> {
+    map: &'a OrderMap,
+}
+
+impl<'a> TraderTimestampView<'a> {
+    pub(crate) fn equal_range<'query, Q0, Q1>(
+        &self,
+        key: (&'query Q0, &'query Q1),
+    ) -> TraderTimestampRange<'a>
+    where
+        String: Borrow<Q0>,
+        u64: Borrow<Q1>,
+        Q0: Ord + ?Sized,
+        Q1: Ord + ?Sized,
+    {
+        TraderTimestampRange::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map
+                .trader_timestamp
+                .equal_iter_ids(&key, &self.map.nodes),
+        ))
+    }
+
+    pub(crate) fn iter(&self) -> TraderTimestampIter<'a> {
+        TraderTimestampIter::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map.trader_timestamp.iter_ids(&self.map.nodes),
+        ))
+    }
+
+    pub(crate) fn range<'query, Q0, Q1, R>(&self, range: R) -> TraderTimestampRange<'a>
+    where
+        String: Borrow<Q0>,
+        u64: Borrow<Q1>,
+        Q0: Ord + ?Sized + 'query,
+        Q1: Ord + ?Sized + 'query,
+        R: RangeBounds<(&'query Q0, &'query Q1)>,
+    {
+        TraderTimestampRange::new(OrderRefs::new(
+            &self.map.nodes,
+            self.map
+                .trader_timestamp
+                .range_iter_ids(range, &self.map.nodes),
+        ))
+    }
+}
+
+pub(crate) struct TraderTimestampViewMut<'a> {
+    map: &'a mut OrderMap,
+}
+
+impl TraderTimestampViewMut<'_> {
+    pub(crate) fn remove_all<'query, Q0, Q1>(&mut self, key: (&'query Q0, &'query Q1)) -> Vec<Order>
+    where
+        String: Borrow<Q0>,
+        u64: Borrow<Q1>,
+        Q0: Ord + ?Sized,
+        Q1: Ord + ?Sized,
+    {
+        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
+        let orders = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
+        self.map.validate_debug();
+        orders
+    }
+
+    pub(crate) fn modify_all<'query, Q0, Q1>(
+        &mut self,
+        key: (&'query Q0, &'query Q1),
+        f: impl FnMut(&mut Order),
+    ) -> ModifyAllResult
+    where
+        String: Borrow<Q0>,
+        u64: Borrow<Q1>,
+        Q0: Ord + ?Sized,
+        Q1: Ord + ?Sized,
+    {
+        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
+        self.map.modify_ids(ids, f)
+    }
+
+    pub(crate) fn update_all<'query, Q0, Q1>(
+        &mut self,
+        key: (&'query Q0, &'query Q1),
+        f: impl FnMut(OrderUpdate<'_>),
+    ) -> usize
+    where
+        String: Borrow<Q0>,
+        u64: Borrow<Q1>,
+        Q0: Ord + ?Sized,
+        Q1: Ord + ?Sized,
+    {
+        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
         self.map.update_ids(ids, f)
     }
 }

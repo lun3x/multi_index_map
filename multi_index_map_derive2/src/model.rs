@@ -1,40 +1,33 @@
+use quote::ToTokens;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Error, Fields, Ident, Type, Visibility};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Ordering {
-    Hashed,
-    Ordered,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Uniqueness {
-    Unique,
-    NonUnique,
-}
+use syn::{Data, DeriveInput, Error, Fields, Ident, Path, Type, Visibility};
 
 #[derive(Clone, Debug)]
-pub(crate) struct IndexedField {
+pub(crate) struct Field {
     pub(crate) ident: Ident,
     pub(crate) ty: Type,
     pub(crate) vis: Visibility,
-    pub(crate) ordering: Ordering,
-    pub(crate) uniqueness: Uniqueness,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct UnindexedField {
-    pub(crate) ident: Ident,
-    pub(crate) ty: Type,
-    pub(crate) vis: Visibility,
+pub(crate) struct Index {
+    pub(crate) accessor: Path,
+    pub(crate) fields: Vec<Field>,
+    pub(crate) ordinal: usize,
+}
+
+impl Index {
+    pub(crate) fn single_field(&self) -> Option<&Field> {
+        (self.fields.len() == 1).then(|| &self.fields[0])
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct Input {
     pub(crate) element: Ident,
     pub(crate) vis: Visibility,
-    pub(crate) indexed: Vec<IndexedField>,
-    pub(crate) unindexed: Vec<UnindexedField>,
+    pub(crate) indexes: Vec<Index>,
+    pub(crate) unindexed: Vec<Field>,
 }
 
 impl Input {
@@ -87,36 +80,58 @@ impl Input {
             }
         };
 
-        let mut indexed = Vec::new();
+        let mut indexes = Vec::<Index>::new();
         let mut unindexed = Vec::new();
         if let Some(fields) = named {
             for field in fields {
-                let ident = field.ident.clone().expect("named fields have identifiers");
-                match parse_index_kind(&field, &mut errors) {
-                    Some((ordering, uniqueness)) => indexed.push(IndexedField {
-                        ident,
-                        ty: field.ty,
-                        vis: field.vis,
-                        ordering,
-                        uniqueness,
-                    }),
-                    None => unindexed.push(UnindexedField {
-                        ident,
-                        ty: field.ty,
-                        vis: field.vis,
-                    }),
+                let value = Field {
+                    ident: field.ident.clone().expect("named fields have identifiers"),
+                    ty: field.ty.clone(),
+                    vis: field.vis.clone(),
+                };
+                let accessors = parse_accessors(&field, &mut errors);
+                if accessors.is_empty() {
+                    unindexed.push(value);
+                    continue;
+                }
+
+                for accessor in accessors {
+                    let key = path_key(&accessor);
+                    if let Some(index) = indexes
+                        .iter_mut()
+                        .find(|index| path_key(&index.accessor) == key)
+                    {
+                        index.fields.push(value.clone());
+                    } else {
+                        indexes.push(Index {
+                            accessor,
+                            fields: vec![value.clone()],
+                            ordinal: indexes.len(),
+                        });
+                    }
                 }
             }
         }
 
-        if indexed.is_empty() {
+        if indexes.is_empty() {
             push_error(
                 &mut errors,
                 Error::new(
                     input.ident.span(),
-                    "MultiIndexMap2 requires at least one #[multi_index(...)] field",
+                    "MultiIndexMap2 requires at least one #[multi_index(Accessor, ...)] field",
                 ),
             );
+        }
+        for index in &indexes {
+            if index.fields.len() > 12 {
+                push_error(
+                    &mut errors,
+                    Error::new(
+                        index.accessor.span(),
+                        "compound indexes support at most 12 fields",
+                    ),
+                );
+            }
         }
 
         if let Some(errors) = errors {
@@ -126,78 +141,80 @@ impl Input {
         Ok(Self {
             element: input.ident,
             vis: input.vis,
-            indexed,
+            indexes,
             unindexed,
         })
     }
 }
 
-fn parse_index_kind(
-    field: &syn::Field,
-    errors: &mut Option<Error>,
-) -> Option<(Ordering, Uniqueness)> {
+fn parse_accessors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> {
+    let mut accessors = Vec::new();
     let attrs = field
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident("multi_index"))
         .collect::<Vec<_>>();
-
-    if attrs.len() > 1 {
-        for attr in attrs.iter().skip(1) {
-            push_error(
-                errors,
-                Error::new(attr.span(), "duplicate #[multi_index(...)] attribute"),
-            );
-        }
-    }
-    let attr = attrs.first()?;
-
-    let paths = match attr
-        .parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated)
-    {
-        Ok(paths) => paths,
-        Err(error) => {
-            push_error(errors, error);
-            return None;
-        }
-    };
-
-    if paths.len() != 1 {
+    for attr in attrs.iter().skip(1) {
         push_error(
             errors,
             Error::new(
                 attr.span(),
-                "#[multi_index(...)] requires exactly one index kind",
+                "use one #[multi_index(Accessor, ...)] attribute per field",
             ),
         );
-        return None;
     }
-
-    let path = paths.first().expect("checked one path");
-    let Some(ident) = path.get_ident() else {
-        push_error(
-            errors,
-            Error::new(path.span(), "index kind must be a single identifier"),
-        );
-        return None;
-    };
-
-    match ident.to_string().as_str() {
-        "hashed_unique" => Some((Ordering::Hashed, Uniqueness::Unique)),
-        "hashed_non_unique" => Some((Ordering::Hashed, Uniqueness::NonUnique)),
-        "ordered_unique" => Some((Ordering::Ordered, Uniqueness::Unique)),
-        "ordered_non_unique" => Some((Ordering::Ordered, Uniqueness::NonUnique)),
-        _ => {
+    if let Some(attr) = attrs.first() {
+        let paths = match attr
+            .parse_args_with(syn::punctuated::Punctuated::<Path, syn::Token![,]>::parse_terminated)
+        {
+            Ok(paths) => paths,
+            Err(error) => {
+                push_error(errors, error);
+                return accessors;
+            }
+        };
+        if paths.is_empty() {
             push_error(
                 errors,
-                Error::new(
-                    ident.span(),
-                    "invalid index kind; expected hashed_unique, hashed_non_unique, ordered_unique, or ordered_non_unique",
-                ),
+                Error::new(attr.span(), "#[multi_index(...)] requires an accessor path"),
             );
-            None
+            return accessors;
+        }
+        for accessor in paths {
+            if accessor.get_ident().is_some_and(|ident| {
+                matches!(
+                    ident.to_string().as_str(),
+                    "hashed_unique" | "hashed_non_unique" | "ordered_unique" | "ordered_non_unique"
+                )
+            }) {
+                push_error(
+                    errors,
+                    Error::new(
+                        accessor.span(),
+                        "index categories belong on #[derive(MultiIndexAccessor)] types; expected an accessor path",
+                    ),
+                );
+                continue;
+            }
+            let key = path_key(&accessor);
+            if accessors.iter().any(|existing| path_key(existing) == key) {
+                push_error(
+                    errors,
+                    Error::new(
+                        accessor.span(),
+                        "duplicate use of this accessor on the same field",
+                    ),
+                );
+                continue;
+            }
+            accessors.push(accessor);
         }
     }
+    accessors
+}
+
+fn path_key(path: &Path) -> String {
+    path.to_token_stream().to_string().replace(' ', "")
 }
 
 fn push_error(errors: &mut Option<Error>, error: Error) {
@@ -214,42 +231,55 @@ mod tests {
     use syn::parse_quote;
 
     #[test]
-    fn parses_all_index_kinds() {
+    fn groups_overlapping_compound_indexes() {
         let input: DeriveInput = parse_quote! {
             struct Order {
-                #[multi_index(hashed_unique)]
+                #[multi_index(ById)]
                 id: u64,
-                #[multi_index(hashed_non_unique)]
+                #[multi_index(crate::ByTraderTimestamp)]
                 trader: String,
-                #[multi_index(ordered_unique)]
+                #[multi_index(ByTimestamp, crate::ByTraderTimestamp)]
                 timestamp: u64,
-                #[multi_index(ordered_non_unique)]
-                price: u64,
                 note: String,
             }
         };
         let parsed = Input::parse(input).unwrap();
-        assert_eq!(parsed.indexed.len(), 4);
+        assert_eq!(parsed.indexes.len(), 3);
+        assert_eq!(parsed.indexes[1].fields.len(), 2);
+        assert_eq!(parsed.indexes[1].fields[0].ident, "trader");
+        assert_eq!(parsed.indexes[1].fields[1].ident, "timestamp");
         assert_eq!(parsed.unindexed.len(), 1);
     }
 
     #[test]
-    fn rejects_generics_and_missing_indexes_together() {
+    fn rejects_duplicate_accessor_on_one_field() {
         let input: DeriveInput = parse_quote! {
-            struct Generic<T> {
-                value: T,
+            struct Bad {
+                #[multi_index(ById, ById)]
+                id: u64,
             }
         };
-        let error = Input::parse(input).unwrap_err().to_string();
-        assert!(error.contains("generic structs"));
+        assert!(Input::parse(input).is_err());
     }
 
     #[test]
-    fn rejects_malformed_attributes() {
+    fn rejects_multiple_index_attributes_on_one_field() {
         let input: DeriveInput = parse_quote! {
             struct Bad {
-                #[multi_index(hashed_unique, ordered_unique)]
-                value: u64,
+                #[multi_index(ById)]
+                #[multi_index(ByTimestamp)]
+                id: u64,
+            }
+        };
+        assert!(Input::parse(input).is_err());
+    }
+
+    #[test]
+    fn rejects_old_index_kind_syntax() {
+        let input: DeriveInput = parse_quote! {
+            struct Bad {
+                #[multi_index(hashed_unique)]
+                id: u64,
             }
         };
         assert!(Input::parse(input).is_err());

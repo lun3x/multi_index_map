@@ -1,19 +1,39 @@
 use multi_index_map::{
-    IndexView, MultiIndexMap2, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
-    UniqueViewMut,
+    IndexView, MultiIndexAccessor, MultiIndexMap2, NonUniqueView, NonUniqueViewMut, OrderedView,
+    UniqueView, UniqueViewMut,
 };
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_unique)]
+struct ById;
+
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_unique)]
+struct ByTimestamp;
+
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_non_unique)]
+struct ByTrader;
+
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
+struct ByPrice;
+
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
+struct ByTraderTimestamp;
+
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct Order {
-    #[multi_index(hashed_unique)]
+    #[multi_index(ById)]
     id: u64,
-    #[multi_index(ordered_unique)]
-    timestamp: u64,
-    #[multi_index(hashed_non_unique)]
+    #[multi_index(ByTrader, ByTraderTimestamp)]
     trader: String,
-    #[multi_index(ordered_non_unique)]
+    #[multi_index(ByTimestamp, ByTraderTimestamp)]
+    timestamp: u64,
+    #[multi_index(ByPrice)]
     price: u64,
     note: String,
     filled: bool,
@@ -22,40 +42,101 @@ struct Order {
 #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct NonCloneKey(u64);
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_unique)]
+struct ByNonCloneKey;
+
+#[allow(dead_code)]
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct NonCloneRecord {
-    #[multi_index(hashed_unique)]
+    #[multi_index(ByNonCloneKey)]
     key: NonCloneKey,
+    #[allow(dead_code)]
     payload: String,
 }
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_unique)]
+struct ByNoExtrasKey;
+
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct NoExtras {
-    #[multi_index(ordered_unique)]
+    #[multi_index(ByNoExtrasKey)]
     key: u64,
 }
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_non_unique)]
+struct ByGroup;
+
+#[allow(dead_code)]
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct OtherRecord {
-    #[multi_index(hashed_non_unique)]
+    #[multi_index(ByGroup)]
     group: u8,
+    #[allow(dead_code)]
     value: u64,
 }
 
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
+struct ByName;
+
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct OrderedName {
-    #[multi_index(ordered_non_unique)]
+    #[multi_index(ByName)]
     name: String,
     value: u64,
 }
 
-mod exposed {
-    use multi_index_map::MultiIndexMap2;
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_unique)]
+struct ByHashedUniquePair;
+#[derive(MultiIndexAccessor)]
+#[multi_index(hashed_non_unique)]
+struct ByHashedPair;
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_unique)]
+struct ByOrderedUniquePair;
 
+#[allow(dead_code)]
+#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+struct CompoundKinds {
+    #[multi_index(ByHashedUniquePair)]
+    hu_name: String,
+    #[multi_index(ByHashedUniquePair)]
+    hu_number: NonCloneKey,
+    #[multi_index(ByHashedPair)]
+    h_name: String,
+    #[multi_index(ByHashedPair)]
+    h_number: u64,
+    #[multi_index(ByOrderedUniquePair)]
+    ou_name: String,
+    #[multi_index(ByOrderedUniquePair)]
+    ou_number: u64,
+    #[allow(dead_code)]
+    payload: u64,
+}
+
+#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+struct ReusedAccessor {
+    #[multi_index(ById)]
+    id: u64,
+}
+
+mod exposed {
+    use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+
+    #[derive(MultiIndexAccessor)]
+    #[multi_index(hashed_unique)]
+    pub struct ByPublicId;
+
+    #[allow(dead_code)]
     #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
     pub struct PublicRecord {
-        #[multi_index(hashed_unique)]
+        #[multi_index(ByPublicId)]
         pub id: u64,
+        #[allow(dead_code)]
         hidden: String,
     }
 
@@ -89,12 +170,12 @@ fn generates_the_four_index_categories() {
     orders.try_insert(order(2, 20, "Ada", 90)).unwrap();
     orders.try_insert(order(3, 30, "Grace", 100)).unwrap();
 
-    assert_eq!(orders.by_id().get(&2).unwrap().timestamp, 20);
-    assert!(orders.by_id().contains_key(&1));
-    assert_eq!(orders.by_trader().equal_range("Ada").count(), 2);
+    assert_eq!(orders.by::<ById>().get(&2).unwrap().timestamp, 20);
+    assert!(orders.by::<ById>().contains_key(&1));
+    assert_eq!(orders.by::<ByTrader>().equal_range("Ada").count(), 2);
     assert_eq!(
         orders
-            .by_timestamp()
+            .by::<ByTimestamp>()
             .range(10..=20)
             .map(|order| order.id)
             .collect::<Vec<_>>(),
@@ -102,7 +183,7 @@ fn generates_the_four_index_categories() {
     );
     assert_eq!(
         orders
-            .by_price()
+            .by::<ByPrice>()
             .iter()
             .rev()
             .map(|order| order.price)
@@ -111,14 +192,14 @@ fn generates_the_four_index_categories() {
     );
 
     orders
-        .by_id_mut()
+        .by_mut::<ById>()
         .modify(&1, |order| order.price = 80)
         .unwrap();
     orders
-        .by_trader_mut()
+        .by_mut::<ByTrader>()
         .update_all("Ada", |fields| *fields.filled = true);
-    assert_eq!(orders.by_price().equal_range(&80).count(), 1);
-    assert!(orders.by_id().get(&1).unwrap().filled);
+    assert_eq!(orders.by::<ByPrice>().equal_range(&80).count(), 1);
+    assert!(orders.by::<ById>().get(&1).unwrap().filled);
     orders.validate().unwrap();
 
     fn assert_unique<V: UniqueView<Value = Order, Key = u64>>(view: &V) {
@@ -134,10 +215,10 @@ fn generates_the_four_index_categories() {
         assert_eq!(view.len(), 3);
     }
 
-    assert_unique(&orders.by_id());
-    assert_non_unique(&orders.by_trader());
-    assert_ordered(&orders.by_timestamp());
-    assert_index(&orders.by_price());
+    assert_unique(&orders.by::<ById>());
+    assert_non_unique(&orders.by::<ByTrader>());
+    assert_ordered(&orders.by::<ByTimestamp>());
+    assert_index(&orders.by::<ByPrice>());
 }
 
 #[test]
@@ -147,20 +228,20 @@ fn mutations_are_coordinated() {
     orders.insert(order(2, 20, "Ada", 100));
 
     let conflict = orders
-        .by_id_mut()
+        .by_mut::<ById>()
         .replace(&1, order(2, 30, "Grace", 90))
         .unwrap_err();
-    assert_eq!(conflict.index, "id");
-    assert_eq!(orders.by_id().get(&1).unwrap().timestamp, 10);
+    assert_eq!(conflict.index, "ById");
+    assert_eq!(orders.by::<ById>().get(&1).unwrap().timestamp, 10);
 
     let conflict = orders
-        .by_id_mut()
+        .by_mut::<ById>()
         .modify(&1, |order| order.timestamp = 20)
         .unwrap_err();
-    assert_eq!(conflict.index, "timestamp");
-    assert!(!orders.by_id().contains_key(&1));
+    assert_eq!(conflict.index, "ByTimestamp");
+    assert!(!orders.by::<ById>().contains_key(&1));
 
-    assert_eq!(orders.by_price_mut().remove_all(&100).len(), 1);
+    assert_eq!(orders.by_mut::<ByPrice>().remove_all(&100).len(), 1);
     assert!(orders.is_empty());
     orders.validate().unwrap();
 }
@@ -173,10 +254,10 @@ fn removal_through_each_generated_index_unlinks_every_index() {
     orders.insert(order(3, 30, "C", 30));
     orders.insert(order(4, 40, "D", 40));
 
-    assert_eq!(orders.by_id_mut().remove(&1).unwrap().timestamp, 10);
-    assert_eq!(orders.by_timestamp_mut().remove(&20).unwrap().id, 2);
-    assert_eq!(orders.by_trader_mut().remove_all("C")[0].id, 3);
-    assert_eq!(orders.by_price_mut().remove_all(&40)[0].id, 4);
+    assert_eq!(orders.by_mut::<ById>().remove(&1).unwrap().timestamp, 10);
+    assert_eq!(orders.by_mut::<ByTimestamp>().remove(&20).unwrap().id, 2);
+    assert_eq!(orders.by_mut::<ByTrader>().remove_all("C")[0].id, 3);
+    assert_eq!(orders.by_mut::<ByPrice>().remove_all(&40)[0].id, 4);
     assert!(orders.is_empty());
     orders.validate().unwrap();
 }
@@ -186,11 +267,11 @@ fn capability_mutation_traits_work() {
     let mut orders = MultiIndexOrderMap::new();
     orders.insert(order(1, 10, "Ada", 100));
     {
-        let mut view = orders.by_id_mut();
+        let mut view = orders.by_mut::<ById>();
         UniqueViewMut::update(&mut view, &1, |fields| fields.note.push_str("done"));
     }
     {
-        let mut view = orders.by_trader_mut();
+        let mut view = orders.by_mut::<ByTrader>();
         assert_eq!(
             NonUniqueViewMut::modify_all(&mut view, &"Ada".to_owned(), |_| {}).modified,
             1
@@ -206,24 +287,24 @@ fn panic_cleanup_batch_snapshots_and_slot_reuse_hold() {
     orders.insert(order(3, 30, "Grace", 90));
 
     let result = orders
-        .by_trader_mut()
+        .by_mut::<ByTrader>()
         .modify_all("Ada", |order| order.trader = "Grace".to_owned());
     assert_eq!(result.modified, 2);
     assert!(result.removed.is_empty());
-    assert_eq!(orders.by_trader().equal_range("Ada").count(), 0);
-    assert_eq!(orders.by_trader().equal_range("Grace").count(), 3);
+    assert_eq!(orders.by::<ByTrader>().equal_range("Ada").count(), 0);
+    assert_eq!(orders.by::<ByTrader>().equal_range("Grace").count(), 3);
 
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        let _ = orders.by_id_mut().modify(&2, |order| {
+        let _ = orders.by_mut::<ById>().modify(&2, |order| {
             order.price = 999;
             panic!("modifier failed");
         });
     }));
     assert!(panic.is_err());
-    assert!(!orders.by_id().contains_key(&2));
+    assert!(!orders.by::<ById>().contains_key(&2));
     orders.validate().unwrap();
 
-    assert!(orders.by_id_mut().remove(&1).is_some());
+    assert!(orders.by_mut::<ById>().remove(&1).is_some());
     orders.insert(order(4, 40, "Ada", 80));
     orders.clear();
     assert!(orders.is_empty());
@@ -238,42 +319,218 @@ fn supports_non_clone_keys_zero_unindexed_fields_and_multiple_derives() {
         payload: "value".to_owned(),
     });
     assert_eq!(
-        records.by_key().get(&NonCloneKey(7)).unwrap().payload,
+        records
+            .by::<ByNonCloneKey>()
+            .get(&NonCloneKey(7))
+            .unwrap()
+            .payload,
         "value"
     );
 
     let mut no_extras = MultiIndexNoExtrasMap::new();
     no_extras.insert(NoExtras { key: 1 });
-    assert!(no_extras.by_key_mut().update(&1, |_| {}).is_some());
+    assert!(no_extras
+        .by_mut::<ByNoExtrasKey>()
+        .update(&1, |_| {})
+        .is_some());
 
     let mut others = MultiIndexOtherRecordMap::new();
     others.insert(OtherRecord { group: 1, value: 2 });
-    assert_eq!(others.by_group().equal_range(&1).count(), 1);
+    assert_eq!(others.by::<ByGroup>().equal_range(&1).count(), 1);
 
     let mut names = MultiIndexOrderedNameMap::new();
     names.insert(OrderedName {
         name: "Ada".to_owned(),
         value: 1,
     });
-    assert_eq!(names.by_name().equal_range("Ada").next().unwrap().value, 1);
+    assert_eq!(
+        names
+            .by::<ByName>()
+            .equal_range("Ada")
+            .next()
+            .unwrap()
+            .value,
+        1
+    );
     names
-        .by_name_mut()
+        .by_mut::<ByName>()
         .update_all("Ada", |fields| *fields.value += 1);
-    assert_eq!(names.by_name_mut().remove_all("Ada").len(), 1);
+    assert_eq!(names.by_mut::<ByName>().remove_all("Ada").len(), 1);
+}
+
+#[test]
+fn supports_all_compound_categories_and_reused_accessors() {
+    let mut map = MultiIndexCompoundKindsMap::new();
+    map.insert(CompoundKinds {
+        hu_name: "Ada".to_owned(),
+        hu_number: NonCloneKey(1),
+        h_name: "desk".to_owned(),
+        h_number: 7,
+        ou_name: "first".to_owned(),
+        ou_number: 10,
+        payload: 1,
+    });
+    map.insert(CompoundKinds {
+        hu_name: "Grace".to_owned(),
+        hu_number: NonCloneKey(2),
+        h_name: "desk".to_owned(),
+        h_number: 7,
+        ou_name: "second".to_owned(),
+        ou_number: 20,
+        payload: 2,
+    });
+
+    assert_eq!(
+        map.by::<ByHashedUniquePair>()
+            .get(("Ada", &NonCloneKey(1)))
+            .unwrap()
+            .payload,
+        1
+    );
+    assert_eq!(
+        map.by::<ByHashedPair>().equal_range(("desk", &7)).count(),
+        2
+    );
+    assert_eq!(
+        map.by::<ByOrderedUniquePair>()
+            .range(("first", &0)..=("second", &u64::MAX))
+            .count(),
+        2
+    );
+    fn compound_unique<V>(view: &V)
+    where
+        V: UniqueView<Value = CompoundKinds, Key = (String, NonCloneKey)>,
+    {
+        assert!(view.get(&("Ada".to_owned(), NonCloneKey(1))).is_some());
+    }
+    fn compound_non_unique<V>(view: &V)
+    where
+        V: NonUniqueView<Value = CompoundKinds, Key = (String, u64)>,
+    {
+        assert_eq!(view.equal_range(&("desk".to_owned(), 7)).count(), 2);
+    }
+    fn compound_ordered<V>(view: &V)
+    where
+        V: OrderedView<Value = CompoundKinds, Key = (String, u64)>,
+    {
+        assert_eq!(
+            view.range(("first".to_owned(), 0)..=("second".to_owned(), u64::MAX))
+                .count(),
+            2
+        );
+    }
+    compound_unique(&map.by::<ByHashedUniquePair>());
+    compound_non_unique(&map.by::<ByHashedPair>());
+    compound_ordered(&map.by::<ByOrderedUniquePair>());
+    let conflict = map
+        .try_insert(CompoundKinds {
+            hu_name: "Ada".to_owned(),
+            hu_number: NonCloneKey(1),
+            h_name: "other".to_owned(),
+            h_number: 9,
+            ou_name: "third".to_owned(),
+            ou_number: 30,
+            payload: 3,
+        })
+        .unwrap_err();
+    assert_eq!(conflict.index, "ByHashedUniquePair");
+    map.validate().unwrap();
+
+    let mut reused = MultiIndexReusedAccessorMap::new();
+    reused.insert(ReusedAccessor { id: 9 });
+    assert_eq!(reused.by::<ById>().get(&9).unwrap().id, 9);
 }
 
 #[test]
 fn generated_visibility_follows_the_source_struct_and_indexed_field() {
     let mut records = exposed::MultiIndexPublicRecordMap::new();
     records.insert(exposed::record(7));
-    let record = records.by_id().get(&7).unwrap();
+    let record = records.by::<exposed::ByPublicId>().get(&7).unwrap();
     assert_eq!(record.id, 7);
     assert_eq!(exposed::hidden(record), "hidden");
+    #[allow(deprecated)]
+    {
+        assert_eq!(records.get_by_id(&7).unwrap().id, 7);
+    }
+}
+
+#[test]
+fn compound_index_supports_borrowed_lookup_ranges_and_relocation() {
+    let mut orders = MultiIndexOrderMap::new();
+    orders.insert(order(1, 10, "Ada", 100));
+    orders.insert(order(2, 20, "Ada", 100));
+    orders.insert(order(3, 30, "Grace", 90));
+
+    assert_eq!(
+        orders
+            .by::<ByTraderTimestamp>()
+            .equal_range(("Ada", &20))
+            .next()
+            .unwrap()
+            .id,
+        2
+    );
+    assert_eq!(
+        orders
+            .by::<ByTraderTimestamp>()
+            .range(("Ada", &0)..=("Ada", &u64::MAX))
+            .map(|order| order.id)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(
+        orders
+            .by::<ByTraderTimestamp>()
+            .iter()
+            .rev()
+            .map(|order| order.id)
+            .collect::<Vec<_>>(),
+        vec![3, 2, 1]
+    );
+
+    orders
+        .by_mut::<ById>()
+        .modify(&1, |order| {
+            order.trader = "Grace".to_owned();
+            order.timestamp = 25;
+        })
+        .unwrap();
+    assert_eq!(
+        orders
+            .by::<ByTraderTimestamp>()
+            .equal_range(("Grace", &25))
+            .count(),
+        1
+    );
+    assert_eq!(
+        orders
+            .by_mut::<ByTraderTimestamp>()
+            .remove_all(("Grace", &25))
+            .len(),
+        1
+    );
+    orders.validate().unwrap();
+}
+
+#[test]
+fn modifying_through_a_view_removes_on_conflict() {
+    let mut orders = MultiIndexOrderMap::new();
+    orders.insert(order(1, 10, "Ada", 100));
+    orders.insert(order(2, 20, "Grace", 90));
+
+    let conflict = orders
+        .by_mut::<ById>()
+        .modify(&1, |order| order.timestamp = 20)
+        .unwrap_err();
+    assert_eq!(conflict.index, "ByTimestamp");
+    assert!(!orders.by::<ById>().contains_key(&1));
+    assert!(orders.by::<ById>().contains_key(&2));
+    orders.validate().unwrap();
 }
 
 #[test]
 #[allow(deprecated)]
-fn compatibility_facade_wraps_generated_views() {
+fn compatibility_wrappers_remain_for_unambiguous_single_field_indexes() {
     let mut orders = MultiIndexOrderMap::new();
     orders.insert(order(1, 10, "Ada", 100));
     orders.insert(order(2, 20, "Ada", 100));
@@ -281,39 +538,21 @@ fn compatibility_facade_wraps_generated_views() {
     assert_eq!(orders.get_by_id(&1).unwrap().timestamp, 10);
     assert_eq!(orders.get_by_trader("Ada").len(), 2);
     assert_eq!(orders.iter_by_timestamp().count(), 2);
-
-    let fields = orders.get_mut_by_trader(&"Ada".to_owned());
-    for (note, filled) in fields {
+    for (note, filled) in orders.get_mut_by_trader(&"Ada".to_owned()) {
         note.push_str("legacy");
         *filled = true;
     }
-    let updated = orders.update_by_trader("Ada", |note, filled| {
-        note.push('!');
-        *filled = false;
-    });
-    assert_eq!(updated.len(), 2);
-    assert!(updated.iter().all(|order| order.note == "legacy!"));
-
-    let modified = orders.modify_by_price(&100, |order| order.price += order.id);
-    assert_eq!(modified.len(), 2);
-    assert_eq!(orders.by_price().equal_range(&100).count(), 0);
+    assert_eq!(
+        orders.update_by_price(&100, |note, _| note.push('!')).len(),
+        2
+    );
+    assert_eq!(
+        orders
+            .modify_by_price(&100, |order| order.price += order.id)
+            .len(),
+        2
+    );
     assert_eq!(orders.remove_by_trader(&"Ada".to_owned()).len(), 2);
-    orders.validate().unwrap();
-}
-
-#[test]
-#[allow(deprecated)]
-fn compatibility_modifier_panics_after_conflict_cleanup() {
-    let mut orders = MultiIndexOrderMap::new();
-    orders.insert(order(1, 10, "Ada", 100));
-    orders.insert(order(2, 20, "Grace", 90));
-
-    let panic = catch_unwind(AssertUnwindSafe(|| {
-        orders.modify_by_id(&1, |order| order.timestamp = 20);
-    }));
-    assert!(panic.is_err());
-    assert!(!orders.by_id().contains_key(&1));
-    assert!(orders.by_id().contains_key(&2));
     orders.validate().unwrap();
 }
 
@@ -336,9 +575,9 @@ fn deterministic_operations_match_a_simple_model() {
                 let trader = format!("T{}", (state >> 32) % 5);
                 let price = 10 + ((state >> 40) % 7);
                 let expected_conflict = if model.contains_key(&id) {
-                    Some("id")
+                    Some("ById")
                 } else if model.values().any(|entry| entry.0 == timestamp) {
-                    Some("timestamp")
+                    Some("ByTimestamp")
                 } else {
                     None
                 };
@@ -352,7 +591,7 @@ fn deterministic_operations_match_a_simple_model() {
                 }
             }
             1 => {
-                let actual = orders.by_id_mut().remove(&id).map(|order| order.id);
+                let actual = orders.by_mut::<ById>().remove(&id).map(|order| order.id);
                 let expected = model.remove(&id).map(|_| id);
                 assert_eq!(actual, expected);
             }
@@ -361,14 +600,14 @@ fn deterministic_operations_match_a_simple_model() {
                 let conflict = model
                     .iter()
                     .any(|(other_id, entry)| *other_id != id && entry.0 == timestamp);
-                let mut view = orders.by_id_mut();
+                let mut view = orders.by_mut::<ById>();
                 let result = view.modify(&id, |order| {
                     order.timestamp = timestamp;
                     order.price = 10 + ((state >> 40) % 7);
                 });
                 if let Some(entry) = model.get_mut(&id) {
                     if conflict {
-                        assert_eq!(result.unwrap_err().index, "timestamp");
+                        assert_eq!(result.unwrap_err().index, "ByTimestamp");
                         model.remove(&id);
                     } else {
                         result.unwrap();
@@ -381,7 +620,7 @@ fn deterministic_operations_match_a_simple_model() {
             }
             _ => {
                 let note = format!("step-{step}");
-                let mut view = orders.by_id_mut();
+                let mut view = orders.by_mut::<ById>();
                 let result = view.update(&id, |fields| {
                     *fields.note = note.clone();
                     *fields.filled = !*fields.filled;
@@ -400,7 +639,7 @@ fn deterministic_operations_match_a_simple_model() {
         assert_eq!(orders.len(), model.len());
 
         let mut actual_ids = orders
-            .by_id()
+            .by::<ById>()
             .iter()
             .map(|order| order.id)
             .collect::<Vec<_>>();
@@ -408,7 +647,7 @@ fn deterministic_operations_match_a_simple_model() {
         assert_eq!(actual_ids, model.keys().copied().collect::<Vec<_>>());
 
         let actual_timestamps = orders
-            .by_timestamp()
+            .by::<ByTimestamp>()
             .iter()
             .map(|order| order.timestamp)
             .collect::<Vec<_>>();
@@ -417,7 +656,7 @@ fn deterministic_operations_match_a_simple_model() {
         assert_eq!(actual_timestamps, expected_timestamps);
 
         let actual_prices = orders
-            .by_price()
+            .by::<ByPrice>()
             .iter()
             .map(|order| order.price)
             .collect::<Vec<_>>();
@@ -426,7 +665,7 @@ fn deterministic_operations_match_a_simple_model() {
         assert_eq!(actual_prices, expected_prices);
 
         for trader in ["T0", "T1", "T2", "T3", "T4"] {
-            let actual = orders.by_trader().equal_range(trader).count();
+            let actual = orders.by::<ByTrader>().equal_range(trader).count();
             let expected = model.values().filter(|entry| entry.1 == trader).count();
             assert_eq!(actual, expected);
         }

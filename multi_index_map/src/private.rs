@@ -43,24 +43,241 @@ pub trait NodeValue {
     fn value(&self) -> &Self::Value;
 }
 
-pub trait HashSpec<N: NodeValue> {
-    type Key: Eq + Hash + ?Sized;
-
-    const NAME: &'static str;
-
-    fn key(value: &N::Value) -> &Self::Key;
-    fn link(node: &N) -> &HashLink;
-    fn link_mut(node: &mut N) -> &mut HashLink;
+pub trait Equivalent<Q: ?Sized> {
+    fn equivalent(&self, query: &Q) -> bool;
 }
 
-pub trait OrderedSpec<N: NodeValue> {
-    type Key: Ord + ?Sized;
+pub trait Compare<Q: ?Sized> {
+    fn compare(&self, query: &Q) -> Ordering;
+}
+
+pub struct QueryRange<Q> {
+    start: Bound<Q>,
+    end: Bound<Q>,
+}
+
+impl<Q> QueryRange<Q> {
+    pub fn new(start: Bound<Q>, end: Bound<Q>) -> Self {
+        Self { start, end }
+    }
+}
+
+impl<Q> RangeBounds<Q> for QueryRange<Q> {
+    fn start_bound(&self) -> Bound<&Q> {
+        self.start.as_ref()
+    }
+
+    fn end_bound(&self) -> Bound<&Q> {
+        self.end.as_ref()
+    }
+}
+
+impl<T, Q> Equivalent<Q> for &T
+where
+    T: Borrow<Q>,
+    Q: Eq + ?Sized,
+{
+    fn equivalent(&self, query: &Q) -> bool {
+        (*self).borrow() == query
+    }
+}
+
+impl<T, Q> Compare<Q> for &T
+where
+    T: Borrow<Q>,
+    Q: Ord + ?Sized,
+{
+    fn compare(&self, query: &Q) -> Ordering {
+        (*self).borrow().cmp(query)
+    }
+}
+
+macro_rules! impl_tuple_query {
+    ($($t:ident $q:ident $index:tt),+) => {
+        impl<$($t, $q),+> Equivalent<($(&$q),+)> for ($(&$t),+)
+        where
+            $($t: Borrow<$q>, $q: Eq + ?Sized),+
+        {
+            fn equivalent(&self, query: &($(&$q),+)) -> bool {
+                $(self.$index.borrow() == query.$index)&&+
+            }
+        }
+
+        impl<$($t, $q),+> Compare<($(&$q),+)> for ($(&$t),+)
+        where
+            $($t: Borrow<$q>, $q: Ord + ?Sized),+
+        {
+            fn compare(&self, query: &($(&$q),+)) -> Ordering {
+                $(
+                    match self.$index.borrow().cmp(query.$index) {
+                        Ordering::Equal => {}
+                        ordering => return ordering,
+                    }
+                )+
+                Ordering::Equal
+            }
+        }
+    };
+}
+
+impl_tuple_query!(T0 Q0 0, T1 Q1 1);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7, T8 Q8 8);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7, T8 Q8 8, T9 Q9 9);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7, T8 Q8 8, T9 Q9 9, T10 Q10 10);
+impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7, T8 Q8 8, T9 Q9 9, T10 Q10 10, T11 Q11 11);
+
+pub trait IndexSpec<N: NodeValue> {
+    type Key<'a>
+    where
+        N: 'a;
+    type Link;
 
     const NAME: &'static str;
 
-    fn key(value: &N::Value) -> &Self::Key;
-    fn link(node: &N) -> &OrderedLink;
-    fn link_mut(node: &mut N) -> &mut OrderedLink;
+    fn key(value: &N::Value) -> Self::Key<'_>;
+    fn link(node: &N) -> &Self::Link;
+    fn link_mut(node: &mut N) -> &mut Self::Link;
+}
+
+pub struct HashedUnique;
+pub struct HashedNonUnique;
+pub struct OrderedUnique;
+pub struct OrderedNonUnique;
+
+pub trait IndexCategory {
+    type Link: Default;
+}
+
+impl IndexCategory for HashedUnique {
+    type Link = HashLink;
+}
+
+impl IndexCategory for HashedNonUnique {
+    type Link = HashLink;
+}
+
+impl IndexCategory for OrderedUnique {
+    type Link = OrderedLink;
+}
+
+impl IndexCategory for OrderedNonUnique {
+    type Link = OrderedLink;
+}
+
+pub trait UniqueCategory {}
+pub trait NonUniqueCategory {}
+pub trait OrderedCategory {}
+pub trait CompatibilityKind {
+    type Collection<T>;
+
+    fn from_vec<T>(values: Vec<T>) -> Self::Collection<T>;
+}
+
+impl UniqueCategory for HashedUnique {}
+impl UniqueCategory for OrderedUnique {}
+impl NonUniqueCategory for HashedNonUnique {}
+impl NonUniqueCategory for OrderedNonUnique {}
+impl OrderedCategory for OrderedUnique {}
+impl OrderedCategory for OrderedNonUnique {}
+
+impl CompatibilityKind for HashedUnique {
+    type Collection<T> = Option<T>;
+
+    fn from_vec<T>(values: Vec<T>) -> Self::Collection<T> {
+        values.into_iter().next()
+    }
+}
+
+impl CompatibilityKind for OrderedUnique {
+    type Collection<T> = Option<T>;
+
+    fn from_vec<T>(values: Vec<T>) -> Self::Collection<T> {
+        values.into_iter().next()
+    }
+}
+
+impl CompatibilityKind for HashedNonUnique {
+    type Collection<T> = Vec<T>;
+
+    fn from_vec<T>(values: Vec<T>) -> Self::Collection<T> {
+        values
+    }
+}
+
+impl CompatibilityKind for OrderedNonUnique {
+    type Collection<T> = Vec<T>;
+
+    fn from_vec<T>(values: Vec<T>) -> Self::Collection<T> {
+        values
+    }
+}
+
+pub trait IndexKind<N, S>: IndexCategory
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = Self::Link>,
+{
+    type Index: Default + 'static;
+    type Ids<'a>: Iterator<Item = NodeId>
+    where
+        N: 'a,
+        S: 'a,
+        Self::Index: 'a;
+    type EqualIds<'a>: Iterator<Item = NodeId>
+    where
+        N: 'a,
+        S: 'a,
+        Self::Index: 'a;
+
+    fn len(index: &Self::Index) -> usize;
+    fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>);
+    fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a>;
+    fn insert(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
+    fn remove(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>);
+    fn reconcile(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
+    fn validate(index: &Self::Index, nodes: &Slab<N>) -> Result<(), String>;
+}
+
+pub trait QueryIndexKind<N, S, Q: ?Sized>: IndexKind<N, S>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = Self::Link>,
+{
+    fn find(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Option<NodeId>;
+    fn equal_ids(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>;
+    fn equal_iter_ids<'a>(
+        index: &'a Self::Index,
+        key: &Q,
+        nodes: &'a Slab<N>,
+    ) -> Self::EqualIds<'a>;
+}
+
+pub trait OrderedIndexKind<N, S>: IndexKind<N, S>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = Self::Link>,
+{
+    type RangeIds<'a>: DoubleEndedIterator<Item = NodeId>
+    where
+        N: 'a,
+        S: 'a,
+        Self::Index: 'a;
+
+    fn range_iter_ids<'a, Q, R>(
+        index: &'a Self::Index,
+        range: R,
+        nodes: &'a Slab<N>,
+    ) -> Self::RangeIds<'a>
+    where
+        R: RangeBounds<Q>,
+        Q: Ord + ?Sized,
+        for<'key> S::Key<'key>: Compare<Q>;
 }
 
 pub struct HashedIndex<S, const UNIQUE: bool, H = DefaultHashBuilder> {
@@ -92,7 +309,7 @@ pub struct HashIds<'a, N, S, const UNIQUE: bool, H = DefaultHashBuilder> {
 impl<N, S, const UNIQUE: bool, H> Iterator for HashIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
     type Item = NodeId;
 
@@ -116,14 +333,14 @@ where
 impl<N, S, const UNIQUE: bool, H> ExactSizeIterator for HashIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
 }
 
 impl<N, S, const UNIQUE: bool, H> std::iter::FusedIterator for HashIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
 }
 
@@ -137,7 +354,7 @@ pub struct HashEqualIds<'a, N, S, const UNIQUE: bool, H = DefaultHashBuilder> {
 impl<N, S, const UNIQUE: bool, H> Iterator for HashEqualIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
     type Item = NodeId;
 
@@ -159,14 +376,14 @@ where
 impl<N, S, const UNIQUE: bool, H> ExactSizeIterator for HashEqualIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
 }
 
 impl<N, S, const UNIQUE: bool, H> std::iter::FusedIterator for HashEqualIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
-    S: HashSpec<N>,
+    S: IndexSpec<N, Link = HashLink>,
 {
 }
 
@@ -193,7 +410,8 @@ where
     pub fn reserve_for_insert<N>(&mut self, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
         if (self.len + 1) * 4 > self.buckets.len() * 3 {
             self.rehash(nodes, self.buckets.len() * 2);
@@ -203,7 +421,8 @@ where
     fn rehash<N>(&mut self, nodes: &mut Slab<N>, bucket_count: usize)
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
         let ids: Vec<_> = nodes
             .iter()
@@ -222,8 +441,8 @@ where
     pub fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: HashSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Equivalent<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let hash = self.hash(key);
@@ -231,7 +450,7 @@ where
         while let Some(id) = current {
             let node = &nodes[id.0];
             let link = S::link(node);
-            if link.hash == hash && S::key(node.value()).borrow() == key {
+            if link.hash == hash && S::key(node.value()).equivalent(key) {
                 return Some(id);
             }
             current = link.next;
@@ -242,8 +461,8 @@ where
     pub fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
-        S: HashSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Equivalent<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let hash = self.hash(key);
@@ -252,7 +471,7 @@ where
         while let Some(id) = current {
             let node = &nodes[id.0];
             let link = S::link(node);
-            if link.hash == hash && S::key(node.value()).borrow() == key {
+            if link.hash == hash && S::key(node.value()).equivalent(key) {
                 ids.push(id);
             } else if !ids.is_empty() {
                 break;
@@ -265,7 +484,7 @@ where
     pub fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> HashIds<'a, N, S, UNIQUE, H>
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
     {
         HashIds {
             index: self,
@@ -283,8 +502,8 @@ where
     ) -> HashEqualIds<'a, N, S, UNIQUE, H>
     where
         N: NodeValue,
-        S: HashSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'k> S::Key<'k>: Equivalent<Q>,
         Q: Eq + Hash + ?Sized,
     {
         let first = self.find(key, nodes);
@@ -293,7 +512,7 @@ where
         while let Some(id) = current {
             let node = &nodes[id.0];
             let link = S::link(node);
-            if S::key(node.value()).borrow() != key {
+            if !S::key(node.value()).equivalent(key) {
                 break;
             }
             remaining += 1;
@@ -310,9 +529,10 @@ where
     pub fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
-        let hash = self.hash(S::key(nodes[id.0].value()));
+        let hash = self.hash(&S::key(nodes[id.0].value()));
         let bucket = self.bucket(hash);
         let mut current = self.buckets[bucket];
         let mut equal_last = None;
@@ -358,7 +578,7 @@ where
     pub fn remove<N>(&mut self, id: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
     {
         let link = *S::link(&nodes[id.0]);
         if !link.linked {
@@ -380,7 +600,8 @@ where
     pub fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
         if self.in_place(id, nodes) {
             return Ok(());
@@ -392,11 +613,12 @@ where
     fn in_place<N>(&self, id: NodeId, nodes: &Slab<N>) -> bool
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
         let key = S::key(nodes[id.0].value());
         let link = S::link(&nodes[id.0]);
-        let hash = self.hash(key);
+        let hash = self.hash(&key);
         if hash != link.hash {
             return false;
         }
@@ -429,14 +651,15 @@ where
     pub fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
     where
         N: NodeValue,
-        S: HashSpec<N>,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
     {
         let mut seen = vec![false; nodes.capacity().max(1)];
         let mut count = 0;
         for (bucket, head) in self.buckets.iter().enumerate() {
             let mut current = *head;
             let mut prev = None;
-            let mut groups: Vec<&S::Key> = Vec::new();
+            let mut groups: Vec<NodeId> = Vec::new();
             while let Some(id) = current {
                 if id.0 >= seen.len() || seen[id.0] {
                     return Err(format!("{} contains a cycle or duplicate node", S::NAME));
@@ -449,16 +672,22 @@ where
                 if !link.linked || link.prev != prev {
                     return Err(format!("{} has inconsistent hash links", S::NAME));
                 }
-                if self.bucket(link.hash) != bucket || self.hash(S::key(node.value())) != link.hash
+                if self.bucket(link.hash) != bucket || self.hash(&S::key(node.value())) != link.hash
                 {
                     return Err(format!("{} has a stale cached hash", S::NAME));
                 }
                 let key = S::key(node.value());
-                if groups.last().map_or(true, |last| *last != key) {
-                    if groups.contains(&key) {
+                if groups
+                    .last()
+                    .map_or(true, |last| S::key(nodes[last.0].value()) != key)
+                {
+                    if groups
+                        .iter()
+                        .any(|group| S::key(nodes[group.0].value()) == key)
+                    {
                         return Err(format!("{} has a split equivalent-key group", S::NAME));
                     }
-                    groups.push(key);
+                    groups.push(id);
                 } else if UNIQUE {
                     return Err(format!("{} violates uniqueness", S::NAME));
                 }
@@ -510,7 +739,7 @@ pub struct OrderedIds<'a, N, S, const UNIQUE: bool> {
 impl<N, S, const UNIQUE: bool> Iterator for OrderedIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
     type Item = NodeId;
 
@@ -533,7 +762,7 @@ where
 impl<N, S, const UNIQUE: bool> DoubleEndedIterator for OrderedIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         let id = self.back?;
@@ -550,14 +779,14 @@ where
 impl<N, S, const UNIQUE: bool> ExactSizeIterator for OrderedIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
 }
 
 impl<N, S, const UNIQUE: bool> std::iter::FusedIterator for OrderedIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
 }
 
@@ -572,7 +801,7 @@ pub struct OrderedRangeIds<'a, N, S, const UNIQUE: bool> {
 impl<N, S, const UNIQUE: bool> Iterator for OrderedRangeIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
     type Item = NodeId;
 
@@ -593,7 +822,7 @@ where
 impl<N, S, const UNIQUE: bool> DoubleEndedIterator for OrderedRangeIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -612,7 +841,7 @@ where
 impl<N, S, const UNIQUE: bool> std::iter::FusedIterator for OrderedRangeIds<'_, N, S, UNIQUE>
 where
     N: NodeValue,
-    S: OrderedSpec<N>,
+    S: IndexSpec<N, Link = OrderedLink>,
 {
 }
 
@@ -628,7 +857,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn color<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Color
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         id.map_or(Color::Black, |id| S::link(&nodes[id.0]).color)
     }
@@ -636,7 +865,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn set_color<N>(&self, id: Option<NodeId>, color: Color, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         if let Some(id) = id {
             S::link_mut(&mut nodes[id.0]).color = color;
@@ -646,7 +875,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn parent<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         id.and_then(|id| S::link(&nodes[id.0]).parent)
     }
@@ -654,7 +883,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn left<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         id.and_then(|id| S::link(&nodes[id.0]).left)
     }
@@ -662,7 +891,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn right<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         id.and_then(|id| S::link(&nodes[id.0]).right)
     }
@@ -670,14 +899,14 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Compare<Q>,
         Q: Ord + ?Sized,
     {
         let mut current = self.root;
         let mut found = None;
         while let Some(id) = current {
-            match S::key(nodes[id.0].value()).borrow().cmp(key) {
+            match S::key(nodes[id.0].value()).compare(key) {
                 Ordering::Less => current = S::link(&nodes[id.0]).right,
                 Ordering::Greater => current = S::link(&nodes[id.0]).left,
                 Ordering::Equal => {
@@ -692,14 +921,14 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn equal_ids<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Compare<Q>,
         Q: Ord + ?Sized,
     {
         let mut ids = Vec::new();
         let mut current = self.lower_bound(key, nodes);
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).borrow() != key {
+            if S::key(nodes[id.0].value()).compare(key) != Ordering::Equal {
                 break;
             }
             ids.push(id);
@@ -715,8 +944,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     ) -> OrderedRangeIds<'a, N, S, UNIQUE>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'k> S::Key<'k>: Compare<Q>,
         Q: Ord + ?Sized,
     {
         let front = self.lower_bound(key, nodes);
@@ -726,8 +955,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         };
         let done = match (front, back) {
             (Some(front), Some(back)) => {
-                S::key(nodes[front.0].value()).borrow() != key
-                    || S::key(nodes[back.0].value()).borrow() != key
+                S::key(nodes[front.0].value()).compare(key) != Ordering::Equal
+                    || S::key(nodes[back.0].value()).compare(key) != Ordering::Equal
             }
             _ => true,
         };
@@ -743,7 +972,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn ids<N>(&self, nodes: &Slab<N>) -> Vec<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         let mut ids = Vec::with_capacity(self.len);
         let mut current = self.first;
@@ -757,7 +986,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn iter_ids<'a, N>(&'a self, nodes: &'a Slab<N>) -> OrderedIds<'a, N, S, UNIQUE>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         OrderedIds {
             index: self,
@@ -775,10 +1004,11 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     ) -> OrderedRangeIds<'a, N, S, UNIQUE>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'k> S::Key<'k>: Compare<Q>,
         Q: Ord + ?Sized,
         R: RangeBounds<Q>,
+        for<'k> S::Key<'k>: Ord,
     {
         let front = match range.start_bound() {
             Bound::Included(key) => self.lower_bound(key, nodes),
@@ -814,14 +1044,14 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn lower_bound<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Compare<Q>,
         Q: Ord + ?Sized,
     {
         let mut current = self.root;
         let mut result = None;
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).borrow() < key {
+            if S::key(nodes[id.0].value()).compare(key) == Ordering::Less {
                 current = S::link(&nodes[id.0]).right;
             } else {
                 result = Some(id);
@@ -834,14 +1064,14 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn upper_bound<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
-        S::Key: Borrow<Q>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Compare<Q>,
         Q: Ord + ?Sized,
     {
         let mut current = self.root;
         let mut result = None;
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).borrow() <= key {
+            if S::key(nodes[id.0].value()).compare(key) != Ordering::Greater {
                 current = S::link(&nodes[id.0]).right;
             } else {
                 result = Some(id);
@@ -854,7 +1084,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn minimum<N>(&self, mut id: NodeId, nodes: &Slab<N>) -> NodeId
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         while let Some(left) = S::link(&nodes[id.0]).left {
             id = left;
@@ -865,7 +1095,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn maximum<N>(&self, mut id: NodeId, nodes: &Slab<N>) -> NodeId
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         while let Some(right) = S::link(&nodes[id.0]).right {
             id = right;
@@ -876,7 +1106,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn successor<N>(&self, id: NodeId, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         if let Some(right) = S::link(&nodes[id.0]).right {
             return Some(self.minimum(right, nodes));
@@ -896,7 +1126,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn predecessor<N>(&self, id: NodeId, nodes: &Slab<N>) -> Option<NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         if let Some(left) = S::link(&nodes[id.0]).left {
             return Some(self.maximum(left, nodes));
@@ -916,14 +1146,15 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn insert<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
     {
         let mut parent = None;
         let mut current = self.root;
         let mut place_left = false;
         while let Some(other) = current {
             parent = Some(other);
-            match S::key(nodes[id.0].value()).cmp(S::key(nodes[other.0].value())) {
+            match S::key(nodes[id.0].value()).cmp(&S::key(nodes[other.0].value())) {
                 Ordering::Less => {
                     place_left = true;
                     current = S::link(&nodes[other.0]).left;
@@ -961,7 +1192,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn rotate_left<N>(&mut self, x: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         let y = S::link(&nodes[x.0])
             .right
@@ -989,7 +1220,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn rotate_right<N>(&mut self, x: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         let y = S::link(&nodes[x.0])
             .left
@@ -1017,7 +1248,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn insert_fixup<N>(&mut self, mut z: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         while self.color(self.parent(Some(z), nodes), nodes) == Color::Red {
             let parent = self.parent(Some(z), nodes).unwrap();
@@ -1066,7 +1297,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn transplant<N>(&mut self, u: NodeId, v: Option<NodeId>, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         let parent = S::link(&nodes[u.0]).parent;
         if let Some(parent) = parent {
@@ -1086,7 +1317,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn remove<N>(&mut self, z: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         if !S::link(&nodes[z.0]).linked {
             return;
@@ -1146,7 +1377,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         nodes: &mut Slab<N>,
     ) where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
     {
         while x != self.root && self.color(x, nodes) == Color::Black {
             let Some(parent_id) = parent else {
@@ -1220,7 +1451,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn reconcile<N>(&mut self, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
     {
         if self.in_place(id, nodes) {
             return Ok(());
@@ -1232,7 +1464,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     fn in_place<N>(&self, id: NodeId, nodes: &Slab<N>) -> bool
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
     {
         let key = S::key(nodes[id.0].value());
         let previous = self.predecessor(id, nodes);
@@ -1259,7 +1492,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
     pub fn validate<N>(&self, nodes: &Slab<N>) -> Result<(), String>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
     {
         if self.color(self.root, nodes) != Color::Black {
             return Err(format!("{} root is not black", S::NAME));
@@ -1288,17 +1522,18 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         Ok(())
     }
 
-    fn validate_subtree<'a, N>(
+    fn validate_subtree<N>(
         &self,
         id: Option<NodeId>,
-        min: Option<&'a S::Key>,
-        max: Option<&'a S::Key>,
-        nodes: &'a Slab<N>,
+        min: Option<NodeId>,
+        max: Option<NodeId>,
+        nodes: &Slab<N>,
         seen: &mut [bool],
     ) -> Result<(usize, usize), String>
     where
         N: NodeValue,
-        S: OrderedSpec<N>,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
     {
         let Some(id) = id else {
             return Ok((1, 0));
@@ -1315,9 +1550,21 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             return Err(format!("{} contains an unlinked node", S::NAME));
         }
         let key = S::key(node.value());
-        if min.is_some_and(|min| if UNIQUE { key <= min } else { key < min })
-            || max.is_some_and(|max| if UNIQUE { key >= max } else { key > max })
-        {
+        if min.is_some_and(|min| {
+            let min = S::key(nodes[min.0].value());
+            if UNIQUE {
+                key <= min
+            } else {
+                key < min
+            }
+        }) || max.is_some_and(|max| {
+            let max = S::key(nodes[max.0].value());
+            if UNIQUE {
+                key >= max
+            } else {
+                key > max
+            }
+        }) {
             return Err(format!("{} violates tree ordering", S::NAME));
         }
         for child in [link.left, link.right].into_iter().flatten() {
@@ -1332,9 +1579,9 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             return Err(format!("{} has adjacent red nodes", S::NAME));
         }
         let (left_black, left_count) =
-            self.validate_subtree(link.left, min, Some(key), nodes, seen)?;
+            self.validate_subtree(link.left, min, Some(id), nodes, seen)?;
         let (right_black, right_count) =
-            self.validate_subtree(link.right, Some(key), max, nodes, seen)?;
+            self.validate_subtree(link.right, Some(id), max, nodes, seen)?;
         if left_black != right_black {
             return Err(format!("{} has unequal black heights", S::NAME));
         }
@@ -1344,3 +1591,203 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         ))
     }
 }
+
+macro_rules! impl_hashed_kind {
+    ($kind:ty, $unique:literal) => {
+        impl<N, S> IndexKind<N, S> for $kind
+        where
+            N: NodeValue,
+            S: IndexSpec<N, Link = HashLink> + 'static,
+            for<'a> S::Key<'a>: Eq + Hash,
+        {
+            type Index = HashedIndex<S, $unique>;
+            type Ids<'a>
+                = HashIds<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
+            type EqualIds<'a>
+                = HashEqualIds<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
+
+            fn len(index: &Self::Index) -> usize {
+                index.len()
+            }
+
+            fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>) {
+                index.reserve_for_insert(nodes);
+            }
+
+            fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a> {
+                index.iter_ids(nodes)
+            }
+
+            fn insert(
+                index: &mut Self::Index,
+                id: NodeId,
+                nodes: &mut Slab<N>,
+            ) -> Result<(), NodeId> {
+                index.insert(id, nodes)
+            }
+
+            fn remove(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) {
+                index.remove(id, nodes);
+            }
+
+            fn reconcile(
+                index: &mut Self::Index,
+                id: NodeId,
+                nodes: &mut Slab<N>,
+            ) -> Result<(), NodeId> {
+                index.reconcile(id, nodes)
+            }
+
+            fn validate(index: &Self::Index, nodes: &Slab<N>) -> Result<(), String> {
+                index.validate(nodes)
+            }
+        }
+
+        impl<N, S, Q> QueryIndexKind<N, S, Q> for $kind
+        where
+            N: NodeValue,
+            S: IndexSpec<N, Link = HashLink> + 'static,
+            Q: Eq + Hash + ?Sized,
+            for<'a> S::Key<'a>: Eq + Hash + Equivalent<Q>,
+        {
+            fn find(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Option<NodeId> {
+                index.find(key, nodes)
+            }
+
+            fn equal_ids(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Vec<NodeId> {
+                index.equal_ids(key, nodes)
+            }
+
+            fn equal_iter_ids<'a>(
+                index: &'a Self::Index,
+                key: &Q,
+                nodes: &'a Slab<N>,
+            ) -> Self::EqualIds<'a> {
+                index.equal_iter_ids(key, nodes)
+            }
+        }
+    };
+}
+
+macro_rules! impl_ordered_kind {
+    ($kind:ty, $unique:literal) => {
+        impl<N, S> IndexKind<N, S> for $kind
+        where
+            N: NodeValue,
+            S: IndexSpec<N, Link = OrderedLink> + 'static,
+            for<'a> S::Key<'a>: Ord,
+        {
+            type Index = OrderedIndex<S, $unique>;
+            type Ids<'a>
+                = OrderedIds<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
+            type EqualIds<'a>
+                = OrderedRangeIds<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
+
+            fn len(index: &Self::Index) -> usize {
+                index.len()
+            }
+
+            fn reserve_for_insert(_index: &mut Self::Index, _nodes: &mut Slab<N>) {}
+
+            fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a> {
+                index.iter_ids(nodes)
+            }
+
+            fn insert(
+                index: &mut Self::Index,
+                id: NodeId,
+                nodes: &mut Slab<N>,
+            ) -> Result<(), NodeId> {
+                index.insert(id, nodes)
+            }
+
+            fn remove(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) {
+                index.remove(id, nodes);
+            }
+
+            fn reconcile(
+                index: &mut Self::Index,
+                id: NodeId,
+                nodes: &mut Slab<N>,
+            ) -> Result<(), NodeId> {
+                index.reconcile(id, nodes)
+            }
+
+            fn validate(index: &Self::Index, nodes: &Slab<N>) -> Result<(), String> {
+                index.validate(nodes)
+            }
+        }
+
+        impl<N, S, Q> QueryIndexKind<N, S, Q> for $kind
+        where
+            N: NodeValue,
+            S: IndexSpec<N, Link = OrderedLink> + 'static,
+            Q: Ord + ?Sized,
+            for<'a> S::Key<'a>: Ord + Compare<Q>,
+        {
+            fn find(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Option<NodeId> {
+                index.find(key, nodes)
+            }
+
+            fn equal_ids(index: &Self::Index, key: &Q, nodes: &Slab<N>) -> Vec<NodeId> {
+                index.equal_ids(key, nodes)
+            }
+
+            fn equal_iter_ids<'a>(
+                index: &'a Self::Index,
+                key: &Q,
+                nodes: &'a Slab<N>,
+            ) -> Self::EqualIds<'a> {
+                index.equal_iter_ids(key, nodes)
+            }
+        }
+
+        impl<N, S> OrderedIndexKind<N, S> for $kind
+        where
+            N: NodeValue,
+            S: IndexSpec<N, Link = OrderedLink> + 'static,
+            for<'a> S::Key<'a>: Ord,
+        {
+            type RangeIds<'a>
+                = OrderedRangeIds<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
+
+            fn range_iter_ids<'a, Q, R>(
+                index: &'a Self::Index,
+                range: R,
+                nodes: &'a Slab<N>,
+            ) -> Self::RangeIds<'a>
+            where
+                R: RangeBounds<Q>,
+                Q: Ord + ?Sized,
+                for<'key> S::Key<'key>: Compare<Q>,
+            {
+                index.range_iter_ids(range, nodes)
+            }
+        }
+    };
+}
+
+impl_hashed_kind!(HashedUnique, true);
+impl_hashed_kind!(HashedNonUnique, false);
+impl_ordered_kind!(OrderedUnique, true);
+impl_ordered_kind!(OrderedNonUnique, false);

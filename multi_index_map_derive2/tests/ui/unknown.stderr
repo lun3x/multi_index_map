@@ -1,11 +1,13 @@
-error: invalid index kind; expected hashed_unique, hashed_non_unique, ordered_unique, or ordered_non_unique
+error[E0433]: failed to resolve: could not find `multi_index_map` in the list of imported crates
+ --> tests/ui/unknown.rs:3:10
+  |
+3 | #[derive(MultiIndexMap)]
+  |          ^^^^^^^^^^^^^ could not find `multi_index_map` in the list of imported crates
+  |
+  = note: this error originates in the derive macro `MultiIndexMap` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `something_else` in this scope
  --> tests/ui/unknown.rs:5:19
   |
 5 |     #[multi_index(something_else)]
-  |                   ^^^^^^^^^^^^^^
-
-error: MultiIndexMap2 requires at least one #[multi_index(...)] field
- --> tests/ui/unknown.rs:4:8
-  |
-4 | struct Unknown {
-  |        ^^^^^^^
+  |                   ^^^^^^^^^^^^^^ not found in this scope

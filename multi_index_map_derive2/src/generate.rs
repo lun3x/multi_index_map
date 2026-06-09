@@ -1,29 +1,30 @@
-use crate::model::{IndexedField, Input, Ordering, Uniqueness};
+use crate::model::{Index, Input};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
 pub(crate) fn generate(input: Input) -> TokenStream {
     let names = Names::new(&input);
-    let fields = input
-        .indexed
+    let indexes = input
+        .indexes
         .iter()
-        .map(|field| FieldNames::new(&names, field))
+        .map(|index| IndexNames::new(&names, index))
         .collect::<Vec<_>>();
-
-    let node_and_specs = generate_node_and_specs(&input, &names, &fields);
+    let node = generate_node_and_specs(&names, &indexes);
     let update = generate_update(&input, &names);
-    let refs_and_iterators = generate_refs_and_iterators(&input, &names, &fields);
-    let map = generate_map(&input, &names, &fields);
-    let views = fields
+    let iterators = generate_iterators(&input, &names, &indexes);
+    let map = generate_map(&input, &names, &indexes);
+    let views = indexes
         .iter()
-        .map(|field| generate_view(&input, &names, field));
+        .map(|index| generate_view(&input, &names, index));
+    let compatibility = generate_compatibility(&input, &names, &indexes);
 
     quote! {
-        #node_and_specs
+        #node
         #update
-        #refs_and_iterators
+        #iterators
         #map
         #(#views)*
+        #compatibility
     }
 }
 
@@ -33,6 +34,7 @@ struct Names {
     node: Ident,
     update: Ident,
     refs: Ident,
+    selector: Ident,
 }
 
 impl Names {
@@ -43,220 +45,137 @@ impl Names {
             node: format_ident!("__{}Node", map),
             update: format_ident!("{}Update", map),
             refs: format_ident!("__{}Refs", map),
+            selector: format_ident!("{}Index", map),
             element,
             map,
         }
     }
 }
 
-struct FieldNames<'a> {
-    field: &'a IndexedField,
+struct IndexNames<'a> {
+    index: &'a Index,
+    kind: Ident,
     spec: Ident,
     link: Ident,
-    index: Ident,
+    storage: Ident,
     view: Ident,
     view_mut: Ident,
     iter: Ident,
-    equal_range: Ident,
+    equal: Ident,
     range: Ident,
-    by: Ident,
-    by_mut: Ident,
-    get_by: Ident,
-    get_mut_by: Ident,
-    modify_by: Ident,
-    update_by: Ident,
-    remove_by: Ident,
-    iter_by: Ident,
 }
 
-impl<'a> FieldNames<'a> {
-    fn new(names: &Names, field: &'a IndexedField) -> Self {
-        let field_ident = &field.ident;
-        let camel = snake_to_camel(&field_ident.to_string());
+impl<'a> IndexNames<'a> {
+    fn new(names: &Names, index: &'a Index) -> Self {
         let map = &names.map;
+        let n = index.ordinal;
         Self {
-            field,
-            spec: format_ident!("__{}By{}", map, camel),
-            link: format_ident!("__mim_{}_link", field_ident),
-            index: format_ident!("__mim_{}_index", field_ident),
-            view: format_ident!("{}{}View", map, camel),
-            view_mut: format_ident!("{}{}ViewMut", map, camel),
-            iter: format_ident!("{}{}Iter", map, camel),
-            equal_range: format_ident!("{}{}EqualRange", map, camel),
-            range: format_ident!("{}{}Range", map, camel),
-            by: format_ident!("by_{}", field_ident),
-            by_mut: format_ident!("by_{}_mut", field_ident),
-            get_by: format_ident!("get_by_{}", field_ident),
-            get_mut_by: format_ident!("get_mut_by_{}", field_ident),
-            modify_by: format_ident!("modify_by_{}", field_ident),
-            update_by: format_ident!("update_by_{}", field_ident),
-            remove_by: format_ident!("remove_by_{}", field_ident),
-            iter_by: format_ident!("iter_by_{}", field_ident),
+            index,
+            kind: format_ident!("__{}Index{}Kind", map, n),
+            spec: format_ident!("__{}Index{}Spec", map, n),
+            link: format_ident!("__mim_index_{}_link", n),
+            storage: format_ident!("__mim_index_{}", n),
+            view: format_ident!("__{}Index{}View", map, n),
+            view_mut: format_ident!("__{}Index{}ViewMut", map, n),
+            iter: format_ident!("__{}Index{}Iter", map, n),
+            equal: format_ident!("__{}Index{}EqualRange", map, n),
+            range: format_ident!("__{}Index{}Range", map, n),
         }
     }
 
-    fn unique(&self) -> bool {
-        self.field.uniqueness == Uniqueness::Unique
+    fn accessor(&self) -> &syn::Path {
+        &self.index.accessor
     }
 
-    fn ordered(&self) -> bool {
-        self.field.ordering == Ordering::Ordered
-    }
-
-    fn index_type(&self, _node: &Ident) -> TokenStream {
-        let spec = &self.spec;
-        let unique = self.unique();
-        match self.field.ordering {
-            Ordering::Hashed => {
-                quote!(::multi_index_map::__private::HashedIndex<#spec, #unique>)
-            }
-            Ordering::Ordered => {
-                quote!(::multi_index_map::__private::OrderedIndex<#spec, #unique>)
-            }
-        }
-    }
-
-    fn ids_type(&self, node: &Ident) -> TokenStream {
-        let spec = &self.spec;
-        let unique = self.unique();
-        match self.field.ordering {
-            Ordering::Hashed => {
-                quote!(::multi_index_map::__private::HashIds<'a, #node, #spec, #unique>)
-            }
-            Ordering::Ordered => {
-                quote!(::multi_index_map::__private::OrderedIds<'a, #node, #spec, #unique>)
-            }
-        }
-    }
-
-    fn equal_ids_type(&self, node: &Ident) -> TokenStream {
-        let spec = &self.spec;
-        let unique = self.unique();
-        match self.field.ordering {
-            Ordering::Hashed => {
-                quote!(::multi_index_map::__private::HashEqualIds<'a, #node, #spec, #unique>)
-            }
-            Ordering::Ordered => {
-                quote!(::multi_index_map::__private::OrderedRangeIds<'a, #node, #spec, #unique>)
-            }
-        }
-    }
-
-    fn equal_range_name(&self) -> &Ident {
-        if self.ordered() {
-            &self.range
+    fn owned_key(&self) -> TokenStream {
+        if let Some(field) = self.index.single_field() {
+            let ty = &field.ty;
+            quote!(#ty)
         } else {
-            &self.equal_range
+            let types = self.index.fields.iter().map(|field| &field.ty);
+            quote!((#(#types,)*))
         }
     }
 
-    fn query_bounds(&self, ty: &syn::Type) -> TokenStream {
-        match self.field.ordering {
-            Ordering::Hashed => quote! {
-                #ty: ::std::borrow::Borrow<Q>,
-                Q: ::std::hash::Hash + Eq + ?Sized,
-            },
-            Ordering::Ordered => quote! {
-                #ty: ::std::borrow::Borrow<Q>,
-                Q: Ord + ?Sized,
-            },
+    fn borrowed_key(&self) -> TokenStream {
+        if let Some(field) = self.index.single_field() {
+            let ty = &field.ty;
+            quote!(&'a #ty)
+        } else {
+            let types = self.index.fields.iter().map(|field| &field.ty);
+            quote!((#(&'a #types,)*))
+        }
+    }
+
+    fn key_expr(&self) -> TokenStream {
+        if let Some(field) = self.index.single_field() {
+            let ident = &field.ident;
+            quote!(&value.#ident)
+        } else {
+            let fields = self.index.fields.iter().map(|field| {
+                let ident = &field.ident;
+                quote!(&value.#ident)
+            });
+            quote!((#(#fields,)*))
         }
     }
 }
 
-fn snake_to_camel(value: &str) -> String {
-    value
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
-
-fn generate_node_and_specs(
-    _input: &Input,
-    names: &Names,
-    fields: &[FieldNames<'_>],
-) -> TokenStream {
+fn generate_node_and_specs(names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
     let element = &names.element;
     let node = &names.node;
-    let link_fields = fields.iter().map(|field| {
-        let link = &field.link;
-        match field.field.ordering {
-            Ordering::Hashed => quote!(#link: ::multi_index_map::__private::HashLink),
-            Ordering::Ordered => quote!(#link: ::multi_index_map::__private::OrderedLink),
-        }
+    let links = indexes.iter().map(|index| {
+        let link = &index.link;
+        let kind = &index.kind;
+        quote!(#link: <#kind as ::multi_index_map::__private::IndexCategory>::Link)
     });
-    let link_defaults = fields.iter().map(|field| {
-        let link = &field.link;
+    let defaults = indexes.iter().map(|index| {
+        let link = &index.link;
         quote!(#link: ::std::default::Default::default())
     });
-    let specs = fields.iter().map(|field| {
-        let spec = &field.spec;
-        let field_ident = &field.field.ident;
-        let ty = &field.field.ty;
-        let link = &field.link;
-        let name = field_ident.to_string();
-        match field.field.ordering {
-            Ordering::Hashed => quote! {
-                struct #spec;
+    let specs = indexes.iter().map(|index| {
+        let accessor = index.accessor();
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let link = &index.link;
+        let borrowed_key = index.borrowed_key();
+        let key_expr = index.key_expr();
+        quote! {
+            type #kind = <#accessor as ::multi_index_map::MultiIndexAccessor>::Kind;
+            struct #spec;
 
-                impl ::multi_index_map::__private::HashSpec<#node> for #spec {
-                    type Key = #ty;
-                    const NAME: &'static str = #name;
+            impl ::multi_index_map::__private::IndexSpec<#node> for #spec {
+                type Key<'a> = #borrowed_key;
+                type Link = <#kind as ::multi_index_map::__private::IndexCategory>::Link;
+                const NAME: &'static str =
+                    <#accessor as ::multi_index_map::MultiIndexAccessor>::NAME;
 
-                    fn key(value: &#element) -> &Self::Key {
-                        &value.#field_ident
-                    }
-
-                    fn link(node: &#node) -> &::multi_index_map::__private::HashLink {
-                        &node.#link
-                    }
-
-                    fn link_mut(node: &mut #node) -> &mut ::multi_index_map::__private::HashLink {
-                        &mut node.#link
-                    }
+                fn key(value: &#element) -> Self::Key<'_> {
+                    #key_expr
                 }
-            },
-            Ordering::Ordered => quote! {
-                struct #spec;
 
-                impl ::multi_index_map::__private::OrderedSpec<#node> for #spec {
-                    type Key = #ty;
-                    const NAME: &'static str = #name;
-
-                    fn key(value: &#element) -> &Self::Key {
-                        &value.#field_ident
-                    }
-
-                    fn link(node: &#node) -> &::multi_index_map::__private::OrderedLink {
-                        &node.#link
-                    }
-
-                    fn link_mut(node: &mut #node) -> &mut ::multi_index_map::__private::OrderedLink {
-                        &mut node.#link
-                    }
+                fn link(node: &#node) -> &Self::Link {
+                    &node.#link
                 }
-            },
+
+                fn link_mut(node: &mut #node) -> &mut Self::Link {
+                    &mut node.#link
+                }
+            }
         }
     });
 
     quote! {
         struct #node {
             value: #element,
-            #(#link_fields,)*
+            #(#links,)*
         }
 
         impl #node {
             fn new(value: #element) -> Self {
                 Self {
                     value,
-                    #(#link_defaults,)*
+                    #(#defaults,)*
                 }
             }
         }
@@ -301,18 +220,13 @@ fn generate_update(input: &Input, names: &Names) -> TokenStream {
     }
 }
 
-fn generate_refs_and_iterators(
-    _input: &Input,
-    names: &Names,
-    fields: &[FieldNames<'_>],
-) -> TokenStream {
+fn generate_iterators(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
     let refs = &names.refs;
     let node = &names.node;
     let element = &names.element;
-    let wrappers = fields
+    let wrappers = indexes
         .iter()
-        .map(|field| generate_iterator_wrappers(names, field));
-
+        .map(|index| generate_index_iterators(input, names, index));
     quote! {
         struct #refs<'a, I> {
             nodes: &'a ::multi_index_map::__private::Slab<#node>,
@@ -363,238 +277,265 @@ fn generate_refs_and_iterators(
     }
 }
 
-fn generate_iterator_wrappers(names: &Names, field: &FieldNames<'_>) -> TokenStream {
-    let refs = &names.refs;
+fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenStream {
+    let vis = &input.vis;
     let element = &names.element;
+    let refs = &names.refs;
     let node = &names.node;
-    let vis = &field.field.vis;
-    let iter = &field.iter;
-    let ids_ty = field.ids_type(node);
-
-    let iter_double = field.ordered().then(|| {
-        quote! {
-            impl DoubleEndedIterator for #iter<'_> {
-                fn next_back(&mut self) -> Option<Self::Item> {
-                    self.inner.next_back()
-                }
-            }
-        }
-    });
-
-    let secondary = if field.ordered() {
-        let range = &field.range;
-        let range_ty = field.equal_ids_type(node);
-        quote! {
-            #vis struct #range<'a> {
-                inner: #refs<'a, #range_ty>,
-            }
-
-            impl<'a> #range<'a> {
-                fn new(inner: #refs<'a, #range_ty>) -> Self {
-                    Self { inner }
-                }
-            }
-
-            impl<'a> Iterator for #range<'a> {
-                type Item = &'a #element;
-                fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
-                fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
-            }
-
-            impl DoubleEndedIterator for #range<'_> {
-                fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
-            }
-
-            impl ::std::iter::FusedIterator for #range<'_> {}
-        }
-    } else if !field.unique() {
-        let equal_range = field.equal_range_name();
-        let equal_ty = field.equal_ids_type(node);
-        quote! {
-            #vis struct #equal_range<'a> {
-                inner: #refs<'a, #equal_ty>,
-            }
-
-            impl<'a> #equal_range<'a> {
-                fn new(inner: #refs<'a, #equal_ty>) -> Self {
-                    Self { inner }
-                }
-            }
-
-            impl<'a> Iterator for #equal_range<'a> {
-                type Item = &'a #element;
-                fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
-                fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
-            }
-
-            impl ExactSizeIterator for #equal_range<'_> {}
-            impl ::std::iter::FusedIterator for #equal_range<'_> {}
-        }
-    } else {
-        TokenStream::new()
-    };
+    let accessor = index.accessor();
+    let spec = &index.spec;
+    let iter = &index.iter;
+    let equal = &index.equal;
+    let range = &index.range;
 
     quote! {
-        #vis struct #iter<'a> {
-            inner: #refs<'a, #ids_ty>,
+        #[doc(hidden)]
+        #vis struct #iter<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            inner: #refs<'a, <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::Ids<'a>>,
         }
 
-        impl<'a> #iter<'a> {
-            fn new(inner: #refs<'a, #ids_ty>) -> Self {
-                Self { inner }
-            }
-        }
-
-        impl<'a> Iterator for #iter<'a> {
+        impl<'a, K> Iterator for #iter<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
             type Item = &'a #element;
             fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
             fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
         }
 
-        #iter_double
-        impl ExactSizeIterator for #iter<'_> {}
-        impl ::std::iter::FusedIterator for #iter<'_> {}
+        impl<K> DoubleEndedIterator for #iter<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+            for<'a> <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::Ids<'a>:
+                DoubleEndedIterator,
+        {
+            fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
+        }
 
-        #secondary
+        #[doc(hidden)]
+        #vis struct #equal<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            inner: #refs<'a, <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::EqualIds<'a>>,
+        }
+
+        impl<'a, K> Iterator for #equal<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            type Item = &'a #element;
+            fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
+            fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+        }
+
+        impl<K> DoubleEndedIterator for #equal<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+            for<'a> <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::EqualIds<'a>:
+                DoubleEndedIterator,
+        {
+            fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
+        }
+
+        #[doc(hidden)]
+        #vis struct #range<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+        {
+            inner: #refs<'a, <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::RangeIds<'a>>,
+        }
+
+        impl<'a, K> Iterator for #range<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+        {
+            type Item = &'a #element;
+            fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
+            fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
+        }
+
+        impl<K> DoubleEndedIterator for #range<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+        {
+            fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
+        }
     }
 }
 
-fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> TokenStream {
+fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
     let vis = &input.vis;
     let element = &names.element;
     let map = &names.map;
     let node = &names.node;
     let update = &names.update;
+    let selector = &names.selector;
 
-    let index_fields = fields.iter().map(|field| {
-        let index = &field.index;
-        let index_ty = field.index_type(node);
-        quote!(#index: #index_ty)
+    let storages = indexes.iter().map(|index| {
+        let storage = &index.storage;
+        let kind = &index.kind;
+        let spec = &index.spec;
+        quote!(#storage: <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Index)
     });
-    let index_defaults = fields.iter().map(|field| {
-        let index = &field.index;
-        quote!(#index: ::std::default::Default::default())
+    let defaults = indexes.iter().map(|index| {
+        let storage = &index.storage;
+        quote!(#storage: ::std::default::Default::default())
     });
-    let view_methods = fields.iter().map(|field| {
-        let field_vis = &field.field.vis;
-        let by = &field.by;
-        let by_mut = &field.by_mut;
-        let view = &field.view;
-        let view_mut = &field.view_mut;
+    let selector_impls = indexes.iter().map(|index| {
+        let accessor = index.accessor();
+        let kind = &index.kind;
+        let view = &index.view;
+        let view_mut = &index.view_mut;
         quote! {
-            #field_vis fn #by(&self) -> #view<'_> {
-                #view { map: self }
-            }
+            impl #selector for #accessor {
+                type View<'a> = #view<'a, #kind>;
+                type ViewMut<'a> = #view_mut<'a, #kind>;
 
-            #field_vis fn #by_mut(&mut self) -> #view_mut<'_> {
-                #view_mut { map: self }
-            }
-        }
-    });
+                fn view(map: &#map) -> Self::View<'_> {
+                    #view { map, marker: ::std::marker::PhantomData }
+                }
 
-    let unique_checks = fields.iter().filter(|field| field.unique()).map(|field| {
-        let index = &field.index;
-        let field_ident = &field.field.ident;
-        let name = field_ident.to_string();
-        quote! {
-            if self.#index.find(&value.#field_ident, &self.nodes).is_some() {
-                return Err(::multi_index_map::Conflict { index: #name, value });
+                fn view_mut(map: &mut #map) -> Self::ViewMut<'_> {
+                    #view_mut { map, marker: ::std::marker::PhantomData }
+                }
             }
         }
     });
-    let hash_reserves = fields
-        .iter()
-        .filter(|field| field.field.ordering == Ordering::Hashed)
-        .map(|field| {
-            let index = &field.index;
-            quote!(self.#index.reserve_for_insert(&mut self.nodes);)
-        });
-    let link_all = fields.iter().map(|field| {
-        let index = &field.index;
-        let name = field.field.ident.to_string();
+    let reserves = indexes.iter().map(|index| {
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
         quote! {
-            self.#index
-                .insert(id, &mut self.nodes)
-                .unwrap_or_else(|_| panic!("prepared insertion unexpectedly conflicted on index '{}'", #name));
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::reserve_for_insert(
+                &mut self.#storage,
+                &mut self.nodes,
+            );
         }
     });
-    let unlink_all = fields.iter().map(|field| {
-        let index = &field.index;
-        quote!(self.#index.remove(id, &mut self.nodes);)
-    });
-    let replace_checks = fields.iter().filter(|field| field.unique()).map(|field| {
-        let index = &field.index;
-        let field_ident = &field.field.ident;
-        let name = field_ident.to_string();
+    let inserts = indexes.iter().map(|index| {
+        let accessor = index.accessor();
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
         quote! {
-            if self.#index
-                .find(&replacement.#field_ident, &self.nodes)
-                .is_some_and(|other| other != id)
+            if <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::insert(
+                &mut self.#storage,
+                id,
+                &mut self.nodes,
+            ).is_err() {
+                self.unlink_all(id);
+                return Some(<#accessor as ::multi_index_map::MultiIndexAccessor>::NAME);
+            }
+        }
+    });
+    let removes = indexes.iter().map(|index| {
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
+        quote! {
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::remove(
+                &mut self.#storage,
+                id,
+                &mut self.nodes,
+            );
+        }
+    });
+    let reconciles = indexes.iter().map(|index| {
+        let accessor = index.accessor();
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
+        quote! {
+            if conflict.is_none()
+                && <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::reconcile(
+                    &mut self.#storage,
+                    id,
+                    &mut self.nodes,
+                ).is_err()
             {
-                return Err(::multi_index_map::Conflict { index: #name, value: replacement });
+                conflict = Some(<#accessor as ::multi_index_map::MultiIndexAccessor>::NAME);
             }
         }
     });
-    let reconciles = fields.iter().map(|field| {
-        let index = &field.index;
-        let name = field.field.ident.to_string();
+    let validates = indexes.iter().map(|index| {
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
         quote! {
-            if conflict.is_none() && self.#index.reconcile(id, &mut self.nodes).is_err() {
-                conflict = Some(#name);
-            }
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::validate(
+                &self.#storage,
+                &self.nodes,
+            )?;
         }
     });
-    let validates = fields.iter().map(|field| {
-        let index = &field.index;
-        quote!(self.#index.validate(&self.nodes)?;)
+    let lengths = indexes.iter().map(|index| {
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
+        quote!(<#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.#storage))
     });
-    let lengths = fields.iter().map(|field| {
-        let index = &field.index;
-        quote!(self.#index.len())
-    });
-
-    let update_proxy = update_proxy_expr(input, names);
-    let update_fields_helper = generate_update_fields_helper(input, names);
-    let compatibility = fields
-        .iter()
-        .map(|field| generate_compatibility_method(input, names, field));
+    let update_expr = update_expr(input, names);
+    let compatibility_helpers = generate_compatibility_helpers(input, names, indexes);
 
     quote! {
+        #vis trait #selector: ::multi_index_map::MultiIndexAccessor {
+            type View<'a> where Self: 'a;
+            type ViewMut<'a> where Self: 'a;
+            fn view(map: &#map) -> Self::View<'_>;
+            fn view_mut(map: &mut #map) -> Self::ViewMut<'_>;
+        }
+
         #vis struct #map {
             nodes: ::multi_index_map::__private::Slab<#node>,
-            #(#index_fields,)*
+            #(#storages,)*
         }
 
         impl Default for #map {
             fn default() -> Self {
                 Self {
                     nodes: ::std::default::Default::default(),
-                    #(#index_defaults,)*
+                    #(#defaults,)*
                 }
             }
         }
 
         impl #map {
-            #vis fn new() -> Self {
-                Self::default()
+            #vis fn new() -> Self { Self::default() }
+            #vis fn len(&self) -> usize { self.nodes.len() }
+            #vis fn is_empty(&self) -> bool { self.nodes.is_empty() }
+
+            #vis fn by<I: #selector>(&self) -> I::View<'_> {
+                I::view(self)
             }
 
-            #vis fn len(&self) -> usize {
-                self.nodes.len()
-            }
-
-            #vis fn is_empty(&self) -> bool {
-                self.nodes.is_empty()
+            #vis fn by_mut<I: #selector>(&mut self) -> I::ViewMut<'_> {
+                I::view_mut(self)
             }
 
             #vis fn try_insert(
                 &mut self,
                 value: #element,
             ) -> Result<&#element, ::multi_index_map::Conflict<#element>> {
-                #(#unique_checks)*
-                #(#hash_reserves)*
+                self.reserve_all();
                 let id = ::multi_index_map::__private::NodeId(self.nodes.insert(#node::new(value)));
-                self.link_all(id);
+                if let Some(index) = self.link_all(id) {
+                    let value = self.nodes.remove(id.0).value;
+                    self.validate_debug();
+                    return Err(::multi_index_map::Conflict { index, value });
+                }
                 self.validate_debug();
                 Ok(&self.nodes[id.0].value)
             }
@@ -610,9 +551,7 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
             }
 
             #vis fn clear(&mut self) {
-                let ids = self
-                    .nodes
-                    .iter()
+                let ids = self.nodes.iter()
                     .map(|(id, _)| ::multi_index_map::__private::NodeId(id))
                     .collect::<Vec<_>>();
                 for id in ids {
@@ -621,43 +560,17 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
                 self.validate_debug();
             }
 
-            #(#view_methods)*
-
-            #update_fields_helper
-
-            fn order_refs_for_ids(
-                &self,
-                ids: &[::multi_index_map::__private::NodeId],
-            ) -> Vec<&#element> {
-                ids.iter()
-                    .map(|id| {
-                        &self
-                            .nodes
-                            .get(id.0)
-                            .expect("compatibility accessor targeted a missing arena node")
-                            .value
-                    })
-                    .collect()
+            fn reserve_all(&mut self) {
+                #(#reserves)*
             }
 
-            fn panic_on_modify_conflicts(result: ::multi_index_map::ModifyAllResult<#element>) {
-                if let Some(conflict) = result.removed.first() {
-                    panic!(
-                        "compatibility modifier removed {} element(s) after uniqueness conflict on index '{}'",
-                        result.removed.len(),
-                        conflict.index
-                    );
-                }
-            }
-
-            #(#compatibility)*
-
-            fn link_all(&mut self, id: ::multi_index_map::__private::NodeId) {
-                #(#link_all)*
+            fn link_all(&mut self, id: ::multi_index_map::__private::NodeId) -> Option<&'static str> {
+                #(#inserts)*
+                None
             }
 
             fn unlink_all(&mut self, id: ::multi_index_map::__private::NodeId) {
-                #(#unlink_all)*
+                #(#removes)*
             }
 
             fn remove_id(&mut self, id: ::multi_index_map::__private::NodeId) -> #element {
@@ -670,10 +583,20 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
                 id: ::multi_index_map::__private::NodeId,
                 replacement: #element,
             ) -> Result<#element, ::multi_index_map::Conflict<#element>> {
-                #(#replace_checks)*
                 self.unlink_all(id);
+                self.reserve_all();
+                let candidate =
+                    ::multi_index_map::__private::NodeId(self.nodes.insert(#node::new(replacement)));
+                if let Some(index) = self.link_all(candidate) {
+                    let replacement = self.nodes.remove(candidate.0).value;
+                    assert!(self.link_all(id).is_none(), "restoring replaced element conflicted");
+                    self.validate_debug();
+                    return Err(::multi_index_map::Conflict { index, value: replacement });
+                }
+                self.unlink_all(candidate);
+                let replacement = self.nodes.remove(candidate.0).value;
                 let old = ::std::mem::replace(&mut self.nodes[id.0].value, replacement);
-                self.link_all(id);
+                assert!(self.link_all(id).is_none(), "prepared replacement unexpectedly conflicted");
                 self.validate_debug();
                 Ok(old)
             }
@@ -691,7 +614,6 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
                     self.validate_debug();
                     ::std::panic::resume_unwind(payload);
                 }
-
                 let mut conflict = None;
                 #(#reconciles)*
                 if let Some(index) = conflict {
@@ -710,9 +632,7 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
             ) -> ::multi_index_map::ModifyAllResult<#element> {
                 let mut result = ::multi_index_map::ModifyAllResult::default();
                 for id in ids {
-                    if !self.nodes.contains(id.0) {
-                        continue;
-                    }
+                    if !self.nodes.contains(id.0) { continue; }
                     match self.modify_id(id, &mut f) {
                         Ok(_) => result.modified += 1,
                         Err(conflict) => result.removed.push(conflict),
@@ -727,7 +647,7 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
                 f: impl FnOnce(#update<'_>),
             ) -> &#element {
                 let value = &mut self.nodes[id.0].value;
-                f(#update_proxy);
+                f(#update_expr);
                 &self.nodes[id.0].value
             }
 
@@ -738,10 +658,12 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
             ) -> usize {
                 for id in &ids {
                     let value = &mut self.nodes[id.0].value;
-                    f(#update_proxy);
+                    f(#update_expr);
                 }
                 ids.len()
             }
+
+            #compatibility_helpers
 
             #vis fn validate(&self) -> Result<(), String> {
                 #(#validates)*
@@ -756,10 +678,12 @@ fn generate_map(input: &Input, names: &Names, fields: &[FieldNames<'_>]) -> Toke
                 debug_assert!(self.validate().is_ok(), "{:?}", self.validate());
             }
         }
+
+        #(#selector_impls)*
     }
 }
 
-fn update_proxy_expr(input: &Input, names: &Names) -> TokenStream {
+fn update_expr(input: &Input, names: &Names) -> TokenStream {
     let update = &names.update;
     if input.unindexed.is_empty() {
         quote!(#update { _marker: ::std::marker::PhantomData })
@@ -772,61 +696,28 @@ fn update_proxy_expr(input: &Input, names: &Names) -> TokenStream {
     }
 }
 
-fn generate_update_fields_helper(input: &Input, _names: &Names) -> TokenStream {
-    let tuple_type = update_tuple_type(input);
-    if input.unindexed.is_empty() {
-        quote! {
-            fn update_fields_for_ids(
-                &mut self,
-                mut ids: Vec<::multi_index_map::__private::NodeId>,
-            ) -> Vec<#tuple_type> {
-                ids.sort_unstable_by_key(|id| id.0);
-                assert!(
-                    !ids.windows(2).any(|pair| pair[0] == pair[1]),
-                    "compatibility accessor received a duplicate arena node"
-                );
-                for id in &ids {
-                    assert!(
-                        self.nodes.contains(id.0),
-                        "compatibility accessor targeted a missing arena node"
-                    );
-                }
-                vec![(); ids.len()]
-            }
-        }
-    } else {
-        let tuple_values = input.unindexed.iter().map(|field| {
-            let ident = &field.ident;
-            quote!(&mut node.value.#ident)
-        });
-        quote! {
-            fn update_fields_for_ids(
-                &mut self,
-                mut ids: Vec<::multi_index_map::__private::NodeId>,
-            ) -> Vec<#tuple_type> {
-                ids.sort_unstable_by_key(|id| id.0);
-                assert!(
-                    !ids.windows(2).any(|pair| pair[0] == pair[1]),
-                    "compatibility accessor received a duplicate arena node"
-                );
-
-                let mut fields = Vec::with_capacity(ids.len());
-                let mut targets = ids.into_iter();
-                let mut target = targets.next();
-                for (slot, node) in self.nodes.iter_mut() {
-                    if target.map(|id| id.0) == Some(slot) {
-                        fields.push((#(#tuple_values,)*));
-                        target = targets.next();
-                    }
-                }
-                assert!(
-                    target.is_none(),
-                    "compatibility accessor targeted a missing arena node"
-                );
-                fields
-            }
-        }
-    }
+fn compatibility_indexes<'a>(
+    input: &Input,
+    indexes: &'a [IndexNames<'a>],
+) -> Vec<&'a IndexNames<'a>> {
+    indexes
+        .iter()
+        .filter(|index| {
+            let Some(field) = index.index.single_field() else {
+                return false;
+            };
+            input
+                .indexes
+                .iter()
+                .filter(|candidate| {
+                    candidate
+                        .single_field()
+                        .is_some_and(|candidate| candidate.ident == field.ident)
+                })
+                .count()
+                == 1
+        })
+        .collect()
 }
 
 fn update_tuple_type(input: &Input) -> TokenStream {
@@ -837,609 +728,898 @@ fn update_tuple_type(input: &Input) -> TokenStream {
     quote!((#(#types,)*))
 }
 
-fn update_proxy_call_args(input: &Input) -> TokenStream {
-    let fields = input.unindexed.iter().map(|field| {
-        let ident = &field.ident;
-        quote!(fields.#ident)
-    });
-    quote!(#(#fields,)*)
-}
-
-fn generate_compatibility_method(
+fn generate_compatibility_helpers(
     input: &Input,
     names: &Names,
-    field: &FieldNames<'_>,
+    indexes: &[IndexNames<'_>],
 ) -> TokenStream {
+    if compatibility_indexes(input, indexes).is_empty() {
+        return TokenStream::new();
+    }
     let element = &names.element;
-    let refs = &names.refs;
-    let field_vis = &field.field.vis;
-    let ty = &field.field.ty;
-    let index = &field.index;
-    let get_by = &field.get_by;
-    let get_mut_by = &field.get_mut_by;
-    let modify_by = &field.modify_by;
-    let update_by = &field.update_by;
-    let remove_by = &field.remove_by;
-    let iter_by = &field.iter_by;
-    let iter = &field.iter;
     let tuple_type = update_tuple_type(input);
-    let query_bounds = field.query_bounds(ty);
-    let update_args = update_proxy_call_args(input);
-    let update_arg_types = input.unindexed.iter().map(|field| {
-        let ty = &field.ty;
-        quote!(&mut #ty)
-    });
-    let update_arg_types = update_arg_types.collect::<Vec<_>>();
-
-    let get = if field.unique() {
+    let update_fields = if input.unindexed.is_empty() {
         quote! {
-            #[deprecated(note = "use the corresponding view's get method")]
-            #field_vis fn #get_by<Q>(&self, key: &Q) -> Option<&#element>
-            where
-                #query_bounds
-            {
-                self.#index.find(key, &self.nodes).map(|id| &self.nodes[id.0].value)
-            }
-        }
-    } else {
-        quote! {
-            #[deprecated(note = "use the corresponding view's equal_range method")]
-            #field_vis fn #get_by<Q>(&self, key: &Q) -> Vec<&#element>
-            where
-                #query_bounds
-            {
-                self.#index
-                    .equal_ids(key, &self.nodes)
-                    .into_iter()
-                    .map(|id| &self.nodes[id.0].value)
-                    .collect()
-            }
-        }
-    };
-
-    let get_mut_body = if field.unique() {
-        quote! {
-            let id = self.#index.find(key, &self.nodes)?;
-            self.update_fields_for_ids(vec![id]).into_iter().next()
-        }
-    } else {
-        quote! {
-            let ids = self.#index.equal_ids(key, &self.nodes);
-            self.update_fields_for_ids(ids)
-        }
-    };
-    let get_mut_return = if field.unique() {
-        quote!(Option<#tuple_type>)
-    } else {
-        quote!(Vec<#tuple_type>)
-    };
-
-    let modify = if field.unique() {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's modify method")]
-            #field_vis fn #modify_by(
+            fn update_fields_for_ids(
                 &mut self,
-                key: &#ty,
-                f: impl FnOnce(&mut #element),
-            ) -> Option<&#element> {
-                let id = self.#index.find(key, &self.nodes)?;
-                match self.modify_id(id, f) {
-                    Ok(value) => Some(value),
-                    Err(conflict) => panic!(
-                        "compatibility modifier removed an element after uniqueness conflict on index '{}'",
-                        conflict.index
-                    ),
+                mut ids: Vec<::multi_index_map::__private::NodeId>,
+            ) -> Vec<#tuple_type> {
+                ids.sort_unstable_by_key(|id| id.0);
+                ids.dedup();
+                vec![(); ids.len()]
+            }
+        }
+    } else {
+        let values = input.unindexed.iter().map(|field| {
+            let ident = &field.ident;
+            quote!(&mut node.value.#ident)
+        });
+        quote! {
+            fn update_fields_for_ids(
+                &mut self,
+                mut ids: Vec<::multi_index_map::__private::NodeId>,
+            ) -> Vec<#tuple_type> {
+                ids.sort_unstable_by_key(|id| id.0);
+                assert!(!ids.windows(2).any(|pair| pair[0] == pair[1]));
+                let mut fields = Vec::with_capacity(ids.len());
+                let mut targets = ids.into_iter();
+                let mut target = targets.next();
+                for (slot, node) in self.nodes.iter_mut() {
+                    if target.map(|id| id.0) == Some(slot) {
+                        fields.push((#(#values,)*));
+                        target = targets.next();
+                    }
                 }
-            }
-        }
-    } else {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's modify_all method")]
-            #field_vis fn #modify_by(
-                &mut self,
-                key: &#ty,
-                f: impl FnMut(&mut #element),
-            ) -> Vec<&#element> {
-                let ids = self.#index.equal_ids(key, &self.nodes);
-                let result = self.modify_ids(ids.clone(), f);
-                Self::panic_on_modify_conflicts(result);
-                self.order_refs_for_ids(&ids)
+                assert!(target.is_none(), "compatibility accessor targeted a missing node");
+                fields
             }
         }
     };
-
-    let update = if field.unique() {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's update method")]
-            #field_vis fn #update_by<Q>(
-                &mut self,
-                key: &Q,
-                f: impl FnOnce(#(#update_arg_types),*),
-            ) -> Option<&#element>
-            where
-                #query_bounds
-            {
-                let id = self.#index.find(key, &self.nodes)?;
-                Some(self.update_id(id, |fields| f(#update_args)))
-            }
-        }
-    } else {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's update_all method")]
-            #field_vis fn #update_by<Q>(
-                &mut self,
-                key: &Q,
-                mut f: impl FnMut(#(#update_arg_types),*),
-            ) -> Vec<&#element>
-            where
-                #query_bounds
-            {
-                let ids = self.#index.equal_ids(key, &self.nodes);
-                for id in &ids {
-                    self.update_id(*id, |fields| f(#update_args));
-                }
-                self.order_refs_for_ids(&ids)
-            }
-        }
-    };
-
-    let remove = if field.unique() {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's remove method")]
-            #field_vis fn #remove_by(&mut self, key: &#ty) -> Option<#element> {
-                let id = self.#index.find(key, &self.nodes)?;
-                let value = self.remove_id(id);
-                self.validate_debug();
-                Some(value)
-            }
-        }
-    } else {
-        quote! {
-            #[deprecated(note = "use the corresponding mutable view's remove_all method")]
-            #field_vis fn #remove_by(&mut self, key: &#ty) -> Vec<#element> {
-                let ids = self.#index.equal_ids(key, &self.nodes);
-                let values = ids.into_iter().map(|id| self.remove_id(id)).collect();
-                self.validate_debug();
-                values
-            }
-        }
-    };
-
     quote! {
-        #get
+        #update_fields
 
-        #[deprecated(note = "use the corresponding mutable view's update method")]
-        #field_vis fn #get_mut_by(&mut self, key: &#ty) -> #get_mut_return {
-            #get_mut_body
+        fn order_refs_for_ids(
+            &self,
+            ids: &[::multi_index_map::__private::NodeId],
+        ) -> Vec<&#element> {
+            ids.iter().filter_map(|id| self.nodes.get(id.0).map(|node| &node.value)).collect()
         }
 
-        #modify
-        #update
-        #remove
-
-        #[deprecated(note = "use the corresponding view's iter method")]
-        #field_vis fn #iter_by(&self) -> #iter<'_> {
-            #iter::new(#refs::new(&self.nodes, self.#index.iter_ids(&self.nodes)))
+        fn panic_on_modify_conflicts(result: ::multi_index_map::ModifyAllResult<#element>) {
+            if let Some(conflict) = result.removed.first() {
+                panic!(
+                    "compatibility modifier removed {} element(s) after uniqueness conflict on index '{}'",
+                    result.removed.len(),
+                    conflict.index
+                );
+            }
         }
     }
 }
 
-fn generate_view(_input: &Input, names: &Names, field: &FieldNames<'_>) -> TokenStream {
+struct Query {
+    generics: TokenStream,
+    argument: TokenStream,
+    query_type: TokenStream,
+    key_ref: TokenStream,
+    ordered_bounds: TokenStream,
+}
+
+fn query(index: &Index) -> Query {
+    if let Some(field) = index.single_field() {
+        let ty = &field.ty;
+        Query {
+            generics: quote!(Q: ?Sized),
+            argument: quote!(key: &Q),
+            query_type: quote!(Q),
+            key_ref: quote!(key),
+            ordered_bounds: quote!(
+                #ty: ::std::borrow::Borrow<Q>,
+                Q: Ord,
+            ),
+        }
+    } else {
+        let q = (0..index.fields.len())
+            .map(|n| format_ident!("Q{}", n))
+            .collect::<Vec<_>>();
+        let types = index
+            .fields
+            .iter()
+            .map(|field| &field.ty)
+            .collect::<Vec<_>>();
+        Query {
+            generics: quote!('query, #(#q: ?Sized + 'query),*),
+            argument: quote!(key: (#(&'query #q,)*)),
+            query_type: quote!((#(&'query #q,)*)),
+            key_ref: quote!(&key),
+            ordered_bounds: quote!(
+                #(#types: ::std::borrow::Borrow<#q>, #q: Ord,)*
+            ),
+        }
+    }
+}
+
+fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenStream {
+    let vis = &input.vis;
     let element = &names.element;
     let map = &names.map;
+    let node = &names.node;
     let update = &names.update;
     let refs = &names.refs;
-    let vis = &field.field.vis;
-    let ty = &field.field.ty;
-    let index = &field.index;
-    let view = &field.view;
-    let view_mut = &field.view_mut;
-    let iter = &field.iter;
-    let query_bounds = field.query_bounds(ty);
+    let accessor = index.accessor();
+    let spec = &index.spec;
+    let storage = &index.storage;
+    let view = &index.view;
+    let view_mut = &index.view_mut;
+    let iter = &index.iter;
+    let equal = &index.equal;
+    let range = &index.range;
+    let owned_key = index.owned_key();
+    let query = query(index.index);
+    let q_generics = &query.generics;
+    let argument = &query.argument;
+    let q_ty = &query.query_type;
+    let key_ref = &query.key_ref;
+    let ordered_bounds = &query.ordered_bounds;
+    let capabilities = generate_capability_traits(input, names, index);
 
-    let immutable_category = if field.unique() {
-        quote! {
-            #vis fn get<Q>(&self, key: &Q) -> Option<&'a #element>
-            where
-                #query_bounds
-            {
-                self.map
-                    .#index
-                    .find(key, &self.map.nodes)
-                    .map(|id| &self.map.nodes[id.0].value)
-            }
+    quote! {
+        #[doc(hidden)]
+        #vis struct #view<'a, K> {
+            map: &'a #map,
+            marker: ::std::marker::PhantomData<K>,
+        }
 
-            #vis fn contains_key<Q>(&self, key: &Q) -> bool
-            where
-                #query_bounds
-            {
-                self.map.#index.find(key, &self.map.nodes).is_some()
+        #[doc(hidden)]
+        #vis struct #view_mut<'a, K> {
+            map: &'a mut #map,
+            marker: ::std::marker::PhantomData<K>,
+        }
+
+        impl<'a, K> #view<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn iter(&self) -> #iter<'a, K> {
+                #iter {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                            &self.map.#storage,
+                            &self.map.nodes,
+                        ),
+                    ),
+                }
             }
         }
-    } else {
-        let equal_range = field.equal_range_name();
-        quote! {
-            #vis fn equal_range<Q>(&self, key: &Q) -> #equal_range<'a>
-            where
-                #query_bounds
-            {
-                #equal_range::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.equal_iter_ids(key, &self.map.nodes),
-                ))
+
+        impl<K> #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn iter(&self) -> #iter<'_, K> {
+                #iter {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                            &self.map.#storage,
+                            &self.map.nodes,
+                        ),
+                    ),
+                }
             }
         }
-    };
 
-    let mutable_read_category = if field.unique() {
-        quote! {
-            #vis fn get<Q>(&self, key: &Q) -> Option<&#element>
+        impl<'a, K> #view<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::UniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn get<#q_generics>(&self, #argument) -> Option<&'a #element>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                self.map
-                    .#index
-                    .find(key, &self.map.nodes)
-                    .map(|id| &self.map.nodes[id.0].value)
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ).map(|id| &self.map.nodes[id.0].value)
             }
 
-            #vis fn contains_key<Q>(&self, key: &Q) -> bool
+            #vis fn contains_key<#q_generics>(&self, #argument) -> bool
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                self.map.#index.find(key, &self.map.nodes).is_some()
-            }
-        }
-    } else {
-        let equal_range = field.equal_range_name();
-        quote! {
-            #vis fn equal_range<Q>(&self, key: &Q) -> #equal_range<'_>
-            where
-                #query_bounds
-            {
-                #equal_range::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.equal_iter_ids(key, &self.map.nodes),
-                ))
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ).is_some()
             }
         }
-    };
 
-    let immutable_range = field.ordered().then(|| {
-        let range = &field.range;
-        quote! {
-            #vis fn range<R>(&self, range: R) -> #range<'a>
+        impl<K> #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::UniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn get<#q_generics>(&self, #argument) -> Option<&#element>
             where
-                R: ::std::ops::RangeBounds<#ty>,
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                #range::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.range_iter_ids(range, &self.map.nodes),
-                ))
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ).map(|id| &self.map.nodes[id.0].value)
             }
-        }
-    });
 
-    let mutable_range = field.ordered().then(|| {
-        let range = &field.range;
-        quote! {
-            #vis fn range<R>(&self, range: R) -> #range<'_>
+            #vis fn contains_key<#q_generics>(&self, #argument) -> bool
             where
-                R: ::std::ops::RangeBounds<#ty>,
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                #range::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.range_iter_ids(range, &self.map.nodes),
-                ))
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ).is_some()
             }
-        }
-    });
 
-    let mutations = if field.unique() {
-        quote! {
-            #vis fn remove<Q>(&mut self, key: &Q) -> Option<#element>
+            #vis fn remove<#q_generics>(&mut self, #argument) -> Option<#element>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let id = self.map.#index.find(key, &self.map.nodes)?;
+                let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                )?;
                 let value = self.map.remove_id(id);
                 self.map.validate_debug();
                 Some(value)
             }
 
-            #vis fn replace<Q>(
+            #vis fn replace<#q_generics>(
                 &mut self,
-                key: &Q,
+                #argument,
                 replacement: #element,
             ) -> Result<Option<#element>, ::multi_index_map::Conflict<#element>>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let Some(id) = self.map.#index.find(key, &self.map.nodes) else {
-                    return Ok(None);
-                };
+                let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ) else { return Ok(None); };
                 self.map.replace_id(id, replacement).map(Some)
             }
 
-            #vis fn modify<Q>(
+            #vis fn modify<#q_generics>(
                 &mut self,
-                key: &Q,
+                #argument,
                 f: impl FnOnce(&mut #element),
             ) -> Result<Option<&#element>, ::multi_index_map::Conflict<#element>>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let Some(id) = self.map.#index.find(key, &self.map.nodes) else {
-                    return Ok(None);
-                };
+                let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                ) else { return Ok(None); };
                 self.map.modify_id(id, f).map(Some)
             }
 
-            #vis fn update<Q>(
+            #vis fn update<#q_generics>(
                 &mut self,
-                key: &Q,
+                #argument,
                 f: impl FnOnce(#update<'_>),
             ) -> Option<&#element>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let id = self.map.#index.find(key, &self.map.nodes)?;
+                let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                )?;
                 Some(self.map.update_id(id, f))
             }
         }
-    } else {
-        quote! {
-            #vis fn remove_all<Q>(&mut self, key: &Q) -> Vec<#element>
+
+        impl<'a, K> #view<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::NonUniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn equal_range<#q_generics>(&self, #argument) -> #equal<'a, K>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let ids = self.map.#index.equal_ids(key, &self.map.nodes);
-                let values = ids
-                    .into_iter()
-                    .map(|id| self.map.remove_id(id))
-                    .collect();
+                #equal {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_iter_ids(
+                            &self.map.#storage, #key_ref, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+        }
+
+        impl<K> #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::NonUniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            #vis fn equal_range<#q_generics>(&self, #argument) -> #equal<'_, K>
+            where
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
+            {
+                #equal {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_iter_ids(
+                            &self.map.#storage, #key_ref, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+
+            #vis fn remove_all<#q_generics>(&mut self, #argument) -> Vec<#element>
+            where
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
+            {
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                );
+                let values = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
                 self.map.validate_debug();
                 values
             }
 
-            #vis fn modify_all<Q>(
+            #vis fn modify_all<#q_generics>(
                 &mut self,
-                key: &Q,
+                #argument,
                 f: impl FnMut(&mut #element),
             ) -> ::multi_index_map::ModifyAllResult<#element>
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let ids = self.map.#index.equal_ids(key, &self.map.nodes);
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                );
                 self.map.modify_ids(ids, f)
             }
 
-            #vis fn update_all<Q>(
+            #vis fn update_all<#q_generics>(
                 &mut self,
-                key: &Q,
+                #argument,
                 f: impl FnMut(#update<'_>),
             ) -> usize
             where
-                #query_bounds
+                K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
-                let ids = self.map.#index.equal_ids(key, &self.map.nodes);
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
+                    &self.map.#storage, #key_ref, &self.map.nodes
+                );
                 self.map.update_ids(ids, f)
             }
         }
-    };
 
-    let unique_traits = field.unique().then(|| {
-        quote! {
-            impl ::multi_index_map::UniqueView for #view<'_> {
-                fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
-                    self.map
-                        .#index
-                        .find(key, &self.map.nodes)
-                        .map(|id| &self.map.nodes[id.0].value)
-                }
-            }
-
-            impl ::multi_index_map::UniqueView for #view_mut<'_> {
-                fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
-                    self.map
-                        .#index
-                        .find(key, &self.map.nodes)
-                        .map(|id| &self.map.nodes[id.0].value)
-                }
-            }
-
-            impl ::multi_index_map::UniqueViewMut for #view_mut<'_> {
-                type Conflict = ::multi_index_map::Conflict<#element>;
-                type Update<'a> = #update<'a>;
-
-                fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
-                    #view_mut::remove(self, key)
-                }
-
-                fn replace(
-                    &mut self,
-                    key: &Self::Key,
-                    replacement: Self::Value,
-                ) -> Result<Option<Self::Value>, Self::Conflict> {
-                    #view_mut::replace(self, key, replacement)
-                }
-
-                fn modify<F>(
-                    &mut self,
-                    key: &Self::Key,
-                    f: F,
-                ) -> Result<Option<&Self::Value>, Self::Conflict>
-                where
-                    F: FnOnce(&mut Self::Value),
-                {
-                    #view_mut::modify(self, key, f)
-                }
-
-                fn update<F>(&mut self, key: &Self::Key, f: F) -> Option<&Self::Value>
-                where
-                    F: for<'a> FnOnce(Self::Update<'a>),
-                {
-                    #view_mut::update(self, key, f)
+        impl<'a, K> #view<'a, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedCategory
+                + ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+        {
+            #vis fn range<#q_generics, R>(&self, range_value: R) -> #range<'a, K>
+            where
+                R: ::std::ops::RangeBounds<#q_ty>,
+                #ordered_bounds
+                for<'key> <#spec as ::multi_index_map::__private::IndexSpec<#node>>::Key<'key>:
+                    ::multi_index_map::__private::Compare<#q_ty>,
+            {
+                #range {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
+                            &self.map.#storage, range_value, &self.map.nodes
+                        ),
+                    ),
                 }
             }
         }
-    });
 
-    let non_unique_traits = (!field.unique()).then(|| {
-        let equal_range = field.equal_range_name();
-        quote! {
-            impl ::multi_index_map::NonUniqueView for #view<'_> {
-                type EqualRange<'a> = #equal_range<'a> where Self: 'a;
-
-                fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
-                    #equal_range::new(#refs::new(
+        impl<K> #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedCategory
+                + ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+        {
+            #vis fn range<#q_generics, R>(&self, range_value: R) -> #range<'_, K>
+            where
+                R: ::std::ops::RangeBounds<#q_ty>,
+                #ordered_bounds
+                for<'key> <#spec as ::multi_index_map::__private::IndexSpec<#node>>::Key<'key>:
+                    ::multi_index_map::__private::Compare<#q_ty>,
+            {
+                #range {
+                    inner: #refs::new(
                         &self.map.nodes,
-                        self.map.#index.equal_iter_ids(key, &self.map.nodes),
-                    ))
-                }
-            }
-
-            impl ::multi_index_map::NonUniqueView for #view_mut<'_> {
-                type EqualRange<'a> = #equal_range<'a> where Self: 'a;
-
-                fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
-                    #equal_range::new(#refs::new(
-                        &self.map.nodes,
-                        self.map.#index.equal_iter_ids(key, &self.map.nodes),
-                    ))
-                }
-            }
-
-            impl ::multi_index_map::NonUniqueViewMut for #view_mut<'_> {
-                type ModifyAllResult = ::multi_index_map::ModifyAllResult<#element>;
-                type Update<'a> = #update<'a>;
-
-                fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
-                    #view_mut::remove_all(self, key)
-                }
-
-                fn modify_all<F>(&mut self, key: &Self::Key, f: F) -> Self::ModifyAllResult
-                where
-                    F: FnMut(&mut Self::Value),
-                {
-                    #view_mut::modify_all(self, key, f)
-                }
-
-                fn update_all<F>(&mut self, key: &Self::Key, f: F) -> usize
-                where
-                    F: for<'a> FnMut(Self::Update<'a>),
-                {
-                    #view_mut::update_all(self, key, f)
+                        <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
+                            &self.map.#storage, range_value, &self.map.nodes
+                        ),
+                    ),
                 }
             }
         }
-    });
 
-    let ordered_traits = field.ordered().then(|| {
-        let range = &field.range;
-        quote! {
-            impl ::multi_index_map::OrderedView for #view<'_> {
-                type Range<'a> = #range<'a> where Self: 'a;
+        impl<K> ::multi_index_map::IndexView for #view<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            type Value = #element;
+            type Key = #owned_key;
+            type Iter<'a> = #iter<'a, K> where Self: 'a;
 
-                fn range<R>(&self, range: R) -> Self::Range<'_>
-                where
-                    R: ::std::ops::RangeBounds<Self::Key>,
-                {
-                    #range::new(#refs::new(
-                        &self.map.nodes,
-                        self.map.#index.range_iter_ids(range, &self.map.nodes),
-                    ))
-                }
+            fn len(&self) -> usize {
+                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.#storage)
             }
 
-            impl ::multi_index_map::OrderedView for #view_mut<'_> {
-                type Range<'a> = #range<'a> where Self: 'a;
-
-                fn range<R>(&self, range: R) -> Self::Range<'_>
-                where
-                    R: ::std::ops::RangeBounds<Self::Key>,
-                {
-                    #range::new(#refs::new(
-                        &self.map.nodes,
-                        self.map.#index.range_iter_ids(range, &self.map.nodes),
-                    ))
-                }
-            }
+            fn iter(&self) -> Self::Iter<'_> { #view::iter(self) }
         }
-    });
+
+        impl<K> ::multi_index_map::IndexView for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::IndexKind<#node, #spec>,
+        {
+            type Value = #element;
+            type Key = #owned_key;
+            type Iter<'a> = #iter<'a, K> where Self: 'a;
+
+            fn len(&self) -> usize {
+                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.#storage)
+            }
+
+            fn iter(&self) -> Self::Iter<'_> { #view_mut::iter(self) }
+        }
+
+        #capabilities
+    }
+}
+
+fn generate_capability_traits(
+    _input: &Input,
+    names: &Names,
+    index: &IndexNames<'_>,
+) -> TokenStream {
+    let element = &names.element;
+    let node = &names.node;
+    let update = &names.update;
+    let refs = &names.refs;
+    let accessor = index.accessor();
+    let spec = &index.spec;
+    let storage = &index.storage;
+    let view = &index.view;
+    let view_mut = &index.view_mut;
+    let equal = &index.equal;
+    let range = &index.range;
+    let (query_ty, query_bound, query_setup, query_ref, ordered_key_bounds, range_value) =
+        if let Some(field) = index.index.single_field() {
+            let ty = &field.ty;
+            (
+                quote!(#ty),
+                quote!(K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>),
+                TokenStream::new(),
+                quote!(key),
+                quote!(
+                    #ty: Ord,
+                    for<'key> <#spec as ::multi_index_map::__private::IndexSpec<#node>>::Key<'key>:
+                        ::multi_index_map::__private::Compare<#ty>,
+                ),
+                quote!(range_value),
+            )
+        } else {
+            let types = index
+                .index
+                .fields
+                .iter()
+                .map(|field| &field.ty)
+                .collect::<Vec<_>>();
+            let positions = (0..types.len()).map(syn::Index::from).collect::<Vec<_>>();
+            let query_bound = quote!(
+                for<'query> K: ::multi_index_map::__private::QueryIndexKind<
+                    #node,
+                    #spec,
+                    (#(&'query #types,)*)
+                >
+            );
+            let ordered_key_bounds = quote!(
+                #(#types: Ord,)*
+                for<'key, 'query>
+                    <#spec as ::multi_index_map::__private::IndexSpec<#node>>::Key<'key>:
+                        ::multi_index_map::__private::Compare<(#(&'query #types,)*)>,
+            );
+            let query_setup = quote!(let query = (#(&key.#positions,)*););
+            let query_ref = quote!(&query);
+            let range_value = quote!({
+                let start = match range_value.start_bound() {
+                    ::std::ops::Bound::Included(key) =>
+                        ::std::ops::Bound::Included((#(&key.#positions,)*)),
+                    ::std::ops::Bound::Excluded(key) =>
+                        ::std::ops::Bound::Excluded((#(&key.#positions,)*)),
+                    ::std::ops::Bound::Unbounded => ::std::ops::Bound::Unbounded,
+                };
+                let end = match range_value.end_bound() {
+                    ::std::ops::Bound::Included(key) =>
+                        ::std::ops::Bound::Included((#(&key.#positions,)*)),
+                    ::std::ops::Bound::Excluded(key) =>
+                        ::std::ops::Bound::Excluded((#(&key.#positions,)*)),
+                    ::std::ops::Bound::Unbounded => ::std::ops::Bound::Unbounded,
+                };
+                ::multi_index_map::__private::QueryRange::new(start, end)
+            });
+            (
+                quote!((#(&'_ #types,)*)),
+                query_bound,
+                query_setup,
+                query_ref,
+                ordered_key_bounds,
+                range_value,
+            )
+        };
 
     quote! {
-        #vis struct #view<'a> {
-            map: &'a #map,
-        }
-
-        impl<'a> #view<'a> {
-            #immutable_category
-
-            #vis fn iter(&self) -> #iter<'a> {
-                #iter::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.iter_ids(&self.map.nodes),
-                ))
-            }
-
-            #immutable_range
-        }
-
-        #vis struct #view_mut<'a> {
-            map: &'a mut #map,
-        }
-
-        impl #view_mut<'_> {
-            #mutable_read_category
-
-            #vis fn iter(&self) -> #iter<'_> {
-                #iter::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.iter_ids(&self.map.nodes),
-                ))
-            }
-
-            #mutable_range
-            #mutations
-        }
-
-        impl ::multi_index_map::IndexView for #view<'_> {
-            type Value = #element;
-            type Key = #ty;
-            type Iter<'a> = #iter<'a> where Self: 'a;
-
-            fn len(&self) -> usize {
-                self.map.#index.len()
-            }
-
-            fn iter(&self) -> Self::Iter<'_> {
-                #iter::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.iter_ids(&self.map.nodes),
-                ))
+        impl<K> ::multi_index_map::UniqueView for #view<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::UniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
+                #query_setup
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                ).map(|id| &self.map.nodes[id.0].value)
             }
         }
 
-        impl ::multi_index_map::IndexView for #view_mut<'_> {
-            type Value = #element;
-            type Key = #ty;
-            type Iter<'a> = #iter<'a> where Self: 'a;
-
-            fn len(&self) -> usize {
-                self.map.#index.len()
-            }
-
-            fn iter(&self) -> Self::Iter<'_> {
-                #iter::new(#refs::new(
-                    &self.map.nodes,
-                    self.map.#index.iter_ids(&self.map.nodes),
-                ))
+        impl<K> ::multi_index_map::UniqueView for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::UniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
+                #query_setup
+                <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                ).map(|id| &self.map.nodes[id.0].value)
             }
         }
 
-        #unique_traits
-        #non_unique_traits
-        #ordered_traits
+        impl<K> ::multi_index_map::UniqueViewMut for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::UniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            type Conflict = ::multi_index_map::Conflict<#element>;
+            type Update<'a> = #update<'a>;
+
+            fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
+                #query_setup
+                let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                )?;
+                let value = self.map.remove_id(id);
+                self.map.validate_debug();
+                Some(value)
+            }
+
+            fn replace(
+                &mut self,
+                key: &Self::Key,
+                replacement: Self::Value,
+            ) -> Result<Option<Self::Value>, Self::Conflict> {
+                #query_setup
+                let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                ) else { return Ok(None); };
+                self.map.replace_id(id, replacement).map(Some)
+            }
+
+            fn modify<F>(
+                &mut self,
+                key: &Self::Key,
+                f: F,
+            ) -> Result<Option<&Self::Value>, Self::Conflict>
+            where
+                F: FnOnce(&mut Self::Value),
+            {
+                #query_setup
+                let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                ) else { return Ok(None); };
+                self.map.modify_id(id, f).map(Some)
+            }
+
+            fn update<F>(&mut self, key: &Self::Key, f: F) -> Option<&Self::Value>
+            where
+                F: for<'a> FnOnce(Self::Update<'a>),
+            {
+                #query_setup
+                let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                )?;
+                Some(self.map.update_id(id, f))
+            }
+        }
+
+        impl<K> ::multi_index_map::NonUniqueView for #view<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::NonUniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            type EqualRange<'a> = #equal<'a, K> where Self: 'a;
+
+            fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
+                #query_setup
+                #equal {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_iter_ids(
+                            &self.map.#storage, #query_ref, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+        }
+
+        impl<K> ::multi_index_map::NonUniqueView for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::NonUniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            type EqualRange<'a> = #equal<'a, K> where Self: 'a;
+
+            fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
+                #query_setup
+                #equal {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_iter_ids(
+                            &self.map.#storage, #query_ref, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+        }
+
+        impl<K> ::multi_index_map::NonUniqueViewMut for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::NonUniqueCategory
+                + ::multi_index_map::__private::IndexKind<#node, #spec>,
+            #query_bound,
+        {
+            type ModifyAllResult = ::multi_index_map::ModifyAllResult<#element>;
+            type Update<'a> = #update<'a>;
+
+            fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
+                #query_setup
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                );
+                let values = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
+                self.map.validate_debug();
+                values
+            }
+
+            fn modify_all<F>(&mut self, key: &Self::Key, f: F) -> Self::ModifyAllResult
+            where
+                F: FnMut(&mut Self::Value),
+            {
+                #query_setup
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                );
+                self.map.modify_ids(ids, f)
+            }
+
+            fn update_all<F>(&mut self, key: &Self::Key, f: F) -> usize
+            where
+                F: for<'a> FnMut(Self::Update<'a>),
+            {
+                #query_setup
+                let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
+                    &self.map.#storage, #query_ref, &self.map.nodes
+                );
+                self.map.update_ids(ids, f)
+            }
+        }
+
+        impl<K> ::multi_index_map::OrderedView for #view<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedCategory
+                + ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+            #ordered_key_bounds
+        {
+            type Range<'a> = #range<'a, K> where Self: 'a;
+
+            fn range<R>(&self, range_value: R) -> Self::Range<'_>
+            where
+                R: ::std::ops::RangeBounds<Self::Key>,
+            {
+                #range {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
+                            &self.map.#storage, #range_value, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+        }
+
+        impl<K> ::multi_index_map::OrderedView for #view_mut<'_, K>
+        where
+            #accessor: ::multi_index_map::MultiIndexAccessor<Kind = K>,
+            K: ::multi_index_map::__private::OrderedCategory
+                + ::multi_index_map::__private::OrderedIndexKind<#node, #spec>,
+            #ordered_key_bounds
+        {
+            type Range<'a> = #range<'a, K> where Self: 'a;
+
+            fn range<R>(&self, range_value: R) -> Self::Range<'_>
+            where
+                R: ::std::ops::RangeBounds<Self::Key>,
+            {
+                #range {
+                    inner: #refs::new(
+                        &self.map.nodes,
+                        <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
+                            &self.map.#storage, #range_value, &self.map.nodes
+                        ),
+                    ),
+                }
+            }
+        }
+    }
+}
+
+fn generate_compatibility(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
+    let wrappers = compatibility_indexes(input, indexes)
+        .into_iter()
+        .map(|index| generate_inherent_compatibility_index(input, names, index));
+    quote!(#(#wrappers)*)
+}
+
+fn generate_inherent_compatibility_index(
+    input: &Input,
+    names: &Names,
+    index: &IndexNames<'_>,
+) -> TokenStream {
+    let element = &names.element;
+    let map = &names.map;
+    let node = &names.node;
+    let refs = &names.refs;
+    let kind = &index.kind;
+    let spec = &index.spec;
+    let storage = &index.storage;
+    let iter = &index.iter;
+    let field = index.index.single_field().expect("filtered single index");
+    let field_ident = &field.ident;
+    let field_vis = &field.vis;
+    let ty = &field.ty;
+    let get_by = format_ident!("get_by_{}", field_ident);
+    let get_mut_by = format_ident!("get_mut_by_{}", field_ident);
+    let modify_by = format_ident!("modify_by_{}", field_ident);
+    let update_by = format_ident!("update_by_{}", field_ident);
+    let remove_by = format_ident!("remove_by_{}", field_ident);
+    let iter_by = format_ident!("iter_by_{}", field_ident);
+    let tuple_type = update_tuple_type(input);
+    let collection = quote!(
+        <#kind as ::multi_index_map::__private::CompatibilityKind>::Collection
+    );
+    let update_types = input.unindexed.iter().map(|field| {
+        let ty = &field.ty;
+        quote!(&mut #ty)
+    });
+    let update_types = update_types.collect::<Vec<_>>();
+    let update_args = input.unindexed.iter().map(|field| {
+        let ident = &field.ident;
+        quote!(fields.#ident)
+    });
+    let update_args = update_args.collect::<Vec<_>>();
+
+    quote! {
+        impl #map {
+            #[deprecated(note = "use map.by::<Accessor>().get/equal_range(key)")]
+            #field_vis fn #get_by<Q: ?Sized>(&self, key: &Q) -> #collection<&#element>
+            where
+                #kind: ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>,
+            {
+                let values =
+                    <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>>::equal_ids(
+                        &self.#storage, key, &self.nodes
+                    )
+                    .into_iter()
+                    .map(|id| &self.nodes[id.0].value)
+                    .collect();
+                <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
+            }
+
+            #[deprecated(note = "use map.by_mut::<Accessor>().update/update_all(key, ...)")]
+            #field_vis fn #get_mut_by(&mut self, key: &#ty) -> #collection<#tuple_type> {
+                let ids =
+                    <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
+                        &self.#storage, key, &self.nodes
+                    );
+                let fields = self.update_fields_for_ids(ids);
+                <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(fields)
+            }
+
+            #[deprecated(note = "use map.by_mut::<Accessor>().modify/modify_all(key, ...)")]
+            #field_vis fn #modify_by(
+                &mut self,
+                key: &#ty,
+                f: impl FnMut(&mut #element),
+            ) -> #collection<&#element> {
+                let ids =
+                    <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
+                        &self.#storage, key, &self.nodes
+                    );
+                let result = self.modify_ids(ids.clone(), f);
+                Self::panic_on_modify_conflicts(result);
+                let values = self.order_refs_for_ids(&ids);
+                <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
+            }
+
+            #[deprecated(note = "use map.by_mut::<Accessor>().update/update_all(key, ...)")]
+            #field_vis fn #update_by<Q: ?Sized>(
+                &mut self,
+                key: &Q,
+                mut f: impl FnMut(#(#update_types),*),
+            ) -> #collection<&#element>
+            where
+                #kind: ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>,
+            {
+                let ids =
+                    <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>>::equal_ids(
+                        &self.#storage, key, &self.nodes
+                    );
+                for id in &ids {
+                    self.update_id(*id, |fields| f(#(#update_args),*));
+                }
+                let values = self.order_refs_for_ids(&ids);
+                <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
+            }
+
+            #[deprecated(note = "use map.by_mut::<Accessor>().remove/remove_all(key)")]
+            #field_vis fn #remove_by(&mut self, key: &#ty) -> #collection<#element> {
+                let ids =
+                    <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
+                        &self.#storage, key, &self.nodes
+                    );
+                let values = ids.into_iter().map(|id| self.remove_id(id)).collect();
+                self.validate_debug();
+                <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
+            }
+
+            #[deprecated(note = "use map.by::<Accessor>().iter()")]
+            #field_vis fn #iter_by(&self) -> #iter<'_, #kind> {
+                #iter {
+                    inner: #refs::new(
+                        &self.nodes,
+                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                            &self.#storage, &self.nodes
+                        ),
+                    ),
+                }
+            }
+        }
     }
 }

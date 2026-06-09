@@ -1,6 +1,34 @@
 # Boost-Inspired Prototype
 
 This example is a manually expanded design reference for the experimental `MultiIndexMap2` derive.
+
+The intended accessor syntax puts category information on user-defined unit
+markers and associates element fields with those markers:
+
+```rust
+#[derive(MultiIndexAccessor)]
+#[multi_index(ordered_non_unique)]
+struct ByTraderTimestamp;
+
+#[derive(MultiIndexMap2)]
+struct Order {
+    #[multi_index(ByTrader, ByTraderTimestamp)]
+    trader: String,
+    #[multi_index(ByTraderTimestamp)]
+    timestamp: u64,
+}
+```
+
+Repeating an accessor groups those fields into one compound index, in element
+field declaration order. Full compound keys use tuples of borrowed components:
+
+```rust
+orders.by::<ByTraderTimestamp>().equal_range(("John", &100));
+orders
+    .by::<ByTraderTimestamp>()
+    .range(("John", &0)..=("John", &u64::MAX));
+```
+
 It does not change the existing `MultiIndexMap` derive.
 
 Run it with:
@@ -28,6 +56,7 @@ each index:
 - ordered unique `timestamp`
 - hashed non-unique `trader`
 - ordered non-unique `price`
+- ordered non-unique compound `(trader, timestamp)`
 
 The indexes contain only bucket roots, tree roots, counts, and configuration. Indexed field values
 are neither cloned nor separately allocated. A known node can be removed from every index directly
@@ -42,18 +71,18 @@ snapshots the original matching `NodeId`s so each original match is processed ex
 
 ## Generic Index Selection
 
-`OrderMap` selects an index through its marker type rather than generating a different accessor
-method for every indexed field:
+`OrderMap` selects an index through a user-defined accessor type rather than generating a different
+accessor method or public selector type for every indexed field:
 
 ```rust
 orders.by::<ByTimestamp>().range(start..end);
 orders.by_mut::<ByTrader>().remove_all("John");
 ```
 
-The example-local `OrderMapIndex` trait uses generic associated types to map each marker to its
+The example-local `OrderMapIndex` trait uses generic associated types to map each accessor to its
 immutable and mutable named view types. Its constructor methods let the two map accessors construct
-the selected views while preserving the borrow lifetime. `ById`, `ByTimestamp`, `ByTrader`, and
-`ByPrice` also remain the corresponding internal hash/tree index specs.
+the selected views while preserving the borrow lifetime. In the hand-written expansion, the
+accessors also serve as their corresponding internal hash/tree index specs.
 
 ## View Capabilities
 
@@ -93,6 +122,9 @@ These methods preserve the existing closure shapes and `Option`/`Vec` return typ
 to the new index and coordinated-mutation machinery. Each method is deprecated with its view-based
 replacement. `get_by_*` and `update_by_*` continue to support borrowed queries, including both
 `&String` and `&str` for the `trader` field.
+
+Generated maps emit these wrappers only for fields with one unambiguous single-field index. Compound
+indexes do not receive field-named wrappers.
 
 Legacy non-unique methods allocate their returned `Vec`; its ordering is not part of the
 compatibility contract. `get_mut_by_*` safely exposes only the unindexed `note` and `filled` fields

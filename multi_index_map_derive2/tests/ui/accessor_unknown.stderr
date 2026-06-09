@@ -1,0 +1,5 @@
+error: invalid index category; expected hashed_unique, hashed_non_unique, ordered_unique, or ordered_non_unique
+ --> tests/ui/accessor_unknown.rs:4:15
+  |
+4 | #[multi_index(unknown)]
+  |               ^^^^^^^
