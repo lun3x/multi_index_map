@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use multi_index_map::{
     IndexView, IndexViewMut, MultiIndexMap2, MultiIndexSelector, NonUniqueView, NonUniqueViewMut,
     OrderedView, UniqueView, UniqueViewMut,

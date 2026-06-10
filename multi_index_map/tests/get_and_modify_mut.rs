@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use multi_index_map::MultiIndexMap2;
 
 #[derive(MultiIndexMap2, Clone, Debug)]

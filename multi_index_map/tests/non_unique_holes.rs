@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use multi_index_map::MultiIndexMap2;
 
 // Non-unique index traversal must work with holes in the slab (after removals).

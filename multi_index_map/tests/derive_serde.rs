@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 #![cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

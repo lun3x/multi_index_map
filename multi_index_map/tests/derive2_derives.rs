@@ -1,4 +1,5 @@
 #![allow(clippy::duplicated_attributes)]
+#![allow(deprecated)]
 
 use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 use std::fmt::Debug;

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use multi_index_map::MultiIndexMap2;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]

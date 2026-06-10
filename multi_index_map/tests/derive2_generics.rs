@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 use std::fmt::Debug;
 use std::hash::Hash;
