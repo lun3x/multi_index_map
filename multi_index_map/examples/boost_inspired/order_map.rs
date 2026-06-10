@@ -377,10 +377,10 @@ impl OrderMapInner {
 
         self.id.reserve_for_insert(&mut self.nodes);
         self.trader.reserve_for_insert(&mut self.nodes);
-        let id = NodeId(self.nodes.insert(OrderNode::new(order)));
+        let id = NodeId::new(self.nodes.insert(OrderNode::new(order)));
         self.link_all(id);
         self.validate_debug();
-        Ok(&self.nodes[id.0].order)
+        Ok(&self.nodes[id.slot()].order)
     }
 
     fn clear(&mut self) {
@@ -394,7 +394,7 @@ impl OrderMapInner {
     }
 
     fn update_fields_for_ids(&mut self, mut ids: Vec<NodeId>) -> Vec<(&mut String, &mut bool)> {
-        ids.sort_unstable_by_key(|id| id.0);
+        ids.sort_unstable_by_key(|id| id.slot());
         assert!(
             !ids.windows(2).any(|pair| pair[0] == pair[1]),
             "compatibility selector received a duplicate arena node"
@@ -404,7 +404,7 @@ impl OrderMapInner {
         let mut targets = ids.into_iter();
         let mut target = targets.next();
         for (slot, node) in self.nodes.iter_mut() {
-            if target.map(|id| id.0) == Some(slot) {
+            if target.map(|id| id.slot()) == Some(slot) {
                 fields.push((&mut node.order.note, &mut node.order.filled));
                 target = targets.next();
             }
@@ -421,7 +421,7 @@ impl OrderMapInner {
             .map(|id| {
                 &self
                     .nodes
-                    .get(id.0)
+                    .get(id.slot())
                     .expect("compatibility selector targeted a missing arena node")
                     .order
             })
@@ -449,7 +449,7 @@ impl OrderMap {
         self.inner
             .id
             .find(key, &self.inner.nodes)
-            .map(|id| &self.inner.nodes[id.0].order)
+            .map(|id| &self.inner.nodes[id.slot()].order)
     }
 
     #[deprecated(note = "use by_id_mut().update(key, ...)")]
@@ -512,7 +512,7 @@ impl OrderMap {
         self.inner
             .timestamp
             .find(key, &self.inner.nodes)
-            .map(|id| &self.inner.nodes[id.0].order)
+            .map(|id| &self.inner.nodes[id.slot()].order)
     }
 
     #[deprecated(note = "use by_timestamp_mut().update(key, ...)")]
@@ -636,7 +636,7 @@ impl OrderMap {
             .price
             .equal_ids(key, &self.inner.nodes)
             .into_iter()
-            .map(|id| &self.inner.nodes[id.0].order)
+            .map(|id| &self.inner.nodes[id.slot()].order)
             .collect()
     }
 
@@ -710,7 +710,7 @@ impl OrderMapInner {
 
     fn remove_id(&mut self, id: NodeId) -> Order {
         self.unlink_all(id);
-        self.nodes.remove(id.0).order
+        self.nodes.remove(id.slot()).order
     }
 
     fn replace_id(&mut self, id: NodeId, replacement: Order) -> Result<Order, Conflict> {
@@ -736,14 +736,14 @@ impl OrderMapInner {
         }
 
         self.unlink_all(id);
-        let old = std::mem::replace(&mut self.nodes[id.0].order, replacement);
+        let old = std::mem::replace(&mut self.nodes[id.slot()].order, replacement);
         self.link_all(id);
         self.validate_debug();
         Ok(old)
     }
 
     fn modify_id(&mut self, id: NodeId, f: impl FnOnce(&mut Order)) -> Result<&Order, Conflict> {
-        let result = catch_unwind(AssertUnwindSafe(|| f(&mut self.nodes[id.0].order)));
+        let result = catch_unwind(AssertUnwindSafe(|| f(&mut self.nodes[id.slot()].order)));
         if let Err(payload) = result {
             self.remove_id(id);
             self.validate_debug();
@@ -786,13 +786,13 @@ impl OrderMapInner {
             return Err(Conflict { index, value });
         }
         self.validate_debug();
-        Ok(&self.nodes[id.0].order)
+        Ok(&self.nodes[id.slot()].order)
     }
 
     fn modify_ids(&mut self, ids: Vec<NodeId>, mut f: impl FnMut(&mut Order)) -> ModifyAllResult {
         let mut result = ModifyAllResult::default();
         for id in ids {
-            if !self.nodes.contains(id.0) {
+            if !self.nodes.contains(id.slot()) {
                 continue;
             }
             match self.modify_id(id, &mut f) {
@@ -804,17 +804,17 @@ impl OrderMapInner {
     }
 
     fn update_id(&mut self, id: NodeId, f: impl FnOnce(OrderUpdate<'_>)) -> &Order {
-        let order = &mut self.nodes[id.0].order;
+        let order = &mut self.nodes[id.slot()].order;
         f(OrderUpdate {
             note: &mut order.note,
             filled: &mut order.filled,
         });
-        &self.nodes[id.0].order
+        &self.nodes[id.slot()].order
     }
 
     fn update_ids(&mut self, ids: Vec<NodeId>, mut f: impl FnMut(OrderUpdate<'_>)) -> usize {
         for id in &ids {
-            let order = &mut self.nodes[id.0].order;
+            let order = &mut self.nodes[id.slot()].order;
             f(OrderUpdate {
                 note: &mut order.note,
                 filled: &mut order.filled,
@@ -868,7 +868,7 @@ where
     type Item = &'a Order;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.ids.next().map(|id| &self.nodes[id.0].order)
+        self.ids.next().map(|id| &self.nodes[id.slot()].order)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -881,7 +881,7 @@ where
     I: DoubleEndedIterator<Item = NodeId>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.ids.next_back().map(|id| &self.nodes[id.0].order)
+        self.ids.next_back().map(|id| &self.nodes[id.slot()].order)
     }
 }
 
@@ -987,7 +987,7 @@ impl<'a> IdView<'a> {
             .inner
             .id
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 
     pub(crate) fn contains_key(&self, key: &u64) -> bool {
@@ -1057,7 +1057,7 @@ impl<'a> TimestampView<'a> {
             .inner
             .timestamp
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 
     pub(crate) fn contains_key(&self, key: &u64) -> bool {
@@ -1434,7 +1434,7 @@ impl UniqueView for IdView<'_> {
             .inner
             .id
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 }
 
@@ -1464,7 +1464,7 @@ impl UniqueView for IdViewMut<'_> {
             .inner
             .id
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 }
 
@@ -1535,7 +1535,7 @@ impl UniqueView for TimestampView<'_> {
             .inner
             .timestamp
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 }
 
@@ -1585,7 +1585,7 @@ impl UniqueView for TimestampViewMut<'_> {
             .inner
             .timestamp
             .find(key, &self.map.inner.nodes)
-            .map(|id| &self.map.inner.nodes[id.0].order)
+            .map(|id| &self.map.inner.nodes[id.slot()].order)
     }
 }
 

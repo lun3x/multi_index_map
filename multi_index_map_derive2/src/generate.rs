@@ -656,7 +656,7 @@ fn generate_iterators(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) 
             type Item = &#view_lifetime <#node_param as ::multi_index_map::__private::NodeValue>::Value;
 
             fn next(&mut self) -> Option<Self::Item> {
-                self.ids.next().map(|id| self.nodes[id.0].value())
+                self.ids.next().map(|id| self.nodes[id.slot()].value())
             }
 
             fn size_hint(&self) -> (usize, Option<usize>) {
@@ -670,7 +670,7 @@ fn generate_iterators(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) 
             #iter_param: DoubleEndedIterator<Item = ::multi_index_map::__private::NodeId>,
         {
             fn next_back(&mut self) -> Option<Self::Item> {
-                self.ids.next_back().map(|id| self.nodes[id.0].value())
+                self.ids.next_back().map(|id| self.nodes[id.slot()].value())
             }
         }
 
@@ -717,22 +717,41 @@ fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>
             ),
         ],
     );
+    let value_generics = with_predicates(
+        with_type(with_lifetime(helper_generics(input), lifetime), ids),
+        [
+            parse_quote!(#element: #lifetime),
+            parse_quote!(#ids: Iterator<Item = &#lifetime #element>),
+        ],
+    );
+    let value_double_generics = with_predicates(
+        with_type(with_lifetime(helper_generics(input), lifetime), ids),
+        [
+            parse_quote!(#element: #lifetime),
+            parse_quote!(#ids: DoubleEndedIterator<Item = &#lifetime #element>),
+        ],
+    );
     let (iterator_impl, iterator_ty, iterator_where) = iterator_generics.split_for_impl();
     let (double_impl, double_ty, double_where) = double_generics.split_for_impl();
+    let (value_impl, value_ty, value_where) = value_generics.split_for_impl();
+    let (value_double_impl, value_double_ty, value_double_where) =
+        value_double_generics.split_for_impl();
 
     let base_wrapper = quote! {
         #[doc(hidden)]
-        #vis struct #iter #iterator_generics #iterator_where {
-            inner: #refs<#lifetime, #node, #ids>,
+        #vis struct #iter #value_generics #value_where {
+            inner: #ids,
         }
 
-        impl #iterator_impl Iterator for #iter #iterator_ty #iterator_where {
+        impl #value_impl Iterator for #iter #value_ty #value_where {
             type Item = &#lifetime #element;
             fn next(&mut self) -> Option<Self::Item> { self.inner.next() }
             fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
         }
 
-        impl #double_impl DoubleEndedIterator for #iter #double_ty #double_where {
+        impl #value_double_impl DoubleEndedIterator
+            for #iter #value_double_ty #value_double_where
+        {
             fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
         }
     };
@@ -1145,14 +1164,14 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 value: #element,
             ) -> Result<&#element, ::multi_index_map::Conflict<#element>> {
                 self.reserve_all();
-                let id = ::multi_index_map::__private::NodeId(self.nodes.insert(<#node>::new(value)));
+                let id = ::multi_index_map::__private::NodeId::new(self.nodes.insert(<#node>::new(value)));
                 if let Some(index) = self.link_all(id) {
-                    let value = self.nodes.remove(id.0).value;
+                    let value = self.nodes.remove(id.slot()).value;
                     self.validate_debug();
                     return Err(::multi_index_map::Conflict { index, value });
                 }
                 self.validate_debug();
-                Ok(&self.nodes[id.0].value)
+                Ok(&self.nodes[id.slot()].value)
             }
 
             fn clear(&mut self) {
@@ -1176,7 +1195,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
 
             fn remove_id(&mut self, id: ::multi_index_map::__private::NodeId) -> #element {
                 self.unlink_all(id);
-                self.nodes.remove(id.0).value
+                self.nodes.remove(id.slot()).value
             }
 
             fn replace_id(
@@ -1187,16 +1206,16 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 self.unlink_all(id);
                 self.reserve_all();
                 let candidate =
-                    ::multi_index_map::__private::NodeId(self.nodes.insert(<#node>::new(replacement)));
+                    ::multi_index_map::__private::NodeId::new(self.nodes.insert(<#node>::new(replacement)));
                 if let Some(index) = self.link_all(candidate) {
-                    let replacement = self.nodes.remove(candidate.0).value;
+                    let replacement = self.nodes.remove(candidate.slot()).value;
                     assert!(self.link_all(id).is_none(), "restoring replaced element conflicted");
                     self.validate_debug();
                     return Err(::multi_index_map::Conflict { index, value: replacement });
                 }
                 self.unlink_all(candidate);
-                let replacement = self.nodes.remove(candidate.0).value;
-                let old = ::std::mem::replace(&mut self.nodes[id.0].value, replacement);
+                let replacement = self.nodes.remove(candidate.slot()).value;
+                let old = ::std::mem::replace(&mut self.nodes[id.slot()].value, replacement);
                 assert!(self.link_all(id).is_none(), "prepared replacement unexpectedly conflicted");
                 self.validate_debug();
                 Ok(old)
@@ -1208,7 +1227,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 f: impl FnOnce(&mut #element),
             ) -> Result<&#element, ::multi_index_map::Conflict<#element>> {
                 let result = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {
-                    f(&mut self.nodes[id.0].value)
+                    f(&mut self.nodes[id.slot()].value)
                 }));
                 if let Err(payload) = result {
                     self.remove_id(id);
@@ -1223,7 +1242,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                     return Err(::multi_index_map::Conflict { index, value });
                 }
                 self.validate_debug();
-                Ok(&self.nodes[id.0].value)
+                Ok(&self.nodes[id.slot()].value)
             }
 
             fn modify_ids(
@@ -1233,7 +1252,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             ) -> ::multi_index_map::ModifyAllResult<#element> {
                 let mut result = ::multi_index_map::ModifyAllResult::default();
                 for id in ids {
-                    if !self.nodes.contains(id.0) { continue; }
+                    if !self.nodes.contains(id.slot()) { continue; }
                     match self.modify_id(id, &mut f) {
                         Ok(_) => result.modified += 1,
                         Err(conflict) => result.removed.push(conflict),
@@ -1250,9 +1269,9 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             where
                 #(#update_static_bounds)*
             {
-                let value = &mut self.nodes[id.0].value;
+                let value = &mut self.nodes[id.slot()].value;
                 f(#update_expr);
-                &self.nodes[id.0].value
+                &self.nodes[id.slot()].value
             }
 
             fn update_ids(
@@ -1264,7 +1283,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 #(#update_static_bounds)*
             {
                 for id in &ids {
-                    let value = &mut self.nodes[id.0].value;
+                    let value = &mut self.nodes[id.slot()].value;
                     f(#update_expr);
                 }
                 ids.len()
@@ -1351,7 +1370,7 @@ fn generate_compatibility_helpers(
                 &mut self,
                 mut ids: Vec<::multi_index_map::__private::NodeId>,
             ) -> Vec<#tuple_type> {
-                ids.sort_unstable_by_key(|id| id.0);
+                ids.sort_unstable_by_key(|id| id.slot());
                 ids.dedup();
                 vec![(); ids.len()]
             }
@@ -1366,13 +1385,13 @@ fn generate_compatibility_helpers(
                 &mut self,
                 mut ids: Vec<::multi_index_map::__private::NodeId>,
             ) -> Vec<#tuple_type> {
-                ids.sort_unstable_by_key(|id| id.0);
+                ids.sort_unstable_by_key(|id| id.slot());
                 assert!(!ids.windows(2).any(|pair| pair[0] == pair[1]));
                 let mut fields = Vec::with_capacity(ids.len());
                 let mut targets = ids.into_iter();
                 let mut target = targets.next();
                 for (slot, node) in self.nodes.iter_mut() {
-                    if target.map(|id| id.0) == Some(slot) {
+                    if target.map(|id| id.slot()) == Some(slot) {
                         fields.push((#(#values,)*));
                         target = targets.next();
                     }
@@ -1389,7 +1408,7 @@ fn generate_compatibility_helpers(
             &#lifetime self,
             ids: &[::multi_index_map::__private::NodeId],
         ) -> Vec<&#lifetime #element> {
-            ids.iter().filter_map(|id| self.nodes.get(id.0).map(|node| &node.value)).collect()
+            ids.iter().filter_map(|id| self.nodes.get(id.slot()).map(|node| &node.value)).collect()
         }
 
         fn panic_on_modify_conflicts(result: ::multi_index_map::ModifyAllResult<#element>) {
@@ -1561,7 +1580,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
         input,
         [quote!(#lifetime)],
         [quote!(
-            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Ids<#lifetime>
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Values<#lifetime>
         )],
     );
     let iter_elided = application(
@@ -1569,7 +1588,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
         input,
         [quote!('_)],
         [quote!(
-            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Ids<'_>
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Values<'_>
         )],
     );
     let equal_lifetime = application(
@@ -1621,13 +1640,11 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
         impl #selected_lifetime_impl #view #selected_lifetime_ty #selected_lifetime_where {
             #vis fn iter(&self) -> #iter_lifetime {
                 #iter {
-                    inner: #refs::new(
-                        &self.map.inner.nodes,
-                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                    inner:
+                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_values(
                             #index_ref,
                             &self.map.inner.nodes,
                         ),
-                    ),
                 }
             }
         }
@@ -1635,13 +1652,11 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
         impl #selected_impl #view_mut_elided #selected_where {
             #vis fn iter(&self) -> #iter_elided {
                 #iter {
-                    inner: #refs::new(
-                        &self.map.inner.nodes,
-                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                    inner:
+                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_values(
                             #index_ref,
                             &self.map.inner.nodes,
                         ),
-                    ),
                 }
             }
 
@@ -1667,7 +1682,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
                     #index_ref, #key_ref, &self.map.inner.nodes
-                ).map(|id| &self.map.inner.nodes[id.0].value)
+                ).map(|id| &self.map.inner.nodes[id.slot()].value)
             }
 
             #vis fn contains_key<#q_generics>(&self, #argument) -> bool
@@ -1687,7 +1702,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
                     #index_ref, #key_ref, &self.map.inner.nodes
-                ).map(|id| &self.map.inner.nodes[id.0].value)
+                ).map(|id| &self.map.inner.nodes[id.slot()].value)
             }
 
             #vis fn contains_key<#q_generics>(&self, #argument) -> bool
@@ -2064,7 +2079,7 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
                 #query_setup
                 <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
                     #index_ref, #query_ref, &self.map.inner.nodes
-                ).map(|id| &self.map.inner.nodes[id.0].value)
+                ).map(|id| &self.map.inner.nodes[id.slot()].value)
             }
         }
 
@@ -2073,7 +2088,7 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
                 #query_setup
                 <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
                     #index_ref, #query_ref, &self.map.inner.nodes
-                ).map(|id| &self.map.inner.nodes[id.0].value)
+                ).map(|id| &self.map.inner.nodes[id.slot()].value)
             }
         }
 
@@ -2275,7 +2290,6 @@ fn generate_inherent_compatibility_index(
     let map_ty = applied(map, input);
     let inner = applied(&names.inner, input);
     let node = applied(&names.node, input);
-    let refs = &names.refs;
     let kind = &index.kind;
     let spec = &index.spec;
     let storage = &index.storage;
@@ -2308,7 +2322,7 @@ fn generate_inherent_compatibility_index(
         input,
         [quote!('_)],
         [quote!(
-            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Ids<'_>
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::Values<'_>
         )],
     );
     let collection = quote!(
@@ -2365,7 +2379,7 @@ fn generate_inherent_compatibility_index(
                         &self.inner.#storage, key, &self.inner.nodes
                     )
                     .into_iter()
-                    .map(|id| &self.inner.nodes[id.0].value)
+                    .map(|id| &self.inner.nodes[id.slot()].value)
                     .collect();
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
@@ -2431,12 +2445,10 @@ fn generate_inherent_compatibility_index(
             #[deprecated(note = #iter_note)]
             #field_vis fn #iter_by(&self) -> #iter_ty {
                 #iter {
-                    inner: #refs::new(
-                        &self.inner.nodes,
-                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                    inner:
+                        <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_values(
                             &self.inner.#storage, &self.inner.nodes
                         ),
-                    ),
                 }
             }
         }

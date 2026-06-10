@@ -3,6 +3,7 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 use std::ops::{Bound, RangeBounds};
 
 #[cfg(feature = "rustc-hash")]
@@ -11,7 +12,19 @@ pub type DefaultHashBuilder = rustc_hash::FxBuildHasher;
 pub type DefaultHashBuilder = std::hash::RandomState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NodeId(pub usize);
+pub struct NodeId(NonZeroUsize);
+
+impl NodeId {
+    #[inline(always)]
+    pub fn new(slot: usize) -> Self {
+        Self(NonZeroUsize::new(slot.wrapping_add(1)).expect("arena slot overflow"))
+    }
+
+    #[inline(always)]
+    pub fn slot(self) -> usize {
+        self.0.get() - 1
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HashLink {
@@ -255,11 +268,17 @@ where
         N: 'a,
         S: 'a,
         Self::Index: 'a;
+    type Values<'a>: Iterator<Item = &'a N::Value>
+    where
+        N: 'a,
+        S: 'a,
+        Self::Index: 'a;
 
     fn len(index: &Self::Index) -> usize;
     fn clear(index: &mut Self::Index);
     fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>);
     fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a>;
+    fn iter_values<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Values<'a>;
     fn insert(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
     fn remove(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>);
     fn reconcile(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
@@ -339,6 +358,29 @@ pub struct HashIds<'a, N, S, const UNIQUE: bool, H = DefaultHashBuilder> {
     remaining: usize,
 }
 
+pub struct HashValues<'a, N> {
+    inner: slab::Iter<'a, N>,
+}
+
+impl<'a, N> Iterator for HashValues<'a, N>
+where
+    N: NodeValue,
+{
+    type Item = &'a N::Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(_, node)| node.value())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<N: NodeValue> ExactSizeIterator for HashValues<'_, N> {}
+
+impl<N: NodeValue> std::iter::FusedIterator for HashValues<'_, N> {}
+
 impl<N, S, const UNIQUE: bool, H> Iterator for HashIds<'_, N, S, UNIQUE, H>
 where
     N: NodeValue,
@@ -349,7 +391,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(id) = self.current {
-                self.current = S::link(&self.nodes[id.0]).next;
+                self.current = S::link(&self.nodes[id.slot()]).next;
                 self.remaining -= 1;
                 return Some(id);
             }
@@ -396,7 +438,7 @@ where
             return None;
         }
         let id = self.current?;
-        self.current = S::link(&self.nodes[id.0]).next;
+        self.current = S::link(&self.nodes[id.slot()]).next;
         self.remaining -= 1;
         Some(id)
     }
@@ -464,13 +506,13 @@ where
     {
         let ids: Vec<_> = nodes
             .iter()
-            .filter_map(|(id, node)| S::link(node).linked.then_some(NodeId(id)))
+            .filter_map(|(id, node)| S::link(node).linked.then_some(NodeId::new(id)))
             .collect();
 
         self.buckets = vec![None; bucket_count.max(8)];
         self.len = 0;
         for id in ids {
-            *S::link_mut(&mut nodes[id.0]) = HashLink::default();
+            *S::link_mut(&mut nodes[id.slot()]) = HashLink::default();
             let inserted = self.insert(id, nodes);
             debug_assert!(inserted.is_ok());
         }
@@ -486,7 +528,7 @@ where
         let hash = self.hash(key);
         let mut current = self.buckets[self.bucket(hash)];
         while let Some(id) = current {
-            let node = &nodes[id.0];
+            let node = &nodes[id.slot()];
             let link = S::link(node);
             if link.hash == hash && S::key(node.value()).equivalent(key) {
                 return Some(id);
@@ -507,7 +549,7 @@ where
         let mut current = self.buckets[self.bucket(hash)];
         let mut ids = Vec::new();
         while let Some(id) = current {
-            let node = &nodes[id.0];
+            let node = &nodes[id.slot()];
             let link = S::link(node);
             if link.hash == hash && S::key(node.value()).equivalent(key) {
                 ids.push(id);
@@ -533,6 +575,16 @@ where
         }
     }
 
+    pub fn iter_values<'a, N>(&'a self, nodes: &'a Slab<N>) -> HashValues<'a, N>
+    where
+        N: NodeValue,
+        S: IndexSpec<N, Link = HashLink>,
+    {
+        HashValues {
+            inner: nodes.iter(),
+        }
+    }
+
     pub fn equal_iter_ids<'a, N, Q>(
         &'a self,
         key: &Q,
@@ -548,7 +600,7 @@ where
         let mut remaining = 0;
         let mut current = first;
         while let Some(id) = current {
-            let node = &nodes[id.0];
+            let node = &nodes[id.slot()];
             let link = S::link(node);
             if !S::key(node.value()).equivalent(key) {
                 break;
@@ -570,15 +622,15 @@ where
         S: IndexSpec<N, Link = HashLink>,
         for<'a> S::Key<'a>: Eq + Hash,
     {
-        let hash = self.hash(&S::key(nodes[id.0].value()));
+        let hash = self.hash(&S::key(nodes[id.slot()].value()));
         let bucket = self.bucket(hash);
         let mut current = self.buckets[bucket];
         let mut equal_last = None;
 
         while let Some(other) = current {
-            let node = &nodes[other.0];
+            let node = &nodes[other.slot()];
             let link = S::link(node);
-            if link.hash == hash && S::key(node.value()) == S::key(nodes[id.0].value()) {
+            if link.hash == hash && S::key(node.value()) == S::key(nodes[id.slot()].value()) {
                 if UNIQUE {
                     return Err(other);
                 }
@@ -590,24 +642,24 @@ where
         }
 
         let (prev, next) = if let Some(last) = equal_last {
-            (Some(last), S::link(&nodes[last.0]).next)
+            (Some(last), S::link(&nodes[last.slot()]).next)
         } else {
             (None, self.buckets[bucket])
         };
 
-        *S::link_mut(&mut nodes[id.0]) = HashLink {
+        *S::link_mut(&mut nodes[id.slot()]) = HashLink {
             prev,
             next,
             hash,
             linked: true,
         };
         if let Some(prev) = prev {
-            S::link_mut(&mut nodes[prev.0]).next = Some(id);
+            S::link_mut(&mut nodes[prev.slot()]).next = Some(id);
         } else {
             self.buckets[bucket] = Some(id);
         }
         if let Some(next) = next {
-            S::link_mut(&mut nodes[next.0]).prev = Some(id);
+            S::link_mut(&mut nodes[next.slot()]).prev = Some(id);
         }
         self.len += 1;
         Ok(())
@@ -618,20 +670,20 @@ where
         N: NodeValue,
         S: IndexSpec<N, Link = HashLink>,
     {
-        let link = *S::link(&nodes[id.0]);
+        let link = *S::link(&nodes[id.slot()]);
         if !link.linked {
             return;
         }
         if let Some(prev) = link.prev {
-            S::link_mut(&mut nodes[prev.0]).next = link.next;
+            S::link_mut(&mut nodes[prev.slot()]).next = link.next;
         } else {
             let bucket = self.bucket(link.hash);
             self.buckets[bucket] = link.next;
         }
         if let Some(next) = link.next {
-            S::link_mut(&mut nodes[next.0]).prev = link.prev;
+            S::link_mut(&mut nodes[next.slot()]).prev = link.prev;
         }
-        *S::link_mut(&mut nodes[id.0]) = HashLink::default();
+        *S::link_mut(&mut nodes[id.slot()]) = HashLink::default();
         self.len -= 1;
     }
 
@@ -654,8 +706,8 @@ where
         S: IndexSpec<N, Link = HashLink>,
         for<'a> S::Key<'a>: Eq + Hash,
     {
-        let key = S::key(nodes[id.0].value());
-        let link = S::link(&nodes[id.0]);
+        let key = S::key(nodes[id.slot()].value());
+        let link = S::link(&nodes[id.slot()]);
         let hash = self.hash(&key);
         if hash != link.hash {
             return false;
@@ -666,7 +718,7 @@ where
         let mut left_equal_group = false;
         let mut saw_id = false;
         while let Some(other) = current {
-            let other_node = &nodes[other.0];
+            let other_node = &nodes[other.slot()];
             let other_link = S::link(other_node);
             let equal = other_link.hash == hash && S::key(other_node.value()) == key;
             if equal {
@@ -699,12 +751,12 @@ where
             let mut prev = None;
             let mut groups: Vec<NodeId> = Vec::new();
             while let Some(id) = current {
-                if id.0 >= seen.len() || seen[id.0] {
+                if id.slot() >= seen.len() || seen[id.slot()] {
                     return Err(format!("{} contains a cycle or duplicate node", S::NAME));
                 }
-                seen[id.0] = true;
+                seen[id.slot()] = true;
                 let node = nodes
-                    .get(id.0)
+                    .get(id.slot())
                     .ok_or_else(|| format!("{} points outside the arena", S::NAME))?;
                 let link = S::link(node);
                 if !link.linked || link.prev != prev {
@@ -717,11 +769,11 @@ where
                 let key = S::key(node.value());
                 if groups
                     .last()
-                    .is_none_or(|last| S::key(nodes[last.0].value()) != key)
+                    .is_none_or(|last| S::key(nodes[last.slot()].value()) != key)
                 {
                     if groups
                         .iter()
-                        .any(|group| S::key(nodes[group.0].value()) == key)
+                        .any(|group| S::key(nodes[group.slot()].value()) == key)
                     {
                         return Err(format!("{} has a split equivalent-key group", S::NAME));
                     }
@@ -784,6 +836,68 @@ pub struct OrderedIds<'a, N, S, const UNIQUE: bool> {
     front: Option<NodeId>,
     back: Option<NodeId>,
     remaining: usize,
+}
+
+pub struct OrderedValues<'a, N, S, const UNIQUE: bool> {
+    index: &'a OrderedIndex<S, UNIQUE>,
+    nodes: &'a Slab<N>,
+    front: Option<NodeId>,
+    back: Option<NodeId>,
+    remaining: usize,
+}
+
+impl<'a, N, S, const UNIQUE: bool> Iterator for OrderedValues<'a, N, S, UNIQUE>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = OrderedLink>,
+{
+    type Item = &'a N::Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.front?;
+        self.remaining -= 1;
+        self.front = if self.remaining == 0 {
+            None
+        } else {
+            self.index.successor(id, self.nodes)
+        };
+        Some(self.nodes[id.slot()].value())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl<N, S, const UNIQUE: bool> DoubleEndedIterator for OrderedValues<'_, N, S, UNIQUE>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = OrderedLink>,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let id = self.back?;
+        self.remaining -= 1;
+        self.back = if self.remaining == 0 {
+            None
+        } else {
+            self.index.predecessor(id, self.nodes)
+        };
+        Some(self.nodes[id.slot()].value())
+    }
+}
+
+impl<N, S, const UNIQUE: bool> ExactSizeIterator for OrderedValues<'_, N, S, UNIQUE>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = OrderedLink>,
+{
+}
+
+impl<N, S, const UNIQUE: bool> std::iter::FusedIterator for OrderedValues<'_, N, S, UNIQUE>
+where
+    N: NodeValue,
+    S: IndexSpec<N, Link = OrderedLink>,
+{
 }
 
 impl<N, S, const UNIQUE: bool> Iterator for OrderedIds<'_, N, S, UNIQUE>
@@ -916,7 +1030,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        id.map_or(Color::Black, |id| S::link(&nodes[id.0]).color)
+        id.map_or(Color::Black, |id| S::link(&nodes[id.slot()]).color)
     }
 
     fn set_color<N>(&self, id: Option<NodeId>, color: Color, nodes: &mut Slab<N>)
@@ -925,7 +1039,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         S: IndexSpec<N, Link = OrderedLink>,
     {
         if let Some(id) = id {
-            S::link_mut(&mut nodes[id.0]).color = color;
+            S::link_mut(&mut nodes[id.slot()]).color = color;
         }
     }
 
@@ -934,7 +1048,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        id.and_then(|id| S::link(&nodes[id.0]).parent)
+        id.and_then(|id| S::link(&nodes[id.slot()]).parent)
     }
 
     fn left<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Option<NodeId>
@@ -942,7 +1056,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        id.and_then(|id| S::link(&nodes[id.0]).left)
+        id.and_then(|id| S::link(&nodes[id.slot()]).left)
     }
 
     fn right<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Option<NodeId>
@@ -950,7 +1064,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        id.and_then(|id| S::link(&nodes[id.0]).right)
+        id.and_then(|id| S::link(&nodes[id.slot()]).right)
     }
 
     pub fn find<N, Q>(&self, key: &Q, nodes: &Slab<N>) -> Option<NodeId>
@@ -963,12 +1077,12 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let mut current = self.root;
         let mut found = None;
         while let Some(id) = current {
-            match S::key(nodes[id.0].value()).compare(key) {
-                Ordering::Less => current = S::link(&nodes[id.0]).right,
-                Ordering::Greater => current = S::link(&nodes[id.0]).left,
+            match S::key(nodes[id.slot()].value()).compare(key) {
+                Ordering::Less => current = S::link(&nodes[id.slot()]).right,
+                Ordering::Greater => current = S::link(&nodes[id.slot()]).left,
                 Ordering::Equal => {
                     found = Some(id);
-                    current = S::link(&nodes[id.0]).left;
+                    current = S::link(&nodes[id.slot()]).left;
                 }
             }
         }
@@ -985,7 +1099,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let mut ids = Vec::new();
         let mut current = self.lower_bound(key, nodes);
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).compare(key) != Ordering::Equal {
+            if S::key(nodes[id.slot()].value()).compare(key) != Ordering::Equal {
                 break;
             }
             ids.push(id);
@@ -1012,8 +1126,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         };
         let done = match (front, back) {
             (Some(front), Some(back)) => {
-                S::key(nodes[front.0].value()).compare(key) != Ordering::Equal
-                    || S::key(nodes[back.0].value()).compare(key) != Ordering::Equal
+                S::key(nodes[front.slot()].value()).compare(key) != Ordering::Equal
+                    || S::key(nodes[back.slot()].value()).compare(key) != Ordering::Equal
             }
             _ => true,
         };
@@ -1054,6 +1168,20 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         }
     }
 
+    pub fn iter_values<'a, N>(&'a self, nodes: &'a Slab<N>) -> OrderedValues<'a, N, S, UNIQUE>
+    where
+        N: NodeValue,
+        S: IndexSpec<N, Link = OrderedLink>,
+    {
+        OrderedValues {
+            index: self,
+            nodes,
+            front: self.first,
+            back: self.last,
+            remaining: self.len,
+        }
+    }
+
     pub fn range_iter_ids<'a, N, Q, R>(
         &'a self,
         range: R,
@@ -1085,7 +1213,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         };
         let done = match (front, back) {
             (Some(front), Some(back)) => {
-                S::key(nodes[front.0].value()) > S::key(nodes[back.0].value())
+                S::key(nodes[front.slot()].value()) > S::key(nodes[back.slot()].value())
             }
             _ => true,
         };
@@ -1108,11 +1236,11 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let mut current = self.root;
         let mut result = None;
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).compare(key) == Ordering::Less {
-                current = S::link(&nodes[id.0]).right;
+            if S::key(nodes[id.slot()].value()).compare(key) == Ordering::Less {
+                current = S::link(&nodes[id.slot()]).right;
             } else {
                 result = Some(id);
-                current = S::link(&nodes[id.0]).left;
+                current = S::link(&nodes[id.slot()]).left;
             }
         }
         result
@@ -1128,11 +1256,11 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let mut current = self.root;
         let mut result = None;
         while let Some(id) = current {
-            if S::key(nodes[id.0].value()).compare(key) != Ordering::Greater {
-                current = S::link(&nodes[id.0]).right;
+            if S::key(nodes[id.slot()].value()).compare(key) != Ordering::Greater {
+                current = S::link(&nodes[id.slot()]).right;
             } else {
                 result = Some(id);
-                current = S::link(&nodes[id.0]).left;
+                current = S::link(&nodes[id.slot()]).left;
             }
         }
         result
@@ -1143,7 +1271,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        while let Some(left) = S::link(&nodes[id.0]).left {
+        while let Some(left) = S::link(&nodes[id.slot()]).left {
             id = left;
         }
         id
@@ -1154,7 +1282,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        while let Some(right) = S::link(&nodes[id.0]).right {
+        while let Some(right) = S::link(&nodes[id.slot()]).right {
             id = right;
         }
         id
@@ -1165,17 +1293,17 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        if let Some(right) = S::link(&nodes[id.0]).right {
+        if let Some(right) = S::link(&nodes[id.slot()]).right {
             return Some(self.minimum(right, nodes));
         }
         let mut child = id;
-        let mut parent = S::link(&nodes[child.0]).parent;
+        let mut parent = S::link(&nodes[child.slot()]).parent;
         while let Some(parent_id) = parent {
-            if S::link(&nodes[parent_id.0]).left == Some(child) {
+            if S::link(&nodes[parent_id.slot()]).left == Some(child) {
                 return Some(parent_id);
             }
             child = parent_id;
-            parent = S::link(&nodes[child.0]).parent;
+            parent = S::link(&nodes[child.slot()]).parent;
         }
         None
     }
@@ -1185,17 +1313,17 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        if let Some(left) = S::link(&nodes[id.0]).left {
+        if let Some(left) = S::link(&nodes[id.slot()]).left {
             return Some(self.maximum(left, nodes));
         }
         let mut child = id;
-        let mut parent = S::link(&nodes[child.0]).parent;
+        let mut parent = S::link(&nodes[child.slot()]).parent;
         while let Some(parent_id) = parent {
-            if S::link(&nodes[parent_id.0]).right == Some(child) {
+            if S::link(&nodes[parent_id.slot()]).right == Some(child) {
                 return Some(parent_id);
             }
             child = parent_id;
-            parent = S::link(&nodes[child.0]).parent;
+            parent = S::link(&nodes[child.slot()]).parent;
         }
         None
     }
@@ -1211,20 +1339,20 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let mut place_left = false;
         while let Some(other) = current {
             parent = Some(other);
-            match S::key(nodes[id.0].value()).cmp(&S::key(nodes[other.0].value())) {
+            match S::key(nodes[id.slot()].value()).cmp(&S::key(nodes[other.slot()].value())) {
                 Ordering::Less => {
                     place_left = true;
-                    current = S::link(&nodes[other.0]).left;
+                    current = S::link(&nodes[other.slot()]).left;
                 }
                 Ordering::Equal if UNIQUE => return Err(other),
                 Ordering::Equal | Ordering::Greater => {
                     place_left = false;
-                    current = S::link(&nodes[other.0]).right;
+                    current = S::link(&nodes[other.slot()]).right;
                 }
             }
         }
 
-        *S::link_mut(&mut nodes[id.0]) = OrderedLink {
+        *S::link_mut(&mut nodes[id.slot()]) = OrderedLink {
             parent,
             color: Color::Red,
             linked: true,
@@ -1232,9 +1360,9 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         };
         if let Some(parent) = parent {
             if place_left {
-                S::link_mut(&mut nodes[parent.0]).left = Some(id);
+                S::link_mut(&mut nodes[parent.slot()]).left = Some(id);
             } else {
-                S::link_mut(&mut nodes[parent.0]).right = Some(id);
+                S::link_mut(&mut nodes[parent.slot()]).right = Some(id);
             }
         } else {
             self.root = Some(id);
@@ -1251,27 +1379,27 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        let y = S::link(&nodes[x.0])
+        let y = S::link(&nodes[x.slot()])
             .right
             .expect("left rotation needs right child");
-        let y_left = S::link(&nodes[y.0]).left;
-        S::link_mut(&mut nodes[x.0]).right = y_left;
+        let y_left = S::link(&nodes[y.slot()]).left;
+        S::link_mut(&mut nodes[x.slot()]).right = y_left;
         if let Some(y_left) = y_left {
-            S::link_mut(&mut nodes[y_left.0]).parent = Some(x);
+            S::link_mut(&mut nodes[y_left.slot()]).parent = Some(x);
         }
-        let x_parent = S::link(&nodes[x.0]).parent;
-        S::link_mut(&mut nodes[y.0]).parent = x_parent;
+        let x_parent = S::link(&nodes[x.slot()]).parent;
+        S::link_mut(&mut nodes[y.slot()]).parent = x_parent;
         if let Some(parent) = x_parent {
-            if S::link(&nodes[parent.0]).left == Some(x) {
-                S::link_mut(&mut nodes[parent.0]).left = Some(y);
+            if S::link(&nodes[parent.slot()]).left == Some(x) {
+                S::link_mut(&mut nodes[parent.slot()]).left = Some(y);
             } else {
-                S::link_mut(&mut nodes[parent.0]).right = Some(y);
+                S::link_mut(&mut nodes[parent.slot()]).right = Some(y);
             }
         } else {
             self.root = Some(y);
         }
-        S::link_mut(&mut nodes[y.0]).left = Some(x);
-        S::link_mut(&mut nodes[x.0]).parent = Some(y);
+        S::link_mut(&mut nodes[y.slot()]).left = Some(x);
+        S::link_mut(&mut nodes[x.slot()]).parent = Some(y);
     }
 
     fn rotate_right<N>(&mut self, x: NodeId, nodes: &mut Slab<N>)
@@ -1279,27 +1407,27 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        let y = S::link(&nodes[x.0])
+        let y = S::link(&nodes[x.slot()])
             .left
             .expect("right rotation needs left child");
-        let y_right = S::link(&nodes[y.0]).right;
-        S::link_mut(&mut nodes[x.0]).left = y_right;
+        let y_right = S::link(&nodes[y.slot()]).right;
+        S::link_mut(&mut nodes[x.slot()]).left = y_right;
         if let Some(y_right) = y_right {
-            S::link_mut(&mut nodes[y_right.0]).parent = Some(x);
+            S::link_mut(&mut nodes[y_right.slot()]).parent = Some(x);
         }
-        let x_parent = S::link(&nodes[x.0]).parent;
-        S::link_mut(&mut nodes[y.0]).parent = x_parent;
+        let x_parent = S::link(&nodes[x.slot()]).parent;
+        S::link_mut(&mut nodes[y.slot()]).parent = x_parent;
         if let Some(parent) = x_parent {
-            if S::link(&nodes[parent.0]).right == Some(x) {
-                S::link_mut(&mut nodes[parent.0]).right = Some(y);
+            if S::link(&nodes[parent.slot()]).right == Some(x) {
+                S::link_mut(&mut nodes[parent.slot()]).right = Some(y);
             } else {
-                S::link_mut(&mut nodes[parent.0]).left = Some(y);
+                S::link_mut(&mut nodes[parent.slot()]).left = Some(y);
             }
         } else {
             self.root = Some(y);
         }
-        S::link_mut(&mut nodes[y.0]).right = Some(x);
-        S::link_mut(&mut nodes[x.0]).parent = Some(y);
+        S::link_mut(&mut nodes[y.slot()]).right = Some(x);
+        S::link_mut(&mut nodes[x.slot()]).parent = Some(y);
     }
 
     fn insert_fixup<N>(&mut self, mut z: NodeId, nodes: &mut Slab<N>)
@@ -1356,18 +1484,18 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        let parent = S::link(&nodes[u.0]).parent;
+        let parent = S::link(&nodes[u.slot()]).parent;
         if let Some(parent) = parent {
-            if S::link(&nodes[parent.0]).left == Some(u) {
-                S::link_mut(&mut nodes[parent.0]).left = v;
+            if S::link(&nodes[parent.slot()]).left == Some(u) {
+                S::link_mut(&mut nodes[parent.slot()]).left = v;
             } else {
-                S::link_mut(&mut nodes[parent.0]).right = v;
+                S::link_mut(&mut nodes[parent.slot()]).right = v;
             }
         } else {
             self.root = v;
         }
         if let Some(v) = v {
-            S::link_mut(&mut nodes[v.0]).parent = parent;
+            S::link_mut(&mut nodes[v.slot()]).parent = parent;
         }
     }
 
@@ -1376,49 +1504,49 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         N: NodeValue,
         S: IndexSpec<N, Link = OrderedLink>,
     {
-        if !S::link(&nodes[z.0]).linked {
+        if !S::link(&nodes[z.slot()]).linked {
             return;
         }
         let mut y = z;
-        let mut y_color = S::link(&nodes[y.0]).color;
+        let mut y_color = S::link(&nodes[y.slot()]).color;
         let x;
         let x_parent;
-        if S::link(&nodes[z.0]).left.is_none() {
-            x = S::link(&nodes[z.0]).right;
-            x_parent = S::link(&nodes[z.0]).parent;
+        if S::link(&nodes[z.slot()]).left.is_none() {
+            x = S::link(&nodes[z.slot()]).right;
+            x_parent = S::link(&nodes[z.slot()]).parent;
             self.transplant(z, x, nodes);
-        } else if S::link(&nodes[z.0]).right.is_none() {
-            x = S::link(&nodes[z.0]).left;
-            x_parent = S::link(&nodes[z.0]).parent;
+        } else if S::link(&nodes[z.slot()]).right.is_none() {
+            x = S::link(&nodes[z.slot()]).left;
+            x_parent = S::link(&nodes[z.slot()]).parent;
             self.transplant(z, x, nodes);
         } else {
-            y = self.minimum(S::link(&nodes[z.0]).right.unwrap(), nodes);
-            y_color = S::link(&nodes[y.0]).color;
-            x = S::link(&nodes[y.0]).right;
-            if S::link(&nodes[y.0]).parent == Some(z) {
+            y = self.minimum(S::link(&nodes[z.slot()]).right.unwrap(), nodes);
+            y_color = S::link(&nodes[y.slot()]).color;
+            x = S::link(&nodes[y.slot()]).right;
+            if S::link(&nodes[y.slot()]).parent == Some(z) {
                 x_parent = Some(y);
                 if let Some(x) = x {
-                    S::link_mut(&mut nodes[x.0]).parent = Some(y);
+                    S::link_mut(&mut nodes[x.slot()]).parent = Some(y);
                 }
             } else {
-                x_parent = S::link(&nodes[y.0]).parent;
+                x_parent = S::link(&nodes[y.slot()]).parent;
                 self.transplant(y, x, nodes);
-                let z_right = S::link(&nodes[z.0]).right;
-                S::link_mut(&mut nodes[y.0]).right = z_right;
+                let z_right = S::link(&nodes[z.slot()]).right;
+                S::link_mut(&mut nodes[y.slot()]).right = z_right;
                 if let Some(right) = z_right {
-                    S::link_mut(&mut nodes[right.0]).parent = Some(y);
+                    S::link_mut(&mut nodes[right.slot()]).parent = Some(y);
                 }
             }
             self.transplant(z, Some(y), nodes);
-            let z_left = S::link(&nodes[z.0]).left;
-            let z_color = S::link(&nodes[z.0]).color;
-            S::link_mut(&mut nodes[y.0]).left = z_left;
-            S::link_mut(&mut nodes[y.0]).color = z_color;
+            let z_left = S::link(&nodes[z.slot()]).left;
+            let z_color = S::link(&nodes[z.slot()]).color;
+            S::link_mut(&mut nodes[y.slot()]).left = z_left;
+            S::link_mut(&mut nodes[y.slot()]).color = z_color;
             if let Some(left) = z_left {
-                S::link_mut(&mut nodes[left.0]).parent = Some(y);
+                S::link_mut(&mut nodes[left.slot()]).parent = Some(y);
             }
         }
-        *S::link_mut(&mut nodes[z.0]) = OrderedLink::default();
+        *S::link_mut(&mut nodes[z.slot()]) = OrderedLink::default();
         self.len -= 1;
         if y_color == Color::Black {
             self.delete_fixup(x, x_parent, nodes);
@@ -1524,11 +1652,11 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         S: IndexSpec<N, Link = OrderedLink>,
         for<'a> S::Key<'a>: Ord,
     {
-        let key = S::key(nodes[id.0].value());
+        let key = S::key(nodes[id.slot()].value());
         let previous = self.predecessor(id, nodes);
         let next = self.successor(id, nodes);
         let after_previous = previous.is_none_or(|previous| {
-            let previous = S::key(nodes[previous.0].value());
+            let previous = S::key(nodes[previous.slot()].value());
             if UNIQUE {
                 previous < key
             } else {
@@ -1536,7 +1664,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             }
         });
         let before_next = next.is_none_or(|next| {
-            let next = S::key(nodes[next.0].value());
+            let next = S::key(nodes[next.slot()].value());
             if UNIQUE {
                 key < next
             } else {
@@ -1565,8 +1693,8 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             return Err(format!("{} first/last links are stale", S::NAME));
         }
         for pair in ids.windows(2) {
-            let left = S::key(nodes[pair[0].0].value());
-            let right = S::key(nodes[pair[1].0].value());
+            let left = S::key(nodes[pair[0].slot()].value());
+            let right = S::key(nodes[pair[1].slot()].value());
             if if UNIQUE { left >= right } else { left > right } {
                 return Err(format!("{} tree is out of order", S::NAME));
             }
@@ -1595,12 +1723,12 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let Some(id) = id else {
             return Ok((1, 0));
         };
-        if id.0 >= seen.len() || seen[id.0] {
+        if id.slot() >= seen.len() || seen[id.slot()] {
             return Err(format!("{} contains a cycle or duplicate node", S::NAME));
         }
-        seen[id.0] = true;
+        seen[id.slot()] = true;
         let node = nodes
-            .get(id.0)
+            .get(id.slot())
             .ok_or_else(|| format!("{} points outside the arena", S::NAME))?;
         let link = S::link(node);
         if !link.linked {
@@ -1608,14 +1736,14 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         }
         let key = S::key(node.value());
         if min.is_some_and(|min| {
-            let min = S::key(nodes[min.0].value());
+            let min = S::key(nodes[min.slot()].value());
             if UNIQUE {
                 key <= min
             } else {
                 key < min
             }
         }) || max.is_some_and(|max| {
-            let max = S::key(nodes[max.0].value());
+            let max = S::key(nodes[max.slot()].value());
             if UNIQUE {
                 key >= max
             } else {
@@ -1625,7 +1753,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
             return Err(format!("{} violates tree ordering", S::NAME));
         }
         for child in [link.left, link.right].into_iter().flatten() {
-            if S::link(&nodes[child.0]).parent != Some(id) {
+            if S::link(&nodes[child.slot()]).parent != Some(id) {
                 return Err(format!("{} has inconsistent parent links", S::NAME));
             }
         }
@@ -1670,6 +1798,12 @@ macro_rules! impl_hashed_kind {
                 N: 'a,
                 S: 'a,
                 Self::Index: 'a;
+            type Values<'a>
+                = HashValues<'a, N>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
 
             fn len(index: &Self::Index) -> usize {
                 index.len()
@@ -1685,6 +1819,10 @@ macro_rules! impl_hashed_kind {
 
             fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a> {
                 index.iter_ids(nodes)
+            }
+
+            fn iter_values<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Values<'a> {
+                index.iter_values(nodes)
             }
 
             fn insert(
@@ -1759,6 +1897,12 @@ macro_rules! impl_ordered_kind {
                 N: 'a,
                 S: 'a,
                 Self::Index: 'a;
+            type Values<'a>
+                = OrderedValues<'a, N, S, $unique>
+            where
+                N: 'a,
+                S: 'a,
+                Self::Index: 'a;
 
             fn len(index: &Self::Index) -> usize {
                 index.len()
@@ -1772,6 +1916,10 @@ macro_rules! impl_ordered_kind {
 
             fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a> {
                 index.iter_ids(nodes)
+            }
+
+            fn iter_values<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Values<'a> {
+                index.iter_values(nodes)
             }
 
             fn insert(
@@ -1856,3 +2004,18 @@ impl_hashed_kind!(HashedUnique, true);
 impl_hashed_kind!(HashedNonUnique, false);
 impl_ordered_kind!(OrderedUnique, true);
 impl_ordered_kind!(OrderedNonUnique, false);
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{HashLink, NodeId, OrderedLink};
+    use std::mem::size_of;
+
+    #[test]
+    fn node_ids_and_links_stay_compact() {
+        assert_eq!(NodeId::new(0).slot(), 0);
+        assert_eq!(NodeId::new(usize::MAX - 1).slot(), usize::MAX - 1);
+        assert_eq!(size_of::<Option<NodeId>>(), size_of::<usize>());
+        assert!(size_of::<HashLink>() <= 32);
+        assert!(size_of::<OrderedLink>() <= 32);
+    }
+}
