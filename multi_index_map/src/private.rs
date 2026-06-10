@@ -43,6 +43,29 @@ pub trait NodeValue {
     fn value(&self) -> &Self::Value;
 }
 
+#[doc(hidden)]
+pub struct DebugValues<'a, N> {
+    nodes: &'a Slab<N>,
+}
+
+impl<'a, N> DebugValues<'a, N> {
+    pub fn new(nodes: &'a Slab<N>) -> Self {
+        Self { nodes }
+    }
+}
+
+impl<N> std::fmt::Debug for DebugValues<'_, N>
+where
+    N: NodeValue,
+    N::Value: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(self.nodes.iter().map(|(_, node)| node.value()))
+            .finish()
+    }
+}
+
 pub trait Equivalent<Q: ?Sized> {
     fn equivalent(&self, query: &Q) -> bool;
 }

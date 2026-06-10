@@ -906,6 +906,61 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             }
         }
     });
+    let clone_impl = input.derives.clone.then(|| {
+        let clone_generics = with_predicates(
+            map_helper_generics.clone(),
+            [parse_quote!(#element: ::std::clone::Clone)],
+        );
+        let (clone_impl_generics, _, clone_where_clause) = clone_generics.split_for_impl();
+        quote! {
+            impl #clone_impl_generics ::std::clone::Clone for #map_ty #clone_where_clause {
+                fn clone(&self) -> Self {
+                    let mut cloned = Self::default();
+                    for (_, node) in self.inner.nodes.iter() {
+                        cloned.inner.reserve_all();
+                        let value = ::std::clone::Clone::clone(&node.value);
+                        let id = ::multi_index_map::__private::NodeId(
+                            cloned.inner.nodes.insert(<#node>::new(value))
+                        );
+                        if let Some(index) = cloned.inner.link_all(id) {
+                            cloned.inner.nodes.remove(id.0);
+                            panic!(
+                                "unable to clone map: uniqueness constraint violated on index '{}'",
+                                index
+                            );
+                        }
+                    }
+                    if let Err(error) = cloned.inner.validate() {
+                        panic!("cloned map failed invariant validation: {error}");
+                    }
+                    cloned
+                }
+            }
+        }
+    });
+    let debug_impl = input.derives.debug.then(|| {
+        let debug_generics = with_predicates(
+            map_helper_generics.clone(),
+            [parse_quote!(#element: ::std::fmt::Debug)],
+        );
+        let (debug_impl_generics, _, debug_where_clause) = debug_generics.split_for_impl();
+        quote! {
+            impl #debug_impl_generics ::std::fmt::Debug for #map_ty #debug_where_clause {
+                fn fmt(
+                    &self,
+                    formatter: &mut ::std::fmt::Formatter<'_>,
+                ) -> ::std::fmt::Result {
+                    formatter
+                        .debug_struct(stringify!(#map))
+                        .field(
+                            "values",
+                            &::multi_index_map::__private::DebugValues::new(&self.inner.nodes),
+                        )
+                        .finish()
+                }
+            }
+        }
+    });
 
     quote! {
         #(#bindings)*
@@ -937,6 +992,9 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 }
             }
         }
+
+        #clone_impl
+        #debug_impl
 
         impl #map_impl_generics #map_ty #map_where_clause {
             #vis fn new() -> Self { Self::default() }
@@ -2385,5 +2443,57 @@ mod tests {
                 .iter()
                 .any(|name| name == &format!("__MultiIndexLegacyMapIndex0{omitted}")));
         }
+    }
+
+    #[test]
+    fn requested_map_traits_are_generated_independently() {
+        let clone_file = syn::parse2::<syn::File>(generate(
+            Input::parse(parse_quote! {
+                #[multi_index_derive(Clone, Default)]
+                struct CloneRecord {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            })
+            .unwrap(),
+        ))
+        .unwrap();
+        let debug_file = syn::parse2::<syn::File>(generate(
+            Input::parse(parse_quote! {
+                #[multi_index_derive(Debug)]
+                struct DebugRecord {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            })
+            .unwrap(),
+        ))
+        .unwrap();
+
+        assert_eq!(trait_impl_count(&clone_file, "Clone"), 1);
+        assert_eq!(trait_impl_count(&clone_file, "Debug"), 0);
+        assert_eq!(trait_impl_count(&clone_file, "Default"), 2);
+        assert_eq!(trait_impl_count(&debug_file, "Clone"), 0);
+        assert_eq!(trait_impl_count(&debug_file, "Debug"), 1);
+    }
+
+    fn trait_impl_count(file: &syn::File, trait_name: &str) -> usize {
+        let module = match &file.items[0] {
+            Item::Mod(module) => module.content.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        module
+            .1
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item,
+                    Item::Impl(item)
+                        if item.trait_.as_ref().is_some_and(|(_, path, _)| {
+                            path.segments.last().is_some_and(|segment| segment.ident == trait_name)
+                        })
+                )
+            })
+            .count()
     }
 }

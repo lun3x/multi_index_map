@@ -63,6 +63,13 @@ pub(crate) struct Input {
     pub(crate) generics: Generics,
     pub(crate) indexes: Vec<Index>,
     pub(crate) unindexed: Vec<Field>,
+    pub(crate) derives: MapDerives,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MapDerives {
+    pub(crate) clone: bool,
+    pub(crate) debug: bool,
 }
 
 impl Input {
@@ -138,6 +145,7 @@ fn rebase_visibility(vis: &mut Visibility) {
 impl Input {
     pub(crate) fn parse(input: DeriveInput) -> syn::Result<Self> {
         let mut errors = None;
+        let derives = parse_map_derives(&input, &mut errors);
 
         let named = match input.data {
             Data::Struct(data) => match data.fields {
@@ -246,8 +254,73 @@ impl Input {
             generics: input.generics,
             indexes,
             unindexed,
+            derives,
         })
     }
+}
+
+fn parse_map_derives(input: &DeriveInput, errors: &mut Option<Error>) -> MapDerives {
+    let mut derives = MapDerives::default();
+    for attr in input
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("multi_index_derive"))
+    {
+        let metas = match attr
+            .parse_args_with(syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+        {
+            Ok(metas) => metas,
+            Err(error) => {
+                push_error(errors, error);
+                continue;
+            }
+        };
+        if metas.is_empty() {
+            push_error(
+                errors,
+                Error::new(
+                    attr.span(),
+                    "#[multi_index_derive(...)] requires at least one trait",
+                ),
+            );
+            continue;
+        }
+        for meta in metas {
+            let Meta::Path(path) = meta else {
+                push_error(
+                    errors,
+                    Error::new(
+                        meta.span(),
+                        "multi_index_derive traits must be unqualified trait names",
+                    ),
+                );
+                continue;
+            };
+            let Some(trait_name) = path.get_ident() else {
+                push_error(
+                    errors,
+                    Error::new(
+                        path.span(),
+                        "multi_index_derive traits must be unqualified trait names",
+                    ),
+                );
+                continue;
+            };
+            match trait_name.to_string().as_str() {
+                "Clone" => derives.clone = true,
+                "Debug" => derives.debug = true,
+                "Default" => {}
+                _ => push_error(
+                    errors,
+                    Error::new(
+                        trait_name.span(),
+                        "unsupported multi_index_derive trait; expected Clone, Debug, or Default",
+                    ),
+                ),
+            }
+        }
+    }
+    derives
 }
 
 enum FieldIndexDeclaration {
@@ -454,6 +527,69 @@ mod tests {
             parsed.indexes[1].source,
             IndexSource::Legacy(IndexCategory::OrderedNonUnique)
         ));
+    }
+
+    #[test]
+    fn accepts_deduplicates_and_ignores_default_map_derives() {
+        let input: DeriveInput = parse_quote! {
+            #[multi_index_derive(Clone, Debug, Default, Clone)]
+            #[multi_index_derive(Debug)]
+            struct Record {
+                #[multi_index(hashed_unique)]
+                id: u64,
+            }
+        };
+        let parsed = Input::parse(input).unwrap();
+        assert_eq!(
+            parsed.derives,
+            MapDerives {
+                clone: true,
+                debug: true,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_map_derives() {
+        for input in [
+            parse_quote! {
+                #[multi_index_derive()]
+                struct Bad {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                #[multi_index_derive(PartialEq)]
+                struct Bad {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                #[multi_index_derive(std::fmt::Debug)]
+                struct Bad {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                #[multi_index_derive(Clone(extra))]
+                struct Bad {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                #[multi_index_derive(Clone = true)]
+                struct Bad {
+                    #[multi_index(hashed_unique)]
+                    id: u64,
+                }
+            },
+        ] {
+            assert!(Input::parse(input).is_err());
+        }
     }
 
     #[test]

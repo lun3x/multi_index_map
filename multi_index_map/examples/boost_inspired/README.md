@@ -42,6 +42,22 @@ struct LegacyOrder {
 }
 ```
 
+Generated maps can opt into value-oriented `Clone` and `Debug`
+implementations:
+
+```rust
+#[derive(Clone, Debug, MultiIndexMap2)]
+#[multi_index_derive(Clone, Debug)]
+struct CloneableOrder {
+    #[multi_index(hashed_unique)]
+    id: u64,
+}
+```
+
+Cloning rebuilds every index from cloned stored values. Debug output includes
+the generated map name and stored values without exposing arena or index
+internals.
+
 It does not change the existing `MultiIndexMap` derive.
 
 Run it with:
