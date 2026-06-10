@@ -430,6 +430,28 @@ fn generate_node_and_specs(
         let link = &index.link;
         quote!(#link: ::std::default::Default::default())
     });
+    let clone_links = indexes.iter().map(|index| {
+        let link = &index.link;
+        quote!(#link: ::std::clone::Clone::clone(&self.#link))
+    });
+    let node_clone_impl = input.derives.clone.then(|| {
+        let node_clone_generics = with_predicates(
+            helper_generics(input),
+            [parse_quote!(#element: ::std::clone::Clone)],
+        );
+        let (node_clone_impl_generics, _, node_clone_where_clause) =
+            node_clone_generics.split_for_impl();
+        quote! {
+            impl #node_clone_impl_generics ::std::clone::Clone for #node_ty #node_clone_where_clause {
+                fn clone(&self) -> Self {
+                    Self {
+                        value: ::std::clone::Clone::clone(&self.value),
+                        #(#clone_links,)*
+                    }
+                }
+            }
+        }
+    });
     let specs = indexes.iter().map(|index| {
         let kind_definition = index.kind_definition();
         let conflict_name = index.conflict_name();
@@ -498,6 +520,8 @@ fn generate_node_and_specs(
                 &self.value
             }
         }
+
+        #node_clone_impl
 
         #(#specs)*
     }
@@ -789,6 +813,10 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         let storage = &index.storage;
         quote!(#storage: ::std::default::Default::default())
     });
+    let clone_storages = indexes.iter().map(|index| {
+        let storage = &index.storage;
+        quote!(#storage: ::std::clone::Clone::clone(&self.inner.#storage))
+    });
     let selector_impls = indexes.iter().filter_map(|index| {
         let selector = index.selector()?;
         let kind = &index.kind;
@@ -988,24 +1016,16 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         quote! {
             impl #clone_impl_generics ::std::clone::Clone for #map_ty #clone_where_clause {
                 fn clone(&self) -> Self {
-                    let mut cloned = Self::default();
-                    for (_, node) in self.inner.nodes.iter() {
-                        cloned.inner.reserve_all();
-                        let value = ::std::clone::Clone::clone(&node.value);
-                        let id = ::multi_index_map::__private::NodeId(
-                            cloned.inner.nodes.insert(<#node>::new(value))
-                        );
-                        if let Some(index) = cloned.inner.link_all(id) {
-                            cloned.inner.nodes.remove(id.0);
-                            panic!(
-                                "unable to clone map: uniqueness constraint violated on index '{}'",
-                                index
-                            );
-                        }
-                    }
-                    if let Err(error) = cloned.inner.validate() {
-                        panic!("cloned map failed invariant validation: {error}");
-                    }
+                    let cloned = Self {
+                        inner: #inner {
+                            nodes: ::std::clone::Clone::clone(&self.inner.nodes),
+                            #(#clone_storages,)*
+                        },
+                    };
+                    cloned
+                        .inner
+                        .validate()
+                        .unwrap_or_else(|error| panic!("cloned map is invalid: {error}"));
                     cloned
                 }
             }
@@ -2580,7 +2600,7 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(trait_impl_count(&clone_file, "Clone"), 1);
+        assert_eq!(trait_impl_count(&clone_file, "Clone"), 2);
         assert_eq!(trait_impl_count(&clone_file, "Debug"), 0);
         assert_eq!(trait_impl_count(&clone_file, "Default"), 2);
         assert_eq!(trait_impl_count(&debug_file, "Clone"), 0);

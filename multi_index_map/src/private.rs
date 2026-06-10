@@ -172,7 +172,7 @@ pub struct OrderedUnique;
 pub struct OrderedNonUnique;
 
 pub trait IndexCategory {
-    type Link: Default;
+    type Link: Clone + Default;
 }
 
 impl IndexCategory for HashedUnique {
@@ -244,7 +244,7 @@ where
     N: NodeValue,
     S: IndexSpec<N, Link = Self::Link>,
 {
-    type Index: Default + 'static;
+    type Index: Clone + Default + 'static;
     type Ids<'a>: Iterator<Item = NodeId>
     where
         N: 'a,
@@ -306,6 +306,17 @@ pub struct HashedIndex<S, const UNIQUE: bool, H = DefaultHashBuilder> {
     len: usize,
     hash_builder: H,
     marker: PhantomData<S>,
+}
+
+impl<S, const UNIQUE: bool, H: Clone> Clone for HashedIndex<S, UNIQUE, H> {
+    fn clone(&self) -> Self {
+        Self {
+            buckets: self.buckets.clone(),
+            len: self.len,
+            hash_builder: self.hash_builder.clone(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<S, const UNIQUE: bool, H: Default> Default for HashedIndex<S, UNIQUE, H> {
@@ -735,6 +746,18 @@ pub struct OrderedIndex<S, const UNIQUE: bool> {
     last: Option<NodeId>,
     len: usize,
     marker: PhantomData<S>,
+}
+
+impl<S, const UNIQUE: bool> Clone for OrderedIndex<S, UNIQUE> {
+    fn clone(&self) -> Self {
+        Self {
+            root: self.root,
+            first: self.first,
+            last: self.last,
+            len: self.len,
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<S, const UNIQUE: bool> Default for OrderedIndex<S, UNIQUE> {
