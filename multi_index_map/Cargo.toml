@@ -32,7 +32,7 @@ trybuild = "1.0"
 
 [features]
 default = ["rustc-hash"]
-serde = ["slab/serde"]
+# serde = ["slab/serde"]
 rustc-hash = ["multi_index_map_derive/rustc-hash", "dep:rustc-hash"]
 
 [[bench]]

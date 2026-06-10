@@ -1,6 +1,6 @@
-use multi_index_map::MultiIndexMap;
+use multi_index_map::MultiIndexMap2;
 
-#[derive(MultiIndexMap, PartialEq, Debug)]
+#[derive(MultiIndexMap2, PartialEq, Debug)]
 #[multi_index_derive(Debug)]
 struct TestElement {
     #[multi_index(ordered_non_unique)]

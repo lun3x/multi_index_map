@@ -1,6 +1,6 @@
-use multi_index_map::MultiIndexMap;
+use multi_index_map::MultiIndexMap2;
 
-#[derive(MultiIndexMap)]
+#[derive(MultiIndexMap2)]
 struct MultipleOrderedNonUniqueStruct {
     #[multi_index(ordered_non_unique)]
     field1: u32,
@@ -50,7 +50,7 @@ fn test_remove_ordered_non_unique_field2_get_ordered_non_unique_field1() {
     assert_eq!(c.len(), 0);
 }
 
-#[derive(MultiIndexMap, Clone)]
+#[derive(MultiIndexMap2, Clone)]
 struct OrderedNonUniqueAndHashedNonUniqueStruct {
     #[multi_index(hashed_non_unique)]
     field1: u32,
@@ -100,7 +100,7 @@ fn test_remove_ordered_non_unique_field2_get_hashed_non_unique_field1() {
     assert_eq!(c.len(), 0);
 }
 
-#[derive(MultiIndexMap, Clone)]
+#[derive(MultiIndexMap2, Clone)]
 struct MultipleHashedNonUniqueStruct {
     #[multi_index(hashed_non_unique)]
     field1: u32,

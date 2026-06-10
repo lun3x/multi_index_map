@@ -1,6 +1,6 @@
-use multi_index_map::MultiIndexMap;
+use multi_index_map::MultiIndexMap2;
 
-#[derive(MultiIndexMap, Clone, Debug)]
+#[derive(MultiIndexMap2, Clone, Debug)]
 #[multi_index_derive(Clone, Debug)]
 struct TestElement {
     #[multi_index(hashed_non_unique)]

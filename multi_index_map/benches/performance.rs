@@ -1,24 +1,41 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use multi_index_map::MultiIndexMap;
+use criterion::{criterion_group, criterion_main, Criterion};
+use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+use std::hint::black_box;
 
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
-struct TestNonPrimitiveType(u32);
+#[derive(Hash, PartialEq, Eq, Clone, Debug, PartialOrd, Ord)]
+pub struct TestNonPrimitiveType(u32);
+
+#[derive(MultiIndexSelector)]
+#[multi_index(hashed_unique)]
+pub struct ByFieldHashedUnique;
+
+#[derive(MultiIndexSelector)]
+#[multi_index(hashed_non_unique)]
+pub struct ByFieldHashedNonUnique;
+
+#[derive(MultiIndexSelector)]
+#[multi_index(ordered_unique)]
+pub struct ByFieldOrderedUnique;
+
+#[derive(MultiIndexSelector)]
+#[multi_index(ordered_non_unique)]
+pub struct ByFieldOrderedNonUnique;
 
 #[allow(clippy::struct_field_names)]
-#[derive(MultiIndexMap, Debug, Clone)]
+#[derive(MultiIndexMap2, Debug, Clone)]
 #[multi_index_derive(Clone, Debug)]
 pub struct TestElementWithOnlyIndexedFields {
-    #[multi_index(hashed_unique)]
+    #[multi_index(by(ByFieldHashedUnique))]
     field_hashed_unique: TestNonPrimitiveType,
-    #[multi_index(hashed_non_unique)]
+    #[multi_index(by(ByFieldHashedNonUnique))]
     field_hashed_non_unique: TestNonPrimitiveType,
-    #[multi_index(ordered_unique)]
+    #[multi_index(by(ByFieldOrderedUnique))]
     field_ordered_unique: u32,
-    #[multi_index(ordered_non_unique)]
+    #[multi_index(by(ByFieldOrderedNonUnique))]
     field_ordered_non_unique: u32,
 }
 
-const BENCH_SIZES: &[u32] = &[100u32, 1_000u32, 10_000u32, 100_000u32];
+const BENCH_SIZES: &[u32] = &[100u32];
 
 fn insert_benchmark(c: &mut Criterion) {
     fn inner(c: &mut Criterion, n: u32) {
@@ -60,7 +77,8 @@ fn delete_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                 for i in 0..n {
                     black_box(
                         map_clone
-                            .remove_by_field_hashed_unique(black_box(&TestNonPrimitiveType(i))),
+                            .by_mut::<ByFieldHashedUnique>()
+                            .remove(black_box(&TestNonPrimitiveType(i))),
                     );
                 }
             });
@@ -87,9 +105,11 @@ fn delete_by_hashed_non_unique_key_benchmark(c: &mut Criterion) {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..10 {
-                    black_box(map_clone.remove_by_field_hashed_non_unique(black_box(
-                        &TestNonPrimitiveType(42 + i % 5),
-                    )));
+                    black_box(
+                        map_clone
+                            .by_mut::<ByFieldHashedNonUnique>()
+                            .remove_all(black_box(&TestNonPrimitiveType(42 + i % 5))),
+                    );
                 }
             });
         });
@@ -115,7 +135,11 @@ fn delete_by_ordered_unique_key_benchmark(c: &mut Criterion) {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..n {
-                    black_box(map_clone.remove_by_field_ordered_unique(black_box(&i)));
+                    black_box(
+                        map_clone
+                            .by_mut::<ByFieldOrderedUnique>()
+                            .remove(black_box(&i)),
+                    );
                 }
             });
         });
@@ -141,7 +165,11 @@ fn delete_by_ordered_non_unique_key_benchmark(c: &mut Criterion) {
             b.iter(|| {
                 let mut map_clone = black_box(map.clone());
                 for i in 0..n {
-                    black_box(map_clone.remove_by_field_ordered_non_unique(black_box(&(i / 5))));
+                    black_box(
+                        map_clone
+                            .by_mut::<ByFieldOrderedNonUnique>()
+                            .remove_all(black_box(&(i / 5))),
+                    );
                 }
             });
         });
@@ -169,13 +197,19 @@ fn modify_hashed_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_hashed_unique(
-                            black_box(&TestNonPrimitiveType(i)),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_hashed_unique =
-                                    black_box(TestNonPrimitiveType(e.field_hashed_unique.0 + n));
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldHashedUnique>()
+                                .modify(
+                                    black_box(&TestNonPrimitiveType(i)),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_hashed_unique = black_box(TestNonPrimitiveType(
+                                            e.field_hashed_unique.0 + n,
+                                        ));
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -204,14 +238,19 @@ fn modify_hashed_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_hashed_unique(
-                            black_box(&TestNonPrimitiveType(i)),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_hashed_non_unique = black_box(TestNonPrimitiveType(
-                                    e.field_hashed_non_unique.0 + 1,
-                                ));
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldHashedUnique>()
+                                .modify(
+                                    black_box(&TestNonPrimitiveType(i)),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_hashed_non_unique = black_box(
+                                            TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1),
+                                        );
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -240,12 +279,17 @@ fn modify_ordered_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion) {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_hashed_unique(
-                            black_box(&TestNonPrimitiveType(i)),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_ordered_unique += black_box(n);
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldHashedUnique>()
+                                .modify(
+                                    black_box(&TestNonPrimitiveType(i)),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_ordered_unique += black_box(n);
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -274,12 +318,17 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_hashed_unique(
-                            black_box(&TestNonPrimitiveType(i)),
-                            black_box(|e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_ordered_non_unique += black_box(1);
-                            }),
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldHashedUnique>()
+                                .modify(
+                                    black_box(&TestNonPrimitiveType(i)),
+                                    black_box(|e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_ordered_non_unique += black_box(1);
+                                    }),
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -308,13 +357,19 @@ fn modify_hashed_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_ordered_unique(
-                            black_box(&i),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_hashed_unique =
-                                    black_box(TestNonPrimitiveType(e.field_hashed_unique.0 + n));
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldOrderedUnique>()
+                                .modify(
+                                    black_box(&i),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_hashed_unique = black_box(TestNonPrimitiveType(
+                                            e.field_hashed_unique.0 + n,
+                                        ));
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -343,14 +398,19 @@ fn modify_hashed_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterio
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_ordered_unique(
-                            black_box(&i),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_hashed_non_unique = black_box(TestNonPrimitiveType(
-                                    e.field_hashed_non_unique.0 + 1,
-                                ));
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldOrderedUnique>()
+                                .modify(
+                                    black_box(&i),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_hashed_non_unique = black_box(
+                                            TestNonPrimitiveType(e.field_hashed_non_unique.0 + 1),
+                                        );
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -379,12 +439,17 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_ordered_unique(
-                            black_box(&i),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_ordered_unique += black_box(n);
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldOrderedUnique>()
+                                .modify(
+                                    black_box(&i),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_ordered_unique += black_box(n);
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -413,12 +478,17 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
                     for i in 0..n {
-                        black_box(map_clone.modify_by_field_ordered_unique(
-                            black_box(&i),
-                            |e: &mut TestElementWithOnlyIndexedFields| {
-                                e.field_ordered_non_unique += black_box(1);
-                            },
-                        ));
+                        black_box(
+                            map_clone
+                                .by_mut::<ByFieldOrderedUnique>()
+                                .modify(
+                                    black_box(&i),
+                                    |e: &mut TestElementWithOnlyIndexedFields| {
+                                        e.field_ordered_non_unique += black_box(1);
+                                    },
+                                )
+                                .unwrap(),
+                        );
                     }
                 });
             },
@@ -444,7 +514,7 @@ fn hashed_unique_key_iter_benchmark(c: &mut Criterion) {
         }
         c.bench_function(&format!("hashed_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
-                let mut a = black_box(map.iter_by_field_hashed_unique());
+                let mut a = black_box(map.by::<ByFieldHashedUnique>().iter());
                 for _ in 0..n {
                     black_box(a.next());
                 }
@@ -471,7 +541,7 @@ fn hashed_non_unique_key_iter_benchmark(c: &mut Criterion) {
         }
         c.bench_function(&format!("hashed_non_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
-                let mut a = black_box(map.iter_by_field_hashed_non_unique());
+                let mut a = black_box(map.by::<ByFieldHashedNonUnique>().iter());
                 for _ in 0..n {
                     black_box(a.next());
                 }
@@ -498,7 +568,7 @@ fn ordered_unique_key_iter_benchmark(c: &mut Criterion) {
         }
         c.bench_function(&format!("ordered_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
-                let mut a = black_box(map.iter_by_field_ordered_unique());
+                let mut a = black_box(map.by::<ByFieldOrderedUnique>().iter());
                 for _ in 0..n {
                     black_box(a.next());
                 }
@@ -525,7 +595,7 @@ fn ordered_non_unique_key_iter_benchmark(c: &mut Criterion) {
         }
         c.bench_function(&format!("ordered_non_unique_key_iter_bench_{n}"), |b| {
             b.iter(|| {
-                let mut a = black_box(map.iter_by_field_ordered_non_unique());
+                let mut a = black_box(map.by::<ByFieldOrderedNonUnique>().iter());
                 for _ in 0..n {
                     black_box(a.next());
                 }

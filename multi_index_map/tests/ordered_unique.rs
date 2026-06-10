@@ -1,9 +1,9 @@
-use multi_index_map::MultiIndexMap;
+use multi_index_map::MultiIndexMap2;
 
 #[derive(Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
 struct TestNonPrimitiveType(u64);
 
-#[derive(MultiIndexMap)]
+#[derive(MultiIndexMap2)]
 struct TestElement {
     #[multi_index(ordered_unique)]
     field1: TestNonPrimitiveType,
