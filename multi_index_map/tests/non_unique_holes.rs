@@ -35,7 +35,8 @@ fn non_unique_modify_after_holes() {
     let mut map = make_with_holes();
 
     // Move entries from group 1 to 2; ensure we traverse past holes
-    let refs = map.modify_by_group(&1, |e| e.group = 2);
+    let mut refs = map.modify_by_group(&1, |e| e.group = 2);
+    refs.sort_unstable_by_key(|entry| entry.id);
 
     assert_eq!(refs.len(), 4);
     for (i, e) in refs.iter().enumerate() {
@@ -44,7 +45,8 @@ fn non_unique_modify_after_holes() {
     }
 
     assert!(map.get_by_group(&1).is_empty());
-    let by_two = map.get_by_group(&2);
+    let mut by_two = map.get_by_group(&2);
+    by_two.sort_unstable_by_key(|entry| entry.id);
     assert_eq!(by_two.len(), 4);
     for (i, e) in by_two.iter().enumerate() {
         assert_eq!(e.group, 2);
@@ -57,7 +59,8 @@ fn non_unique_update_after_holes() {
     let mut map = make_with_holes();
 
     // Update unindexed field through the non-unique key
-    let refs = map.update_by_group(&1, |value| *value += 10);
+    let mut refs = map.update_by_group(&1, |value| *value += 10);
+    refs.sort_unstable_by_key(|entry| entry.id);
 
     assert_eq!(refs.len(), 4);
     for (i, e) in refs.iter().enumerate() {
@@ -66,7 +69,8 @@ fn non_unique_update_after_holes() {
         assert_eq!(e.value, (i as i32 + 2) + 10);
     }
 
-    let by_one = map.get_by_group(&1);
+    let mut by_one = map.get_by_group(&1);
+    by_one.sort_unstable_by_key(|entry| entry.id);
     assert_eq!(by_one.len(), 4);
     for (i, e) in by_one.iter().enumerate() {
         assert_eq!(e.group, 1);
@@ -89,7 +93,8 @@ fn non_unique_get_mut_after_holes_aliasing_safe() {
         *v += 100;
     }
 
-    let refs = map.get_by_group(&1);
+    let mut refs = map.get_by_group(&1);
+    refs.sort_unstable_by_key(|entry| entry.id);
     assert_eq!(refs.len(), 4);
     for (i, e) in refs.iter().enumerate() {
         assert_eq!(e.id, i + 2);

@@ -484,7 +484,8 @@ where
     }
 
     fn bucket(&self, hash: u64) -> usize {
-        hash as usize % self.buckets.len()
+        debug_assert!(self.buckets.len().is_power_of_two());
+        hash as usize & (self.buckets.len() - 1)
     }
 
     pub fn reserve_for_insert<N>(&mut self, nodes: &mut Slab<N>)
@@ -493,7 +494,7 @@ where
         S: IndexSpec<N, Link = HashLink>,
         for<'a> S::Key<'a>: Eq + Hash,
     {
-        if (self.len + 1) * 4 > self.buckets.len() * 3 {
+        if self.len + 1 > self.buckets.len() {
             self.rehash(nodes, self.buckets.len() * 2);
         }
     }
@@ -504,17 +505,25 @@ where
         S: IndexSpec<N, Link = HashLink>,
         for<'a> S::Key<'a>: Eq + Hash,
     {
-        let ids: Vec<_> = nodes
-            .iter()
-            .filter_map(|(id, node)| S::link(node).linked.then_some(NodeId::new(id)))
-            .collect();
-
-        self.buckets = vec![None; bucket_count.max(8)];
-        self.len = 0;
-        for id in ids {
-            *S::link_mut(&mut nodes[id.slot()]) = HashLink::default();
-            let inserted = self.insert(id, nodes);
-            debug_assert!(inserted.is_ok());
+        let bucket_count = bucket_count.max(8).next_power_of_two();
+        let old_buckets = std::mem::replace(&mut self.buckets, vec![None; bucket_count]);
+        for head in old_buckets {
+            let mut current = head;
+            while let Some(id) = current {
+                let link = *S::link(&nodes[id.slot()]);
+                current = link.next;
+                let bucket = self.bucket(link.hash);
+                let next = self.buckets[bucket];
+                *S::link_mut(&mut nodes[id.slot()]) = HashLink {
+                    prev: None,
+                    next,
+                    ..link
+                };
+                if let Some(next) = next {
+                    S::link_mut(&mut nodes[next.slot()]).prev = Some(id);
+                }
+                self.buckets[bucket] = Some(id);
+            }
         }
     }
 
@@ -625,7 +634,7 @@ where
         let hash = self.hash(&S::key(nodes[id.slot()].value()));
         let bucket = self.bucket(hash);
         let mut current = self.buckets[bucket];
-        let mut equal_last = None;
+        let mut equal_first = None;
 
         while let Some(other) = current {
             let node = &nodes[other.slot()];
@@ -634,15 +643,14 @@ where
                 if UNIQUE {
                     return Err(other);
                 }
-                equal_last = Some(other);
-            } else if equal_last.is_some() {
+                equal_first = Some(other);
                 break;
             }
             current = link.next;
         }
 
-        let (prev, next) = if let Some(last) = equal_last {
-            (Some(last), S::link(&nodes[last.slot()]).next)
+        let (prev, next) = if let Some(first) = equal_first {
+            (S::link(&nodes[first.slot()]).prev, Some(first))
         } else {
             (None, self.buckets[bucket])
         };
@@ -713,25 +721,24 @@ where
             return false;
         }
 
+        let is_equal = |other: NodeId| {
+            let other_node = &nodes[other.slot()];
+            let other_link = S::link(other_node);
+            other_link.hash == hash && S::key(other_node.value()) == key
+        };
+        if !UNIQUE && (link.prev.is_some_and(is_equal) || link.next.is_some_and(is_equal)) {
+            return true;
+        }
+
         let mut current = self.buckets[self.bucket(hash)];
-        let mut seen_equal = false;
-        let mut left_equal_group = false;
         let mut saw_id = false;
         while let Some(other) = current {
             let other_node = &nodes[other.slot()];
             let other_link = S::link(other_node);
-            let equal = other_link.hash == hash && S::key(other_node.value()) == key;
-            if equal {
-                if left_equal_group {
-                    return false;
-                }
-                if UNIQUE && other != id {
-                    return false;
-                }
-                seen_equal = true;
-                saw_id |= other == id;
-            } else if seen_equal {
-                left_equal_group = true;
+            if other == id {
+                saw_id = true;
+            } else if other_link.hash == hash && S::key(other_node.value()) == key {
+                return false;
             }
             current = other_link.next;
         }

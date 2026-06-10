@@ -263,7 +263,9 @@ mod tests {
         let john = "John".to_string();
         assert_eq!(ids(&map.by::<ById>()).len(), 4);
         assert_eq!(unique_id(&map.by::<ByTimestamp>(), &100), Some(1));
-        assert_eq!(equal_ids(&map.by::<ByTrader>(), &john), vec![1, 2]);
+        let mut john_ids = equal_ids(&map.by::<ByTrader>(), &john);
+        john_ids.sort_unstable();
+        assert_eq!(john_ids, vec![1, 2]);
         assert_eq!(range_ids(&map.by::<ByPrice>(), 25..=30).len(), 3);
 
         {

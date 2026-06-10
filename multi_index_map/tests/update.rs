@@ -45,7 +45,8 @@ fn test_non_unique_update() {
         assert_eq!(r.field4, "NinetyNine");
     }
 
-    let refs = map.get_by_field1(&42);
+    let mut refs = map.get_by_field1(&42);
+    refs.sort_unstable_by_key(|element| element.field3);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, i as f64 * 2.0);
         assert_eq!(r.field4, (i * 2).to_string());
@@ -84,7 +85,8 @@ fn test_non_unique_update_borrow() {
         assert_eq!(r.field4, "NinetyNine");
     }
 
-    let refs = map.get_by_field1(&42);
+    let mut refs = map.get_by_field1(&42);
+    refs.sort_unstable_by_key(|element| element.field3);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, i as f64 * 2.0);
         assert_eq!(r.field4, (i * 2).to_string());

@@ -117,8 +117,7 @@ fn test_insert_and_iter_by_field1() {
     map.insert(elem2);
     map.insert(elem1);
 
-    for (idx, elem) in map.iter_by_field1().enumerate() {
-        // Elements remain in inserted order when they have a non_unique key
-        assert_eq!(idx, elem.field3);
-    }
+    let mut ids: Vec<_> = map.iter_by_field1().map(|elem| elem.field3).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec![0, 1]);
 }

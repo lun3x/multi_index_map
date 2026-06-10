@@ -34,7 +34,8 @@ fn test_non_unique_get_mut() {
         *r *= *r;
     }
 
-    let refs: Vec<&TestElement> = map.get_by_field1(&37);
+    let mut refs: Vec<&TestElement> = map.get_by_field1(&37);
+    refs.sort_unstable_by_key(|element| element.field2);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, (2 * i + 1) * (2 * i + 1));
     }
@@ -63,12 +64,14 @@ fn test_non_unique_iter_mut() {
         *field2 *= *field2;
     }
 
-    let refs: Vec<&TestElement> = map.get_by_field1(&37);
+    let mut refs: Vec<&TestElement> = map.get_by_field1(&37);
+    refs.sort_unstable_by_key(|element| element.field2);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, (2 * i + 1) * (2 * i + 1));
     }
 
-    let refs: Vec<&TestElement> = map.get_by_field1(&42);
+    let mut refs: Vec<&TestElement> = map.get_by_field1(&42);
+    refs.sort_unstable_by_key(|element| element.field2);
     for (i, r) in refs.iter().enumerate() {
         assert_eq!(r.field2, (2 * i) * (2 * i));
     }
@@ -93,13 +96,14 @@ fn test_non_unique_modify_mut() {
         }
     }
 
-    let refs = map.modify_by_field1(&37, |x| {
+    let mut refs = map.modify_by_field1(&37, |x| {
         if x.field2 > 5 {
             x.field3 *= 2;
         } else {
             x.field1 = 0;
         }
     });
+    refs.sort_unstable_by_key(|element| element.field2);
 
     for (i, r) in refs.iter().enumerate() {
         if 2 * i + 1 > 5 {
