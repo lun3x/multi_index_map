@@ -112,7 +112,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     iter_generics
         .params
         .push(parse_quote!('__mim_iter_lifetime));
-    let accessors = generators::generate_accessors(
+    let accessor = generators::generate_accessor(
         &indexed_fields,
         &unindexed_types,
         &unindexed_idents,
@@ -152,7 +152,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         &element_vis,
         entries_for_insert,
         inserts_for_entries,
-        accessors,
+        accessor,
         iterators,
         clears,
         lookup_table_fields,

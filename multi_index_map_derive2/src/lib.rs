@@ -1,14 +1,14 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-mod accessor;
 mod generate;
 mod model;
+mod selector;
 
-#[proc_macro_derive(MultiIndexAccessor, attributes(multi_index))]
-pub fn multi_index_accessor(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(MultiIndexSelector, attributes(multi_index))]
+pub fn multi_index_selector(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
-    match accessor::generate(input) {
+    match selector::generate(input) {
         Ok(tokens) => tokens.into(),
         Err(error) => error.into_compile_error().into(),
     }

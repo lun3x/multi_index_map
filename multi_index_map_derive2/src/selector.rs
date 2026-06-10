@@ -7,7 +7,7 @@ pub(crate) fn generate(input: DeriveInput) -> syn::Result<TokenStream> {
     if !input.generics.params.is_empty() || input.generics.where_clause.is_some() {
         return Err(Error::new(
             input.generics.span(),
-            "MultiIndexAccessor does not support generic structs",
+            "MultiIndexSelector does not support generic structs",
         ));
     }
 
@@ -16,19 +16,19 @@ pub(crate) fn generate(input: DeriveInput) -> syn::Result<TokenStream> {
         Data::Struct(data) => {
             return Err(Error::new(
                 data.fields.span(),
-                "MultiIndexAccessor requires a unit struct",
+                "MultiIndexSelector requires a unit struct",
             ));
         }
         Data::Enum(data) => {
             return Err(Error::new(
                 data.enum_token.span,
-                "MultiIndexAccessor can only be derived for unit structs",
+                "MultiIndexSelector can only be derived for unit structs",
             ));
         }
         Data::Union(data) => {
             return Err(Error::new(
                 data.union_token.span,
-                "MultiIndexAccessor can only be derived for unit structs",
+                "MultiIndexSelector can only be derived for unit structs",
             ));
         }
     }
@@ -41,7 +41,7 @@ pub(crate) fn generate(input: DeriveInput) -> syn::Result<TokenStream> {
     if attrs.len() != 1 {
         return Err(Error::new(
             input.ident.span(),
-            "MultiIndexAccessor requires exactly one #[multi_index(...)] category",
+            "MultiIndexSelector requires exactly one #[multi_index(...)] category",
         ));
     }
 
@@ -77,7 +77,7 @@ pub(crate) fn generate(input: DeriveInput) -> syn::Result<TokenStream> {
 
     let ident = input.ident;
     Ok(quote! {
-        impl ::multi_index_map::MultiIndexAccessor for #ident {
+        impl ::multi_index_map::MultiIndexSelector for #ident {
             type Kind = #kind;
             const NAME: &'static str = stringify!(#ident);
         }
@@ -100,7 +100,7 @@ mod tests {
             let category: syn::Ident = syn::parse_str(category).unwrap();
             let input: DeriveInput = parse_quote! {
                 #[multi_index(#category)]
-                struct Accessor;
+                struct Selector;
             };
             assert!(generate(input).is_ok());
         }
@@ -110,17 +110,17 @@ mod tests {
     fn rejects_non_unit_generic_and_missing_categories() {
         let non_unit: DeriveInput = parse_quote! {
             #[multi_index(hashed_unique)]
-            struct Accessor(u8);
+            struct Selector(u8);
         };
         assert!(generate(non_unit).is_err());
 
         let generic: DeriveInput = parse_quote! {
             #[multi_index(hashed_unique)]
-            struct Accessor<T>;
+            struct Selector<T>;
         };
         assert!(generate(generic).is_err());
 
-        let missing: DeriveInput = parse_quote! { struct Accessor; };
+        let missing: DeriveInput = parse_quote! { struct Selector; };
         assert!(generate(missing).is_err());
     }
 }

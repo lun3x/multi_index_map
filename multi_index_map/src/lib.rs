@@ -1,5 +1,5 @@
 pub use multi_index_map_derive::MultiIndexMap;
-pub use multi_index_map_derive2::MultiIndexAccessor;
+pub use multi_index_map_derive2::MultiIndexSelector;
 pub use multi_index_map_derive2::MultiIndexMap as MultiIndexMap2;
 pub use views::{
     IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
@@ -16,7 +16,7 @@ pub mod views;
 
 /// A type-level marker describing one index used by an experimental
 /// [`MultiIndexMap2`] map.
-pub trait MultiIndexAccessor {
+pub trait MultiIndexSelector {
     #[doc(hidden)]
     type Kind: __private::IndexCategory;
 

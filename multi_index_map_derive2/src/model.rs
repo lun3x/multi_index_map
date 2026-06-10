@@ -12,7 +12,7 @@ pub(crate) struct Field {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Index {
-    pub(crate) accessor: Path,
+    pub(crate) selector: Path,
     pub(crate) fields: Vec<Field>,
     pub(crate) ordinal: usize,
 }
@@ -43,7 +43,7 @@ impl Input {
         let mut rebasing = RebaseForChildModule;
         rebasing.visit_generics_mut(&mut self.generics);
         for index in &mut self.indexes {
-            rebasing.visit_path_mut(&mut index.accessor);
+            rebasing.visit_path_mut(&mut index.selector);
             for field in &mut index.fields {
                 rebasing.visit_type_mut(&mut field.ty);
                 rebase_visibility(&mut field.vis);
@@ -149,22 +149,22 @@ impl Input {
                     ty: field.ty.clone(),
                     vis: field.vis.clone(),
                 };
-                let accessors = parse_accessors(&field, &mut errors);
-                if accessors.is_empty() {
+                let selectors = parse_selectors(&field, &mut errors);
+                if selectors.is_empty() {
                     unindexed.push(value);
                     continue;
                 }
 
-                for accessor in accessors {
-                    let key = path_key(&accessor);
+                for selector in selectors {
+                    let key = path_key(&selector);
                     if let Some(index) = indexes
                         .iter_mut()
-                        .find(|index| path_key(&index.accessor) == key)
+                        .find(|index| path_key(&index.selector) == key)
                     {
                         index.fields.push(value.clone());
                     } else {
                         indexes.push(Index {
-                            accessor,
+                            selector,
                             fields: vec![value.clone()],
                             ordinal: indexes.len(),
                         });
@@ -178,7 +178,7 @@ impl Input {
                 &mut errors,
                 Error::new(
                     input.ident.span(),
-                    "MultiIndexMap2 requires at least one #[multi_index(Accessor, ...)] field",
+                    "MultiIndexMap2 requires at least one #[multi_index(Selector, ...)] field",
                 ),
             );
         }
@@ -187,7 +187,7 @@ impl Input {
                 push_error(
                     &mut errors,
                     Error::new(
-                        index.accessor.span(),
+                        index.selector.span(),
                         "compound indexes support at most 12 fields",
                     ),
                 );
@@ -208,8 +208,8 @@ impl Input {
     }
 }
 
-fn parse_accessors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> {
-    let mut accessors = Vec::new();
+fn parse_selectors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> {
+    let mut selectors = Vec::new();
     let attrs = field
         .attrs
         .iter()
@@ -220,7 +220,7 @@ fn parse_accessors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> 
             errors,
             Error::new(
                 attr.span(),
-                "use one #[multi_index(Accessor, ...)] attribute per field",
+                "use one #[multi_index(Selector, ...)] attribute per field",
             ),
         );
     }
@@ -231,18 +231,18 @@ fn parse_accessors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> 
             Ok(paths) => paths,
             Err(error) => {
                 push_error(errors, error);
-                return accessors;
+                return selectors;
             }
         };
         if paths.is_empty() {
             push_error(
                 errors,
-                Error::new(attr.span(), "#[multi_index(...)] requires an accessor path"),
+                Error::new(attr.span(), "#[multi_index(...)] requires an selector path"),
             );
-            return accessors;
+            return selectors;
         }
-        for accessor in paths {
-            if accessor.get_ident().is_some_and(|ident| {
+        for selector in paths {
+            if selector.get_ident().is_some_and(|ident| {
                 matches!(
                     ident.to_string().as_str(),
                     "hashed_unique" | "hashed_non_unique" | "ordered_unique" | "ordered_non_unique"
@@ -251,27 +251,27 @@ fn parse_accessors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> 
                 push_error(
                     errors,
                     Error::new(
-                        accessor.span(),
-                        "index categories belong on #[derive(MultiIndexAccessor)] types; expected an accessor path",
+                        selector.span(),
+                        "index categories belong on #[derive(MultiIndexSelector)] types; expected an selector path",
                     ),
                 );
                 continue;
             }
-            let key = path_key(&accessor);
-            if accessors.iter().any(|existing| path_key(existing) == key) {
+            let key = path_key(&selector);
+            if selectors.iter().any(|existing| path_key(existing) == key) {
                 push_error(
                     errors,
                     Error::new(
-                        accessor.span(),
-                        "duplicate use of this accessor on the same field",
+                        selector.span(),
+                        "duplicate use of this selector on the same field",
                     ),
                 );
                 continue;
             }
-            accessors.push(accessor);
+            selectors.push(selector);
         }
     }
-    accessors
+    selectors
 }
 
 fn path_key(path: &Path) -> String {
@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_accessor_on_one_field() {
+    fn rejects_duplicate_selector_on_one_field() {
         let input: DeriveInput = parse_quote! {
             struct Bad {
                 #[multi_index(ById, ById)]
@@ -363,7 +363,7 @@ mod tests {
         );
 
         parsed.rebase_for_child_module();
-        assert_eq!(path_key(&parsed.indexes[0].accessor), "super::ById");
+        assert_eq!(path_key(&parsed.indexes[0].selector), "super::ById");
         assert_eq!(
             parsed.indexes[0].fields[0]
                 .ty

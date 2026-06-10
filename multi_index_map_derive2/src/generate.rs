@@ -59,7 +59,7 @@ struct Names {
     range_param: Ident,
     iter_param: Ident,
     node_param: Ident,
-    accessor_param: Ident,
+    selector_param: Ident,
     query_components: Vec<Ident>,
     view_lifetime: Lifetime,
     update_lifetime: Lifetime,
@@ -84,7 +84,7 @@ impl Names {
             range_param: fresh.ident("__MimRange"),
             iter_param: fresh.ident("__MimIter"),
             node_param: fresh.ident("__MimNode"),
-            accessor_param: fresh.ident("__MimAccessor"),
+            selector_param: fresh.ident("__MimSelector"),
             query_components: (0..12)
                 .map(|n| fresh.ident(&format!("__MimQuery{n}")))
                 .collect(),
@@ -329,8 +329,8 @@ impl<'a> IndexNames<'a> {
         }
     }
 
-    fn accessor(&self) -> &syn::Path {
-        &self.index.accessor
+    fn selector(&self) -> &syn::Path {
+        &self.index.selector
     }
 
     fn owned_key(&self) -> TokenStream {
@@ -390,7 +390,7 @@ fn generate_node_and_specs(
         quote!(#link: ::std::default::Default::default())
     });
     let specs = indexes.iter().map(|index| {
-        let accessor = index.accessor();
+        let selector = index.selector();
         let kind = &index.kind;
         let spec = &index.spec;
         let link = &index.link;
@@ -405,7 +405,7 @@ fn generate_node_and_specs(
         );
         let (spec_impl_generics, _, spec_where_clause) = spec_generics.split_for_impl();
         quote! {
-            #vis type #kind = <#accessor as ::multi_index_map::MultiIndexAccessor>::Kind;
+            #vis type #kind = <#selector as ::multi_index_map::MultiIndexSelector>::Kind;
             #vis struct #spec;
 
             impl #spec_impl_generics ::multi_index_map::__private::IndexSpec<#node_ty>
@@ -414,7 +414,7 @@ fn generate_node_and_specs(
                 type Key<#key_lifetime> = #borrowed_key;
                 type Link = <#kind as ::multi_index_map::__private::IndexCategory>::Link;
                 const NAME: &'static str =
-                    <#accessor as ::multi_index_map::MultiIndexAccessor>::NAME;
+                    <#selector as ::multi_index_map::MultiIndexSelector>::NAME;
 
                 fn key<#key_lifetime>(
                     value: &#key_lifetime #element,
@@ -646,7 +646,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     let map_ty = applied(map, input);
     let inner_ty = applied(inner, input);
     let selector_ty = applied(selector, input);
-    let accessor_param = &names.accessor_param;
+    let selector_param = &names.selector_param;
     let map_decl_generics = map_generics(input, names, indexes, true);
     let map_helper_generics = map_generics(input, names, indexes, false);
     let map_decl_where = &map_decl_generics.where_clause;
@@ -673,14 +673,14 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         quote!(#storage: ::std::default::Default::default())
     });
     let selector_impls = indexes.iter().map(|index| {
-        let accessor = index.accessor();
+        let selector = index.selector();
         let kind = &index.kind;
         let view = &index.view;
         let view_mut = &index.view_mut;
         let view_ty = application(view, input, [quote!(#view_lifetime)], [quote!(#kind)]);
         let view_mut_ty = application(view_mut, input, [quote!(#view_lifetime)], [quote!(#kind)]);
         quote! {
-            impl #map_impl_generics #selector_ty for #accessor #map_where_clause {
+            impl #map_impl_generics #selector_ty for #selector #map_where_clause {
                 type View<#view_lifetime> = #view_ty
                 where
                     #map_ty: #view_lifetime;
@@ -720,7 +720,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         }
     });
     let inserts = indexes.iter().map(|index| {
-        let accessor = index.accessor();
+        let selector = index.selector();
         let kind = &index.kind;
         let spec = &index.spec;
         let storage = &index.storage;
@@ -731,7 +731,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 &mut self.nodes,
             ).is_err() {
                 self.unlink_all(id);
-                return Some(<#accessor as ::multi_index_map::MultiIndexAccessor>::NAME);
+                return Some(<#selector as ::multi_index_map::MultiIndexSelector>::NAME);
             }
         }
     });
@@ -748,7 +748,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         }
     });
     let reconciles = indexes.iter().map(|index| {
-        let accessor = index.accessor();
+        let selector = index.selector();
         let kind = &index.kind;
         let spec = &index.spec;
         let storage = &index.storage;
@@ -760,7 +760,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                     &mut self.nodes,
                 ).is_err()
             {
-                conflict = Some(<#accessor as ::multi_index_map::MultiIndexAccessor>::NAME);
+                conflict = Some(<#selector as ::multi_index_map::MultiIndexSelector>::NAME);
             }
         }
     });
@@ -827,7 +827,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     quote! {
         #(#bindings)*
 
-        #vis trait #selector #selector_generics: ::multi_index_map::MultiIndexAccessor #selector_where {
+        #vis trait #selector #selector_generics: ::multi_index_map::MultiIndexSelector #selector_where {
             type View<#view_lifetime>
             where
                 Self: #view_lifetime,
@@ -879,12 +879,12 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             #vis fn len(&self) -> usize { self.inner.nodes.len() }
             #vis fn is_empty(&self) -> bool { self.inner.nodes.is_empty() }
 
-            #vis fn by<#accessor_param: #selector_ty>(&self) -> #accessor_param::View<'_> {
-                #accessor_param::view(self)
+            #vis fn by<#selector_param: #selector_ty>(&self) -> #selector_param::View<'_> {
+                #selector_param::view(self)
             }
 
-            #vis fn by_mut<#accessor_param: #selector_ty>(&mut self) -> #accessor_param::ViewMut<'_> {
-                #accessor_param::view_mut(self)
+            #vis fn by_mut<#selector_param: #selector_ty>(&mut self) -> #selector_param::ViewMut<'_> {
+                #selector_param::view_mut(self)
             }
 
             #vis fn try_insert(
@@ -1155,7 +1155,7 @@ fn generate_compatibility_helpers(
                         target = targets.next();
                     }
                 }
-                assert!(target.is_none(), "compatibility accessor targeted a missing node");
+                assert!(target.is_none(), "compatibility selector targeted a missing node");
                 fields
             }
         }
@@ -2087,7 +2087,7 @@ fn generate_inherent_compatibility_index(
 
     quote! {
         impl #map_impl #map_ty #map_where {
-            #[deprecated(note = "use map.by::<Accessor>().get/equal_range(key)")]
+            #[deprecated(note = "use map.by::<Selector>().get/equal_range(key)")]
             #field_vis fn #get_by<#query: ?Sized>(&self, key: &#query) -> #collection<&#element>
             where
                 #kind: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query>,
@@ -2102,7 +2102,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Accessor>().update/update_all(key, ...)")]
+            #[deprecated(note = "use map.by_mut::<Selector>().update/update_all(key, ...)")]
             #field_vis fn #get_mut_by(&mut self, key: &#ty) -> #collection<#tuple_type> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
@@ -2112,7 +2112,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(fields)
             }
 
-            #[deprecated(note = "use map.by_mut::<Accessor>().modify/modify_all(key, ...)")]
+            #[deprecated(note = "use map.by_mut::<Selector>().modify/modify_all(key, ...)")]
             #field_vis fn #modify_by(
                 &mut self,
                 key: &#ty,
@@ -2128,7 +2128,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Accessor>().update/update_all(key, ...)")]
+            #[deprecated(note = "use map.by_mut::<Selector>().update/update_all(key, ...)")]
             #field_vis fn #update_by<#query: ?Sized>(
                 &mut self,
                 key: &#query,
@@ -2149,7 +2149,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Accessor>().remove/remove_all(key)")]
+            #[deprecated(note = "use map.by_mut::<Selector>().remove/remove_all(key)")]
             #field_vis fn #remove_by(&mut self, key: &#ty) -> #collection<#element> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
@@ -2160,7 +2160,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by::<Accessor>().iter()")]
+            #[deprecated(note = "use map.by::<Selector>().iter()")]
             #field_vis fn #iter_by(&self) -> #iter_ty {
                 #iter {
                     inner: #refs::new(

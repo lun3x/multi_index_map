@@ -19,7 +19,7 @@ fn main() {
     for order in orders.by::<ByTrader>().equal_range("John") {
         println!("  {order:?}");
     }
-    println!("John's orders through the compound accessor:");
+    println!("John's orders through the compound selector:");
     for order in orders
         .by::<ByTraderTimestamp>()
         .range(("John", &0)..=("John", &u64::MAX))
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn compound_accessor_supports_full_key_queries_ranges_and_relocation() {
+    fn compound_selector_supports_full_key_queries_ranges_and_relocation() {
         let mut map = populated();
         assert_eq!(
             map.by::<ByTraderTimestamp>()

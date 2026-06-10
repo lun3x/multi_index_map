@@ -1,20 +1,20 @@
-use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ByHashed;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_unique)]
 struct ByOrdered;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_non_unique)]
 struct ByGroup;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 struct ByRank;
 
@@ -36,7 +36,7 @@ where
     bytes: [u8; N],
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ByCompound;
 
@@ -55,7 +55,7 @@ where
     payload: T,
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ByOwnedKey;
 
@@ -105,7 +105,7 @@ pub struct RootKey(u64);
 impl RootBound for RootKey {}
 
 mod generic_paths {
-    use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 
     pub trait LocalBound: crate::RootBound + Eq + std::hash::Hash {}
 
@@ -113,7 +113,7 @@ mod generic_paths {
 
     pub type LocalDefault = crate::RootKey;
 
-    #[derive(MultiIndexAccessor)]
+    #[derive(MultiIndexSelector)]
     #[multi_index(hashed_unique)]
     pub struct ByNestedKey;
 

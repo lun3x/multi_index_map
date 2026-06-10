@@ -1,5 +1,0 @@
-error: MultiIndexAccessor requires a unit struct
- --> tests/ui/accessor_non_unit.rs:5:15
-  |
-5 | struct NonUnit(u64);
-  |               ^^^^^

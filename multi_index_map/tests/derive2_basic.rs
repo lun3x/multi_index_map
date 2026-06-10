@@ -1,27 +1,27 @@
 use multi_index_map::{
-    IndexView, MultiIndexAccessor, MultiIndexMap2, NonUniqueView, NonUniqueViewMut, OrderedView,
+    IndexView, MultiIndexMap2, MultiIndexSelector, NonUniqueView, NonUniqueViewMut, OrderedView,
     UniqueView, UniqueViewMut,
 };
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ById;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_unique)]
 struct ByTimestamp;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_non_unique)]
 struct ByTrader;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 struct ByPrice;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 struct ByTraderTimestamp;
 
@@ -42,7 +42,7 @@ struct Order {
 #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct NonCloneKey(u64);
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ByNonCloneKey;
 
@@ -55,7 +55,7 @@ struct NonCloneRecord {
     payload: String,
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_unique)]
 struct ByNoExtrasKey;
 
@@ -65,7 +65,7 @@ struct NoExtras {
     key: u64,
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_non_unique)]
 struct ByGroup;
 
@@ -78,7 +78,7 @@ struct OtherRecord {
     value: u64,
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 struct ByName;
 
@@ -89,15 +89,15 @@ struct OrderedName {
     value: u64,
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 struct ByHashedUniquePair;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_non_unique)]
 struct ByHashedPair;
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_unique)]
 struct ByOrderedUniquePair;
 
@@ -121,15 +121,15 @@ struct CompoundKinds {
 }
 
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
-struct ReusedAccessor {
+struct ReusedSelector {
     #[multi_index(ById)]
     id: u64,
 }
 
 mod exposed {
-    use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 
-    #[derive(MultiIndexAccessor)]
+    #[derive(MultiIndexSelector)]
     #[multi_index(hashed_unique)]
     pub struct ByPublicId;
 
@@ -157,11 +157,11 @@ mod exposed {
 }
 
 mod rebased_paths {
-    use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
 
     pub(super) type LocalKey = u64;
 
-    #[derive(MultiIndexAccessor)]
+    #[derive(MultiIndexSelector)]
     #[multi_index(hashed_unique)]
     pub(super) struct ByLocal;
 
@@ -390,7 +390,7 @@ fn supports_non_clone_keys_zero_unindexed_fields_and_multiple_derives() {
 }
 
 #[test]
-fn supports_all_compound_categories_and_reused_accessors() {
+fn supports_all_compound_categories_and_reused_selectors() {
     let mut map = MultiIndexCompoundKindsMap::new();
     map.insert(CompoundKinds {
         hu_name: "Ada".to_owned(),
@@ -467,8 +467,8 @@ fn supports_all_compound_categories_and_reused_accessors() {
     assert_eq!(conflict.index, "ByHashedUniquePair");
     map.validate().unwrap();
 
-    let mut reused = MultiIndexReusedAccessorMap::new();
-    reused.insert(ReusedAccessor { id: 9 });
+    let mut reused = MultiIndexReusedSelectorMap::new();
+    reused.insert(ReusedSelector { id: 9 });
     assert_eq!(reused.by::<ById>().get(&9).unwrap().id, 9);
 }
 

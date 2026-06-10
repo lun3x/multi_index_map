@@ -4,7 +4,7 @@ use multi_index_map::__private::{
 };
 use multi_index_map::{Conflict as GenericConflict, ModifyAllResult as GenericModifyAllResult};
 use multi_index_map::{
-    IndexView, MultiIndexAccessor, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
+    IndexView, MultiIndexSelector, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
     UniqueViewMut,
 };
 use std::borrow::Borrow;
@@ -75,19 +75,19 @@ impl NodeValue for OrderNode {
     }
 }
 
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_unique)]
 pub(crate) struct ById;
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_unique)]
 pub(crate) struct ByTimestamp;
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(hashed_non_unique)]
 pub(crate) struct ByTrader;
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 pub(crate) struct ByPrice;
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 pub(crate) struct ByTraderTimestamp;
 
@@ -192,7 +192,7 @@ type TraderIndex = HashedIndex<ByTrader, false>;
 type PriceIndex = OrderedIndex<ByPrice, false>;
 type TraderTimestampIndex = OrderedIndex<ByTraderTimestamp, false>;
 
-pub(crate) trait OrderMapIndex: MultiIndexAccessor {
+pub(crate) trait OrderMapIndex: MultiIndexSelector {
     type View<'a>
     where
         Self: 'a;
@@ -323,13 +323,13 @@ impl OrderMapInner {
     fn insert(&mut self, order: Order) -> Result<&Order, Conflict> {
         if self.id.find(&order.id, &self.nodes).is_some() {
             return Err(Conflict {
-                index: <ById as MultiIndexAccessor>::NAME,
+                index: <ById as MultiIndexSelector>::NAME,
                 value: order,
             });
         }
         if self.timestamp.find(&order.timestamp, &self.nodes).is_some() {
             return Err(Conflict {
-                index: <ByTimestamp as MultiIndexAccessor>::NAME,
+                index: <ByTimestamp as MultiIndexSelector>::NAME,
                 value: order,
             });
         }
@@ -354,7 +354,7 @@ impl OrderMapInner {
         ids.sort_unstable_by_key(|id| id.0);
         assert!(
             !ids.windows(2).any(|pair| pair[0] == pair[1]),
-            "compatibility accessor received a duplicate arena node"
+            "compatibility selector received a duplicate arena node"
         );
 
         let mut fields = Vec::with_capacity(ids.len());
@@ -368,7 +368,7 @@ impl OrderMapInner {
         }
         assert!(
             target.is_none(),
-            "compatibility accessor targeted a missing arena node"
+            "compatibility selector targeted a missing arena node"
         );
         fields
     }
@@ -379,7 +379,7 @@ impl OrderMapInner {
                 &self
                     .nodes
                     .get(id.0)
-                    .expect("compatibility accessor targeted a missing arena node")
+                    .expect("compatibility selector targeted a missing arena node")
                     .order
             })
             .collect()
@@ -677,7 +677,7 @@ impl OrderMapInner {
             .is_some_and(|other| other != id)
         {
             return Err(Conflict {
-                index: <ById as MultiIndexAccessor>::NAME,
+                index: <ById as MultiIndexSelector>::NAME,
                 value: replacement,
             });
         }
@@ -687,7 +687,7 @@ impl OrderMapInner {
             .is_some_and(|other| other != id)
         {
             return Err(Conflict {
-                index: <ByTimestamp as MultiIndexAccessor>::NAME,
+                index: <ByTimestamp as MultiIndexSelector>::NAME,
                 value: replacement,
             });
         }
@@ -711,30 +711,30 @@ impl OrderMapInner {
             .id
             .reconcile(id, &mut self.nodes)
             .err()
-            .map(|_| <ById as MultiIndexAccessor>::NAME)
+            .map(|_| <ById as MultiIndexSelector>::NAME)
             .or_else(|| {
                 self.timestamp
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| <ByTimestamp as MultiIndexAccessor>::NAME)
+                    .map(|_| <ByTimestamp as MultiIndexSelector>::NAME)
             })
             .or_else(|| {
                 self.trader
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| <ByTrader as MultiIndexAccessor>::NAME)
+                    .map(|_| <ByTrader as MultiIndexSelector>::NAME)
             })
             .or_else(|| {
                 self.price
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| <ByPrice as MultiIndexAccessor>::NAME)
+                    .map(|_| <ByPrice as MultiIndexSelector>::NAME)
             })
             .or_else(|| {
                 self.trader_timestamp
                     .reconcile(id, &mut self.nodes)
                     .err()
-                    .map(|_| <ByTraderTimestamp as MultiIndexAccessor>::NAME)
+                    .map(|_| <ByTraderTimestamp as MultiIndexSelector>::NAME)
             });
 
         if let Some(index) = conflict {

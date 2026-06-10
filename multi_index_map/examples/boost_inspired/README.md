@@ -2,11 +2,11 @@
 
 This example is a manually expanded design reference for the experimental `MultiIndexMap2` derive.
 
-The intended accessor syntax puts category information on user-defined unit
+The intended selector syntax puts category information on user-defined unit
 markers and associates element fields with those markers:
 
 ```rust
-#[derive(MultiIndexAccessor)]
+#[derive(MultiIndexSelector)]
 #[multi_index(ordered_non_unique)]
 struct ByTraderTimestamp;
 
@@ -19,7 +19,7 @@ struct Order {
 }
 ```
 
-Repeating an accessor groups those fields into one compound index, in element
+Repeating an selector groups those fields into one compound index, in element
 field declaration order. Full compound keys use tuples of borrowed components:
 
 ```rust
@@ -71,18 +71,18 @@ snapshots the original matching `NodeId`s so each original match is processed ex
 
 ## Generic Index Selection
 
-`OrderMap` selects an index through a user-defined accessor type rather than generating a different
-accessor method or public selector type for every indexed field:
+`OrderMap` selects an index through a user-defined selector type rather than generating a different
+selector method or public selector type for every indexed field:
 
 ```rust
 orders.by::<ByTimestamp>().range(start..end);
 orders.by_mut::<ByTrader>().remove_all("John");
 ```
 
-The example-local `OrderMapIndex` trait uses generic associated types to map each accessor to its
-immutable and mutable named view types. Its constructor methods let the two map accessors construct
+The example-local `OrderMapIndex` trait uses generic associated types to map each selector to its
+immutable and mutable named view types. Its constructor methods let the two map selectors construct
 the selected views while preserving the borrow lifetime. In the hand-written expansion, the
-accessors also serve as their corresponding internal hash/tree index specs.
+selectors also serve as their corresponding internal hash/tree index specs.
 
 ## View Capabilities
 

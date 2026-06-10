@@ -765,7 +765,7 @@ pub(crate) fn generate_iter_mut(
 // For each indexed field generate a TokenStream representing all the accessors
 //   for the underlying storage via that field's lookup table.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_accessors<'a>(
+pub(crate) fn generate_accessor<'a>(
     indexed_fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     unindexed_types: &'a [&Type],
     unindexed_idents: &'a [&Ident],

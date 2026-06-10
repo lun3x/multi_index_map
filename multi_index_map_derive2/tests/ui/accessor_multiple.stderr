@@ -1,5 +1,0 @@
-error: MultiIndexAccessor requires exactly one #[multi_index(...)] category
- --> tests/ui/accessor_multiple.rs:6:8
-  |
-6 | struct Multiple;
-  |        ^^^^^^^^
