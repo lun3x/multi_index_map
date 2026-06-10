@@ -1361,16 +1361,22 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         if let Some(parent) = parent {
             if place_left {
                 S::link_mut(&mut nodes[parent.slot()]).left = Some(id);
+                if self.first == Some(parent) {
+                    self.first = Some(id);
+                }
             } else {
                 S::link_mut(&mut nodes[parent.slot()]).right = Some(id);
+                if self.last == Some(parent) {
+                    self.last = Some(id);
+                }
             }
         } else {
             self.root = Some(id);
+            self.first = Some(id);
+            self.last = Some(id);
         }
         self.len += 1;
         self.insert_fixup(id, nodes);
-        self.first = self.root.map(|root| self.minimum(root, nodes));
-        self.last = self.root.map(|root| self.maximum(root, nodes));
         Ok(())
     }
 
@@ -1507,6 +1513,12 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         if !S::link(&nodes[z.slot()]).linked {
             return;
         }
+        if self.first == Some(z) {
+            self.first = self.successor(z, nodes);
+        }
+        if self.last == Some(z) {
+            self.last = self.predecessor(z, nodes);
+        }
         let mut y = z;
         let mut y_color = S::link(&nodes[y.slot()]).color;
         let x;
@@ -1551,8 +1563,6 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         if y_color == Color::Black {
             self.delete_fixup(x, x_parent, nodes);
         }
-        self.first = self.root.map(|root| self.minimum(root, nodes));
-        self.last = self.root.map(|root| self.maximum(root, nodes));
     }
 
     fn delete_fixup<N>(
