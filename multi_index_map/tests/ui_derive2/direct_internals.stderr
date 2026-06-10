@@ -1,0 +1,47 @@
+error[E0609]: no field `nodes` on type `MultiIndexRecordMap`
+  --> tests/ui_derive2/direct_internals.rs:15:18
+   |
+15 |     let _ = &map.nodes;
+   |                  ^^^^^ unknown field
+   |
+   = note: available field is: `inner`
+
+error[E0609]: no field `__mim_index_0` on type `MultiIndexRecordMap`
+  --> tests/ui_derive2/direct_internals.rs:16:18
+   |
+16 |     let _ = &map.__mim_index_0;
+   |                  ^^^^^^^^^^^^^ unknown field
+   |
+   = note: available field is: `inner`
+
+error[E0599]: no method named `link_all` found for struct `MultiIndexRecordMap` in the current scope
+  --> tests/ui_derive2/direct_internals.rs:17:9
+   |
+ 7 | #[derive(MultiIndexMap2)]
+   |          -------------- method `link_all` not found for this struct
+...
+17 |     map.link_all(multi_index_map::__private::NodeId(0));
+   |         ^^^^^^^^ method not found in `MultiIndexRecordMap`
+   |
+help: one of the expressions' fields has a method of the same name
+   |
+17 |     map.inner.link_all(multi_index_map::__private::NodeId(0));
+   |         ++++++
+
+error[E0599]: no method named `modify_id` found for struct `MultiIndexRecordMap` in the current scope
+  --> tests/ui_derive2/direct_internals.rs:18:9
+   |
+ 7 | #[derive(MultiIndexMap2)]
+   |          -------------- method `modify_id` not found for this struct
+...
+18 |     map.modify_id(multi_index_map::__private::NodeId(0), |_| {});
+   |         ^^^^^^^^^
+   |
+help: one of the expressions' fields has a method of the same name
+   |
+18 |     map.inner.modify_id(multi_index_map::__private::NodeId(0), |_| {});
+   |         ++++++
+help: there is a method `modify_by_id` with a similar name
+   |
+18 |     map.modify_by_id(multi_index_map::__private::NodeId(0), |_| {});
+   |                +++

@@ -272,6 +272,11 @@ impl OrderMapIndex for ByTraderTimestamp {
 
 #[derive(Default)]
 pub(crate) struct OrderMap {
+    inner: OrderMapInner,
+}
+
+#[derive(Default)]
+struct OrderMapInner {
     nodes: Slab<OrderNode>,
     id: IdIndex,
     timestamp: TimestampIndex,
@@ -286,14 +291,36 @@ impl OrderMap {
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.nodes.len()
+        self.inner.nodes.len()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.inner.nodes.is_empty()
     }
 
     pub(crate) fn insert(&mut self, order: Order) -> Result<&Order, Conflict> {
+        self.inner.insert(order)
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    pub(crate) fn by<I: OrderMapIndex>(&self) -> I::View<'_> {
+        I::view(self)
+    }
+
+    pub(crate) fn by_mut<I: OrderMapIndex>(&mut self) -> I::ViewMut<'_> {
+        I::view_mut(self)
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        self.inner.validate()
+    }
+}
+
+impl OrderMapInner {
+    fn insert(&mut self, order: Order) -> Result<&Order, Conflict> {
         if self.id.find(&order.id, &self.nodes).is_some() {
             return Err(Conflict {
                 index: <ById as MultiIndexAccessor>::NAME,
@@ -315,20 +342,12 @@ impl OrderMap {
         Ok(&self.nodes[id.0].order)
     }
 
-    pub(crate) fn clear(&mut self) {
+    fn clear(&mut self) {
         let ids: Vec<_> = self.nodes.iter().map(|(id, _)| NodeId(id)).collect();
         for id in ids {
             self.remove_id(id);
         }
         self.validate_debug();
-    }
-
-    pub(crate) fn by<I: OrderMapIndex>(&self) -> I::View<'_> {
-        I::view(self)
-    }
-
-    pub(crate) fn by_mut<I: OrderMapIndex>(&mut self) -> I::ViewMut<'_> {
-        I::view_mut(self)
     }
 
     fn update_fields_for_ids(&mut self, mut ids: Vec<NodeId>) -> Vec<(&mut String, &mut bool)> {
@@ -375,28 +394,34 @@ impl OrderMap {
             );
         }
     }
+}
 
+impl OrderMap {
     #[deprecated(note = "use by_id().get(key)")]
     pub(crate) fn get_by_id<Q>(&self, key: &Q) -> Option<&Order>
     where
         u64: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        self.id
-            .find(key, &self.nodes)
-            .map(|id| &self.nodes[id.0].order)
+        self.inner
+            .id
+            .find(key, &self.inner.nodes)
+            .map(|id| &self.inner.nodes[id.0].order)
     }
 
     #[deprecated(note = "use by_id_mut().update(key, ...)")]
     pub(crate) fn get_mut_by_id(&mut self, key: &u64) -> Option<(&mut String, &mut bool)> {
-        let id = self.id.find(key, &self.nodes)?;
-        self.update_fields_for_ids(vec![id]).into_iter().next()
+        let id = self.inner.id.find(key, &self.inner.nodes)?;
+        self.inner
+            .update_fields_for_ids(vec![id])
+            .into_iter()
+            .next()
     }
 
     #[deprecated(note = "use by_id_mut().modify(key, ...)")]
     pub(crate) fn modify_by_id(&mut self, key: &u64, f: impl FnOnce(&mut Order)) -> Option<&Order> {
-        let id = self.id.find(key, &self.nodes)?;
-        match self.modify_id(id, f) {
+        let id = self.inner.id.find(key, &self.inner.nodes)?;
+        match self.inner.modify_id(id, f) {
             Ok(order) => Some(order),
             Err(conflict) => panic!(
                 "compatibility modifier removed an element after uniqueness conflict on index '{}'",
@@ -415,8 +440,11 @@ impl OrderMap {
         u64: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        let id = self.id.find(key, &self.nodes)?;
-        Some(self.update_id(id, |fields| f(fields.note, fields.filled)))
+        let id = self.inner.id.find(key, &self.inner.nodes)?;
+        Some(
+            self.inner
+                .update_id(id, |fields| f(fields.note, fields.filled)),
+        )
     }
 
     #[deprecated(note = "use by_id_mut().remove(key)")]
@@ -426,7 +454,10 @@ impl OrderMap {
 
     #[deprecated(note = "use by_id().iter()")]
     pub(crate) fn iter_by_id(&self) -> IdIter<'_> {
-        IdIter::new(OrderRefs::new(&self.nodes, self.id.iter_ids(&self.nodes)))
+        IdIter::new(OrderRefs::new(
+            &self.inner.nodes,
+            self.inner.id.iter_ids(&self.inner.nodes),
+        ))
     }
 
     #[deprecated(note = "use by_timestamp().get(key)")]
@@ -435,15 +466,19 @@ impl OrderMap {
         u64: Borrow<Q>,
         Q: Ord + ?Sized,
     {
-        self.timestamp
-            .find(key, &self.nodes)
-            .map(|id| &self.nodes[id.0].order)
+        self.inner
+            .timestamp
+            .find(key, &self.inner.nodes)
+            .map(|id| &self.inner.nodes[id.0].order)
     }
 
     #[deprecated(note = "use by_timestamp_mut().update(key, ...)")]
     pub(crate) fn get_mut_by_timestamp(&mut self, key: &u64) -> Option<(&mut String, &mut bool)> {
-        let id = self.timestamp.find(key, &self.nodes)?;
-        self.update_fields_for_ids(vec![id]).into_iter().next()
+        let id = self.inner.timestamp.find(key, &self.inner.nodes)?;
+        self.inner
+            .update_fields_for_ids(vec![id])
+            .into_iter()
+            .next()
     }
 
     #[deprecated(note = "use by_timestamp_mut().modify(key, ...)")]
@@ -452,8 +487,8 @@ impl OrderMap {
         key: &u64,
         f: impl FnOnce(&mut Order),
     ) -> Option<&Order> {
-        let id = self.timestamp.find(key, &self.nodes)?;
-        match self.modify_id(id, f) {
+        let id = self.inner.timestamp.find(key, &self.inner.nodes)?;
+        match self.inner.modify_id(id, f) {
             Ok(order) => Some(order),
             Err(conflict) => panic!(
                 "compatibility modifier removed an element after uniqueness conflict on index '{}'",
@@ -472,8 +507,11 @@ impl OrderMap {
         u64: Borrow<Q>,
         Q: Ord + ?Sized,
     {
-        let id = self.timestamp.find(key, &self.nodes)?;
-        Some(self.update_id(id, |fields| f(fields.note, fields.filled)))
+        let id = self.inner.timestamp.find(key, &self.inner.nodes)?;
+        Some(
+            self.inner
+                .update_id(id, |fields| f(fields.note, fields.filled)),
+        )
     }
 
     #[deprecated(note = "use by_timestamp_mut().remove(key)")]
@@ -484,8 +522,8 @@ impl OrderMap {
     #[deprecated(note = "use by_timestamp().iter()")]
     pub(crate) fn iter_by_timestamp(&self) -> TimestampIter<'_> {
         TimestampIter::new(OrderRefs::new(
-            &self.nodes,
-            self.timestamp.iter_ids(&self.nodes),
+            &self.inner.nodes,
+            self.inner.timestamp.iter_ids(&self.inner.nodes),
         ))
     }
 
@@ -500,8 +538,8 @@ impl OrderMap {
 
     #[deprecated(note = "use by_trader_mut().update_all(key, ...)")]
     pub(crate) fn get_mut_by_trader(&mut self, key: &String) -> Vec<(&mut String, &mut bool)> {
-        let ids = self.trader.equal_ids(key, &self.nodes);
-        self.update_fields_for_ids(ids)
+        let ids = self.inner.trader.equal_ids(key, &self.inner.nodes);
+        self.inner.update_fields_for_ids(ids)
     }
 
     #[deprecated(note = "use by_trader_mut().modify_all(key, ...)")]
@@ -510,10 +548,10 @@ impl OrderMap {
         key: &String,
         f: impl FnMut(&mut Order),
     ) -> Vec<&Order> {
-        let ids = self.trader.equal_ids(key, &self.nodes);
+        let ids = self.inner.trader.equal_ids(key, &self.inner.nodes);
         let result = self.by_mut::<ByTrader>().modify_all(key, f);
-        Self::panic_on_modify_conflicts(result);
-        self.order_refs_for_ids(&ids)
+        OrderMapInner::panic_on_modify_conflicts(result);
+        self.inner.order_refs_for_ids(&ids)
     }
 
     #[deprecated(note = "use by_trader_mut().update_all(key, ...)")]
@@ -526,10 +564,10 @@ impl OrderMap {
         String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        let ids = self.trader.equal_ids(key, &self.nodes);
+        let ids = self.inner.trader.equal_ids(key, &self.inner.nodes);
         self.by_mut::<ByTrader>()
             .update_all(key, |fields| f(fields.note, fields.filled));
-        self.order_refs_for_ids(&ids)
+        self.inner.order_refs_for_ids(&ids)
     }
 
     #[deprecated(note = "use by_trader_mut().remove_all(key)")]
@@ -540,8 +578,8 @@ impl OrderMap {
     #[deprecated(note = "use by_trader().iter()")]
     pub(crate) fn iter_by_trader(&self) -> TraderIter<'_> {
         TraderIter::new(OrderRefs::new(
-            &self.nodes,
-            self.trader.iter_ids(&self.nodes),
+            &self.inner.nodes,
+            self.inner.trader.iter_ids(&self.inner.nodes),
         ))
     }
 
@@ -551,25 +589,26 @@ impl OrderMap {
         u64: Borrow<Q>,
         Q: Ord + ?Sized,
     {
-        self.price
-            .equal_ids(key, &self.nodes)
+        self.inner
+            .price
+            .equal_ids(key, &self.inner.nodes)
             .into_iter()
-            .map(|id| &self.nodes[id.0].order)
+            .map(|id| &self.inner.nodes[id.0].order)
             .collect()
     }
 
     #[deprecated(note = "use by_price_mut().update_all(key, ...)")]
     pub(crate) fn get_mut_by_price(&mut self, key: &u64) -> Vec<(&mut String, &mut bool)> {
-        let ids = self.price.equal_ids(key, &self.nodes);
-        self.update_fields_for_ids(ids)
+        let ids = self.inner.price.equal_ids(key, &self.inner.nodes);
+        self.inner.update_fields_for_ids(ids)
     }
 
     #[deprecated(note = "use by_price_mut().modify_all(key, ...)")]
     pub(crate) fn modify_by_price(&mut self, key: &u64, f: impl FnMut(&mut Order)) -> Vec<&Order> {
-        let ids = self.price.equal_ids(key, &self.nodes);
+        let ids = self.inner.price.equal_ids(key, &self.inner.nodes);
         let result = self.by_mut::<ByPrice>().modify_all(key, f);
-        Self::panic_on_modify_conflicts(result);
-        self.order_refs_for_ids(&ids)
+        OrderMapInner::panic_on_modify_conflicts(result);
+        self.inner.order_refs_for_ids(&ids)
     }
 
     #[deprecated(note = "use by_price_mut().update_all(key, ...)")]
@@ -582,11 +621,12 @@ impl OrderMap {
         u64: Borrow<Q>,
         Q: Ord + ?Sized,
     {
-        let ids = self.price.equal_ids(key, &self.nodes);
+        let ids = self.inner.price.equal_ids(key, &self.inner.nodes);
         for id in &ids {
-            self.update_id(*id, |fields| f(fields.note, fields.filled));
+            self.inner
+                .update_id(*id, |fields| f(fields.note, fields.filled));
         }
-        self.order_refs_for_ids(&ids)
+        self.inner.order_refs_for_ids(&ids)
     }
 
     #[deprecated(note = "use by_price_mut().remove_all(key)")]
@@ -597,11 +637,13 @@ impl OrderMap {
     #[deprecated(note = "use by_price().iter()")]
     pub(crate) fn iter_by_price(&self) -> PriceIter<'_> {
         PriceIter::new(OrderRefs::new(
-            &self.nodes,
-            self.price.iter_ids(&self.nodes),
+            &self.inner.nodes,
+            self.inner.price.iter_ids(&self.inner.nodes),
         ))
     }
+}
 
+impl OrderMapInner {
     fn link_all(&mut self, id: NodeId) {
         let id_result = self.id.insert(id, &mut self.nodes);
         let timestamp_result = self.timestamp.insert(id, &mut self.nodes);
@@ -738,7 +780,7 @@ impl OrderMap {
         ids.len()
     }
 
-    pub(crate) fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), String> {
         self.id.validate(&self.nodes)?;
         self.timestamp.validate(&self.nodes)?;
         self.trader.validate(&self.nodes)?;
@@ -899,9 +941,10 @@ pub(crate) struct IdView<'a> {
 impl<'a> IdView<'a> {
     pub(crate) fn get(&self, key: &u64) -> Option<&'a Order> {
         self.map
+            .inner
             .id
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 
     pub(crate) fn contains_key(&self, key: &u64) -> bool {
@@ -910,8 +953,8 @@ impl<'a> IdView<'a> {
 
     pub(crate) fn iter(&self) -> IdIter<'a> {
         IdIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.id.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.id.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -922,9 +965,9 @@ pub(crate) struct IdViewMut<'a> {
 
 impl IdViewMut<'_> {
     pub(crate) fn remove(&mut self, key: &u64) -> Option<Order> {
-        let id = self.map.id.find(key, &self.map.nodes)?;
-        let order = self.map.remove_id(id);
-        self.map.validate_debug();
+        let id = self.map.inner.id.find(key, &self.map.inner.nodes)?;
+        let order = self.map.inner.remove_id(id);
+        self.map.inner.validate_debug();
         Some(order)
     }
 
@@ -933,10 +976,10 @@ impl IdViewMut<'_> {
         key: &u64,
         replacement: Order,
     ) -> Result<Option<Order>, Conflict> {
-        let Some(id) = self.map.id.find(key, &self.map.nodes) else {
+        let Some(id) = self.map.inner.id.find(key, &self.map.inner.nodes) else {
             return Ok(None);
         };
-        self.map.replace_id(id, replacement).map(Some)
+        self.map.inner.replace_id(id, replacement).map(Some)
     }
 
     pub(crate) fn modify(
@@ -944,15 +987,15 @@ impl IdViewMut<'_> {
         key: &u64,
         f: impl FnOnce(&mut Order),
     ) -> Result<Option<&Order>, Conflict> {
-        let Some(id) = self.map.id.find(key, &self.map.nodes) else {
+        let Some(id) = self.map.inner.id.find(key, &self.map.inner.nodes) else {
             return Ok(None);
         };
-        self.map.modify_id(id, f).map(Some)
+        self.map.inner.modify_id(id, f).map(Some)
     }
 
     pub(crate) fn update(&mut self, key: &u64, f: impl FnOnce(OrderUpdate<'_>)) -> Option<&Order> {
-        let id = self.map.id.find(key, &self.map.nodes)?;
-        Some(self.map.update_id(id, f))
+        let id = self.map.inner.id.find(key, &self.map.inner.nodes)?;
+        Some(self.map.inner.update_id(id, f))
     }
 }
 
@@ -963,9 +1006,10 @@ pub(crate) struct TimestampView<'a> {
 impl<'a> TimestampView<'a> {
     pub(crate) fn get(&self, key: &u64) -> Option<&'a Order> {
         self.map
+            .inner
             .timestamp
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 
     pub(crate) fn contains_key(&self, key: &u64) -> bool {
@@ -974,8 +1018,8 @@ impl<'a> TimestampView<'a> {
 
     pub(crate) fn iter(&self) -> TimestampIter<'a> {
         TimestampIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.timestamp.iter_ids(&self.map.inner.nodes),
         ))
     }
 
@@ -984,8 +1028,11 @@ impl<'a> TimestampView<'a> {
         R: RangeBounds<u64>,
     {
         TimestampRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .timestamp
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -996,9 +1043,9 @@ pub(crate) struct TimestampViewMut<'a> {
 
 impl TimestampViewMut<'_> {
     pub(crate) fn remove(&mut self, key: &u64) -> Option<Order> {
-        let id = self.map.timestamp.find(key, &self.map.nodes)?;
-        let order = self.map.remove_id(id);
-        self.map.validate_debug();
+        let id = self.map.inner.timestamp.find(key, &self.map.inner.nodes)?;
+        let order = self.map.inner.remove_id(id);
+        self.map.inner.validate_debug();
         Some(order)
     }
 
@@ -1007,10 +1054,10 @@ impl TimestampViewMut<'_> {
         key: &u64,
         replacement: Order,
     ) -> Result<Option<Order>, Conflict> {
-        let Some(id) = self.map.timestamp.find(key, &self.map.nodes) else {
+        let Some(id) = self.map.inner.timestamp.find(key, &self.map.inner.nodes) else {
             return Ok(None);
         };
-        self.map.replace_id(id, replacement).map(Some)
+        self.map.inner.replace_id(id, replacement).map(Some)
     }
 
     pub(crate) fn modify(
@@ -1018,15 +1065,15 @@ impl TimestampViewMut<'_> {
         key: &u64,
         f: impl FnOnce(&mut Order),
     ) -> Result<Option<&Order>, Conflict> {
-        let Some(id) = self.map.timestamp.find(key, &self.map.nodes) else {
+        let Some(id) = self.map.inner.timestamp.find(key, &self.map.inner.nodes) else {
             return Ok(None);
         };
-        self.map.modify_id(id, f).map(Some)
+        self.map.inner.modify_id(id, f).map(Some)
     }
 
     pub(crate) fn update(&mut self, key: &u64, f: impl FnOnce(OrderUpdate<'_>)) -> Option<&Order> {
-        let id = self.map.timestamp.find(key, &self.map.nodes)?;
-        Some(self.map.update_id(id, f))
+        let id = self.map.inner.timestamp.find(key, &self.map.inner.nodes)?;
+        Some(self.map.inner.update_id(id, f))
     }
 }
 
@@ -1041,15 +1088,18 @@ impl<'a> TraderView<'a> {
         Q: Eq + Hash + ?Sized,
     {
         TraderEqualRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.equal_iter_ids(key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader
+                .equal_iter_ids(key, &self.map.inner.nodes),
         ))
     }
 
     pub(crate) fn iter(&self) -> TraderIter<'a> {
         TraderIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.trader.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1064,9 +1114,12 @@ impl TraderViewMut<'_> {
         String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        let ids = self.map.trader.equal_ids(key, &self.map.nodes);
-        let orders = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
-        self.map.validate_debug();
+        let ids = self.map.inner.trader.equal_ids(key, &self.map.inner.nodes);
+        let orders = ids
+            .into_iter()
+            .map(|id| self.map.inner.remove_id(id))
+            .collect();
+        self.map.inner.validate_debug();
         orders
     }
 
@@ -1075,8 +1128,8 @@ impl TraderViewMut<'_> {
         String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        let ids = self.map.trader.equal_ids(key, &self.map.nodes);
-        self.map.modify_ids(ids, f)
+        let ids = self.map.inner.trader.equal_ids(key, &self.map.inner.nodes);
+        self.map.inner.modify_ids(ids, f)
     }
 
     pub(crate) fn update_all<Q>(&mut self, key: &Q, f: impl FnMut(OrderUpdate<'_>)) -> usize
@@ -1084,8 +1137,8 @@ impl TraderViewMut<'_> {
         String: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
     {
-        let ids = self.map.trader.equal_ids(key, &self.map.nodes);
-        self.map.update_ids(ids, f)
+        let ids = self.map.inner.trader.equal_ids(key, &self.map.inner.nodes);
+        self.map.inner.update_ids(ids, f)
     }
 }
 
@@ -1096,15 +1149,18 @@ pub(crate) struct PriceView<'a> {
 impl<'a> PriceView<'a> {
     pub(crate) fn equal_range(&self, key: &u64) -> PriceRange<'a> {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(*key..=*key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(*key..=*key, &self.map.inner.nodes),
         ))
     }
 
     pub(crate) fn iter(&self) -> PriceIter<'a> {
         PriceIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.price.iter_ids(&self.map.inner.nodes),
         ))
     }
 
@@ -1113,8 +1169,11 @@ impl<'a> PriceView<'a> {
         R: RangeBounds<u64>,
     {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -1125,20 +1184,23 @@ pub(crate) struct PriceViewMut<'a> {
 
 impl PriceViewMut<'_> {
     pub(crate) fn remove_all(&mut self, key: &u64) -> Vec<Order> {
-        let ids = self.map.price.equal_ids(key, &self.map.nodes);
-        let orders = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
-        self.map.validate_debug();
+        let ids = self.map.inner.price.equal_ids(key, &self.map.inner.nodes);
+        let orders = ids
+            .into_iter()
+            .map(|id| self.map.inner.remove_id(id))
+            .collect();
+        self.map.inner.validate_debug();
         orders
     }
 
     pub(crate) fn modify_all(&mut self, key: &u64, f: impl FnMut(&mut Order)) -> ModifyAllResult {
-        let ids = self.map.price.equal_ids(key, &self.map.nodes);
-        self.map.modify_ids(ids, f)
+        let ids = self.map.inner.price.equal_ids(key, &self.map.inner.nodes);
+        self.map.inner.modify_ids(ids, f)
     }
 
     pub(crate) fn update_all(&mut self, key: &u64, f: impl FnMut(OrderUpdate<'_>)) -> usize {
-        let ids = self.map.price.equal_ids(key, &self.map.nodes);
-        self.map.update_ids(ids, f)
+        let ids = self.map.inner.price.equal_ids(key, &self.map.inner.nodes);
+        self.map.inner.update_ids(ids, f)
     }
 }
 
@@ -1158,17 +1220,21 @@ impl<'a> TraderTimestampView<'a> {
         Q1: Ord + ?Sized,
     {
         TraderTimestampRange::new(OrderRefs::new(
-            &self.map.nodes,
+            &self.map.inner.nodes,
             self.map
+                .inner
                 .trader_timestamp
-                .equal_iter_ids(&key, &self.map.nodes),
+                .equal_iter_ids(&key, &self.map.inner.nodes),
         ))
     }
 
     pub(crate) fn iter(&self) -> TraderTimestampIter<'a> {
         TraderTimestampIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader_timestamp.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader_timestamp
+                .iter_ids(&self.map.inner.nodes),
         ))
     }
 
@@ -1181,10 +1247,11 @@ impl<'a> TraderTimestampView<'a> {
         R: RangeBounds<(&'query Q0, &'query Q1)>,
     {
         TraderTimestampRange::new(OrderRefs::new(
-            &self.map.nodes,
+            &self.map.inner.nodes,
             self.map
+                .inner
                 .trader_timestamp
-                .range_iter_ids(range, &self.map.nodes),
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -1201,9 +1268,16 @@ impl TraderTimestampViewMut<'_> {
         Q0: Ord + ?Sized,
         Q1: Ord + ?Sized,
     {
-        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
-        let orders = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
-        self.map.validate_debug();
+        let ids = self
+            .map
+            .inner
+            .trader_timestamp
+            .equal_ids(&key, &self.map.inner.nodes);
+        let orders = ids
+            .into_iter()
+            .map(|id| self.map.inner.remove_id(id))
+            .collect();
+        self.map.inner.validate_debug();
         orders
     }
 
@@ -1218,8 +1292,12 @@ impl TraderTimestampViewMut<'_> {
         Q0: Ord + ?Sized,
         Q1: Ord + ?Sized,
     {
-        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
-        self.map.modify_ids(ids, f)
+        let ids = self
+            .map
+            .inner
+            .trader_timestamp
+            .equal_ids(&key, &self.map.inner.nodes);
+        self.map.inner.modify_ids(ids, f)
     }
 
     pub(crate) fn update_all<'query, Q0, Q1>(
@@ -1233,8 +1311,12 @@ impl TraderTimestampViewMut<'_> {
         Q0: Ord + ?Sized,
         Q1: Ord + ?Sized,
     {
-        let ids = self.map.trader_timestamp.equal_ids(&key, &self.map.nodes);
-        self.map.update_ids(ids, f)
+        let ids = self
+            .map
+            .inner
+            .trader_timestamp
+            .equal_ids(&key, &self.map.inner.nodes);
+        self.map.inner.update_ids(ids, f)
     }
 }
 
@@ -1247,13 +1329,13 @@ impl IndexView for IdView<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.id.len()
+        self.map.inner.id.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         IdIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.id.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.id.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1261,9 +1343,10 @@ impl IndexView for IdView<'_> {
 impl UniqueView for IdView<'_> {
     fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
         self.map
+            .inner
             .id
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 }
 
@@ -1276,13 +1359,13 @@ impl IndexView for IdViewMut<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.id.len()
+        self.map.inner.id.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         IdIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.id.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.id.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1290,9 +1373,10 @@ impl IndexView for IdViewMut<'_> {
 impl UniqueView for IdViewMut<'_> {
     fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
         self.map
+            .inner
             .id
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 }
 
@@ -1336,13 +1420,13 @@ impl IndexView for TimestampView<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.timestamp.len()
+        self.map.inner.timestamp.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         TimestampIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.timestamp.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1350,9 +1434,10 @@ impl IndexView for TimestampView<'_> {
 impl UniqueView for TimestampView<'_> {
     fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
         self.map
+            .inner
             .timestamp
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 }
 
@@ -1367,8 +1452,11 @@ impl OrderedView for TimestampView<'_> {
         R: RangeBounds<Self::Key>,
     {
         TimestampRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .timestamp
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -1382,13 +1470,13 @@ impl IndexView for TimestampViewMut<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.timestamp.len()
+        self.map.inner.timestamp.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         TimestampIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.timestamp.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1396,9 +1484,10 @@ impl IndexView for TimestampViewMut<'_> {
 impl UniqueView for TimestampViewMut<'_> {
     fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
         self.map
+            .inner
             .timestamp
-            .find(key, &self.map.nodes)
-            .map(|id| &self.map.nodes[id.0].order)
+            .find(key, &self.map.inner.nodes)
+            .map(|id| &self.map.inner.nodes[id.0].order)
     }
 }
 
@@ -1413,8 +1502,11 @@ impl OrderedView for TimestampViewMut<'_> {
         R: RangeBounds<Self::Key>,
     {
         TimestampRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.timestamp.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .timestamp
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -1459,13 +1551,13 @@ impl IndexView for TraderView<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.trader.len()
+        self.map.inner.trader.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         TraderIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.trader.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1478,8 +1570,11 @@ impl NonUniqueView for TraderView<'_> {
 
     fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
         TraderEqualRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.equal_iter_ids(key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader
+                .equal_iter_ids(key, &self.map.inner.nodes),
         ))
     }
 }
@@ -1493,13 +1588,13 @@ impl IndexView for TraderViewMut<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.trader.len()
+        self.map.inner.trader.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         TraderIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.trader.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1512,8 +1607,11 @@ impl NonUniqueView for TraderViewMut<'_> {
 
     fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
         TraderEqualRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.trader.equal_iter_ids(key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader
+                .equal_iter_ids(key, &self.map.inner.nodes),
         ))
     }
 }
@@ -1550,13 +1648,13 @@ impl IndexView for PriceView<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.price.len()
+        self.map.inner.price.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         PriceIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.price.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1569,8 +1667,11 @@ impl NonUniqueView for PriceView<'_> {
 
     fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(*key..=*key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(*key..=*key, &self.map.inner.nodes),
         ))
     }
 }
@@ -1586,8 +1687,11 @@ impl OrderedView for PriceView<'_> {
         R: RangeBounds<Self::Key>,
     {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }
@@ -1601,13 +1705,13 @@ impl IndexView for PriceViewMut<'_> {
         Self: 'a;
 
     fn len(&self) -> usize {
-        self.map.price.len()
+        self.map.inner.price.len()
     }
 
     fn iter(&self) -> Self::Iter<'_> {
         PriceIter::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.iter_ids(&self.map.nodes),
+            &self.map.inner.nodes,
+            self.map.inner.price.iter_ids(&self.map.inner.nodes),
         ))
     }
 }
@@ -1620,8 +1724,11 @@ impl NonUniqueView for PriceViewMut<'_> {
 
     fn equal_range(&self, key: &Self::Key) -> Self::EqualRange<'_> {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(*key..=*key, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(*key..=*key, &self.map.inner.nodes),
         ))
     }
 }
@@ -1637,8 +1744,11 @@ impl OrderedView for PriceViewMut<'_> {
         R: RangeBounds<Self::Key>,
     {
         PriceRange::new(OrderRefs::new(
-            &self.map.nodes,
-            self.map.price.range_iter_ids(range, &self.map.nodes),
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .price
+                .range_iter_ids(range, &self.map.inner.nodes),
         ))
     }
 }

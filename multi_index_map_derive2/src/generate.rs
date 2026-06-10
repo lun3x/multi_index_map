@@ -31,6 +31,7 @@ pub(crate) fn generate(input: Input) -> TokenStream {
 struct Names {
     element: Ident,
     map: Ident,
+    inner: Ident,
     node: Ident,
     update: Ident,
     refs: Ident,
@@ -42,6 +43,7 @@ impl Names {
         let element = input.element.clone();
         let map = format_ident!("MultiIndex{}Map", element);
         Self {
+            inner: format_ident!("__{}Inner", map),
             node: format_ident!("__{}Node", map),
             update: format_ident!("{}Update", map),
             refs: format_ident!("__{}Refs", map),
@@ -380,6 +382,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     let vis = &input.vis;
     let element = &names.element;
     let map = &names.map;
+    let inner = &names.inner;
     let node = &names.node;
     let update = &names.update;
     let selector = &names.selector;
@@ -499,11 +502,15 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         }
 
         #vis struct #map {
+            inner: #inner,
+        }
+
+        struct #inner {
             nodes: ::multi_index_map::__private::Slab<#node>,
             #(#storages,)*
         }
 
-        impl Default for #map {
+        impl Default for #inner {
             fn default() -> Self {
                 Self {
                     nodes: ::std::default::Default::default(),
@@ -512,10 +519,18 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             }
         }
 
+        impl Default for #map {
+            fn default() -> Self {
+                Self {
+                    inner: ::std::default::Default::default(),
+                }
+            }
+        }
+
         impl #map {
             #vis fn new() -> Self { Self::default() }
-            #vis fn len(&self) -> usize { self.nodes.len() }
-            #vis fn is_empty(&self) -> bool { self.nodes.is_empty() }
+            #vis fn len(&self) -> usize { self.inner.nodes.len() }
+            #vis fn is_empty(&self) -> bool { self.inner.nodes.is_empty() }
 
             #vis fn by<I: #selector>(&self) -> I::View<'_> {
                 I::view(self)
@@ -526,6 +541,33 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             }
 
             #vis fn try_insert(
+                &mut self,
+                value: #element,
+            ) -> Result<&#element, ::multi_index_map::Conflict<#element>> {
+                self.inner.try_insert(value)
+            }
+
+            #vis fn insert(&mut self, value: #element) -> &#element {
+                match self.try_insert(value) {
+                    Ok(value) => value,
+                    Err(conflict) => panic!(
+                        "unable to insert element: uniqueness constraint violated on index '{}'",
+                        conflict.index
+                    ),
+                }
+            }
+
+            #vis fn clear(&mut self) {
+                self.inner.clear();
+            }
+
+            #vis fn validate(&self) -> Result<(), String> {
+                self.inner.validate()
+            }
+        }
+
+        impl #inner {
+            fn try_insert(
                 &mut self,
                 value: #element,
             ) -> Result<&#element, ::multi_index_map::Conflict<#element>> {
@@ -540,17 +582,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 Ok(&self.nodes[id.0].value)
             }
 
-            #vis fn insert(&mut self, value: #element) -> &#element {
-                match self.try_insert(value) {
-                    Ok(value) => value,
-                    Err(conflict) => panic!(
-                        "unable to insert element: uniqueness constraint violated on index '{}'",
-                        conflict.index
-                    ),
-                }
-            }
-
-            #vis fn clear(&mut self) {
+            fn clear(&mut self) {
                 let ids = self.nodes.iter()
                     .map(|(id, _)| ::multi_index_map::__private::NodeId(id))
                     .collect::<Vec<_>>();
@@ -665,7 +697,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
 
             #compatibility_helpers
 
-            #vis fn validate(&self) -> Result<(), String> {
+            fn validate(&self) -> Result<(), String> {
                 #(#validates)*
                 let len = self.nodes.len();
                 if [#(#lengths,)*].into_iter().any(|index_len| index_len != len) {
@@ -884,10 +916,10 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             #vis fn iter(&self) -> #iter<'a, K> {
                 #iter {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
-                            &self.map.#storage,
-                            &self.map.nodes,
+                            &self.map.inner.#storage,
+                            &self.map.inner.nodes,
                         ),
                     ),
                 }
@@ -902,10 +934,10 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             #vis fn iter(&self) -> #iter<'_, K> {
                 #iter {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
-                            &self.map.#storage,
-                            &self.map.nodes,
+                            &self.map.inner.#storage,
+                            &self.map.inner.nodes,
                         ),
                     ),
                 }
@@ -923,8 +955,8 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
-                ).map(|id| &self.map.nodes[id.0].value)
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
+                ).map(|id| &self.map.inner.nodes[id.0].value)
             }
 
             #vis fn contains_key<#q_generics>(&self, #argument) -> bool
@@ -932,7 +964,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 ).is_some()
             }
         }
@@ -948,8 +980,8 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
-                ).map(|id| &self.map.nodes[id.0].value)
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
+                ).map(|id| &self.map.inner.nodes[id.0].value)
             }
 
             #vis fn contains_key<#q_generics>(&self, #argument) -> bool
@@ -957,7 +989,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 ).is_some()
             }
 
@@ -966,10 +998,10 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 )?;
-                let value = self.map.remove_id(id);
-                self.map.validate_debug();
+                let value = self.map.inner.remove_id(id);
+                self.map.inner.validate_debug();
                 Some(value)
             }
 
@@ -982,9 +1014,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 ) else { return Ok(None); };
-                self.map.replace_id(id, replacement).map(Some)
+                self.map.inner.replace_id(id, replacement).map(Some)
             }
 
             #vis fn modify<#q_generics>(
@@ -996,9 +1028,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 ) else { return Ok(None); };
-                self.map.modify_id(id, f).map(Some)
+                self.map.inner.modify_id(id, f).map(Some)
             }
 
             #vis fn update<#q_generics>(
@@ -1010,9 +1042,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::find(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 )?;
-                Some(self.map.update_id(id, f))
+                Some(self.map.inner.update_id(id, f))
             }
         }
 
@@ -1028,9 +1060,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 #equal {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_iter_ids(
-                            &self.map.#storage, #key_ref, &self.map.nodes
+                            &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1049,9 +1081,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 #equal {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_iter_ids(
-                            &self.map.#storage, #key_ref, &self.map.nodes
+                            &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1062,10 +1094,10 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 );
-                let values = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
-                self.map.validate_debug();
+                let values = ids.into_iter().map(|id| self.map.inner.remove_id(id)).collect();
+                self.map.inner.validate_debug();
                 values
             }
 
@@ -1078,9 +1110,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 );
-                self.map.modify_ids(ids, f)
+                self.map.inner.modify_ids(ids, f)
             }
 
             #vis fn update_all<#q_generics>(
@@ -1092,9 +1124,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                 K: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>,
             {
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #q_ty>>::equal_ids(
-                    &self.map.#storage, #key_ref, &self.map.nodes
+                    &self.map.inner.#storage, #key_ref, &self.map.inner.nodes
                 );
-                self.map.update_ids(ids, f)
+                self.map.inner.update_ids(ids, f)
             }
         }
 
@@ -1113,9 +1145,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 #range {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
-                            &self.map.#storage, range_value, &self.map.nodes
+                            &self.map.inner.#storage, range_value, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1137,9 +1169,9 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             {
                 #range {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
-                            &self.map.#storage, range_value, &self.map.nodes
+                            &self.map.inner.#storage, range_value, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1156,7 +1188,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             type Iter<'a> = #iter<'a, K> where Self: 'a;
 
             fn len(&self) -> usize {
-                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.#storage)
+                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.inner.#storage)
             }
 
             fn iter(&self) -> Self::Iter<'_> { #view::iter(self) }
@@ -1172,7 +1204,7 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
             type Iter<'a> = #iter<'a, K> where Self: 'a;
 
             fn len(&self) -> usize {
-                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.#storage)
+                <K as ::multi_index_map::__private::IndexKind<#node, #spec>>::len(&self.map.inner.#storage)
             }
 
             fn iter(&self) -> Self::Iter<'_> { #view_mut::iter(self) }
@@ -1274,8 +1306,8 @@ fn generate_capability_traits(
             fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
                 #query_setup
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
-                ).map(|id| &self.map.nodes[id.0].value)
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
+                ).map(|id| &self.map.inner.nodes[id.0].value)
             }
         }
 
@@ -1289,8 +1321,8 @@ fn generate_capability_traits(
             fn get(&self, key: &Self::Key) -> Option<&Self::Value> {
                 #query_setup
                 <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
-                ).map(|id| &self.map.nodes[id.0].value)
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
+                ).map(|id| &self.map.inner.nodes[id.0].value)
             }
         }
 
@@ -1307,10 +1339,10 @@ fn generate_capability_traits(
             fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
                 #query_setup
                 let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 )?;
-                let value = self.map.remove_id(id);
-                self.map.validate_debug();
+                let value = self.map.inner.remove_id(id);
+                self.map.inner.validate_debug();
                 Some(value)
             }
 
@@ -1321,9 +1353,9 @@ fn generate_capability_traits(
             ) -> Result<Option<Self::Value>, Self::Conflict> {
                 #query_setup
                 let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 ) else { return Ok(None); };
-                self.map.replace_id(id, replacement).map(Some)
+                self.map.inner.replace_id(id, replacement).map(Some)
             }
 
             fn modify<F>(
@@ -1336,9 +1368,9 @@ fn generate_capability_traits(
             {
                 #query_setup
                 let Some(id) = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 ) else { return Ok(None); };
-                self.map.modify_id(id, f).map(Some)
+                self.map.inner.modify_id(id, f).map(Some)
             }
 
             fn update<F>(&mut self, key: &Self::Key, f: F) -> Option<&Self::Value>
@@ -1347,9 +1379,9 @@ fn generate_capability_traits(
             {
                 #query_setup
                 let id = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::find(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 )?;
-                Some(self.map.update_id(id, f))
+                Some(self.map.inner.update_id(id, f))
             }
         }
 
@@ -1366,9 +1398,9 @@ fn generate_capability_traits(
                 #query_setup
                 #equal {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_iter_ids(
-                            &self.map.#storage, #query_ref, &self.map.nodes
+                            &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1388,9 +1420,9 @@ fn generate_capability_traits(
                 #query_setup
                 #equal {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_iter_ids(
-                            &self.map.#storage, #query_ref, &self.map.nodes
+                            &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1410,10 +1442,10 @@ fn generate_capability_traits(
             fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
                 #query_setup
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 );
-                let values = ids.into_iter().map(|id| self.map.remove_id(id)).collect();
-                self.map.validate_debug();
+                let values = ids.into_iter().map(|id| self.map.inner.remove_id(id)).collect();
+                self.map.inner.validate_debug();
                 values
             }
 
@@ -1423,9 +1455,9 @@ fn generate_capability_traits(
             {
                 #query_setup
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 );
-                self.map.modify_ids(ids, f)
+                self.map.inner.modify_ids(ids, f)
             }
 
             fn update_all<F>(&mut self, key: &Self::Key, f: F) -> usize
@@ -1434,9 +1466,9 @@ fn generate_capability_traits(
             {
                 #query_setup
                 let ids = <K as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query_ty>>::equal_ids(
-                    &self.map.#storage, #query_ref, &self.map.nodes
+                    &self.map.inner.#storage, #query_ref, &self.map.inner.nodes
                 );
-                self.map.update_ids(ids, f)
+                self.map.inner.update_ids(ids, f)
             }
         }
 
@@ -1455,9 +1487,9 @@ fn generate_capability_traits(
             {
                 #range {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
-                            &self.map.#storage, #range_value, &self.map.nodes
+                            &self.map.inner.#storage, #range_value, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1479,9 +1511,9 @@ fn generate_capability_traits(
             {
                 #range {
                     inner: #refs::new(
-                        &self.map.nodes,
+                        &self.map.inner.nodes,
                         <K as ::multi_index_map::__private::OrderedIndexKind<#node, #spec>>::range_iter_ids(
-                            &self.map.#storage, #range_value, &self.map.nodes
+                            &self.map.inner.#storage, #range_value, &self.map.inner.nodes
                         ),
                     ),
                 }
@@ -1504,6 +1536,7 @@ fn generate_inherent_compatibility_index(
 ) -> TokenStream {
     let element = &names.element;
     let map = &names.map;
+    let inner = &names.inner;
     let node = &names.node;
     let refs = &names.refs;
     let kind = &index.kind;
@@ -1544,10 +1577,10 @@ fn generate_inherent_compatibility_index(
             {
                 let values =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>>::equal_ids(
-                        &self.#storage, key, &self.nodes
+                        &self.inner.#storage, key, &self.inner.nodes
                     )
                     .into_iter()
-                    .map(|id| &self.nodes[id.0].value)
+                    .map(|id| &self.inner.nodes[id.0].value)
                     .collect();
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
@@ -1556,9 +1589,9 @@ fn generate_inherent_compatibility_index(
             #field_vis fn #get_mut_by(&mut self, key: &#ty) -> #collection<#tuple_type> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
-                        &self.#storage, key, &self.nodes
+                        &self.inner.#storage, key, &self.inner.nodes
                     );
-                let fields = self.update_fields_for_ids(ids);
+                let fields = self.inner.update_fields_for_ids(ids);
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(fields)
             }
 
@@ -1570,11 +1603,11 @@ fn generate_inherent_compatibility_index(
             ) -> #collection<&#element> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
-                        &self.#storage, key, &self.nodes
+                        &self.inner.#storage, key, &self.inner.nodes
                     );
-                let result = self.modify_ids(ids.clone(), f);
-                Self::panic_on_modify_conflicts(result);
-                let values = self.order_refs_for_ids(&ids);
+                let result = self.inner.modify_ids(ids.clone(), f);
+                #inner::panic_on_modify_conflicts(result);
+                let values = self.inner.order_refs_for_ids(&ids);
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
@@ -1589,12 +1622,12 @@ fn generate_inherent_compatibility_index(
             {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, Q>>::equal_ids(
-                        &self.#storage, key, &self.nodes
+                        &self.inner.#storage, key, &self.inner.nodes
                     );
                 for id in &ids {
-                    self.update_id(*id, |fields| f(#(#update_args),*));
+                    self.inner.update_id(*id, |fields| f(#(#update_args),*));
                 }
-                let values = self.order_refs_for_ids(&ids);
+                let values = self.inner.order_refs_for_ids(&ids);
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
@@ -1602,10 +1635,10 @@ fn generate_inherent_compatibility_index(
             #field_vis fn #remove_by(&mut self, key: &#ty) -> #collection<#element> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
-                        &self.#storage, key, &self.nodes
+                        &self.inner.#storage, key, &self.inner.nodes
                     );
-                let values = ids.into_iter().map(|id| self.remove_id(id)).collect();
-                self.validate_debug();
+                let values = ids.into_iter().map(|id| self.inner.remove_id(id)).collect();
+                self.inner.validate_debug();
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
@@ -1613,13 +1646,79 @@ fn generate_inherent_compatibility_index(
             #field_vis fn #iter_by(&self) -> #iter<'_, #kind> {
                 #iter {
                     inner: #refs::new(
-                        &self.nodes,
+                        &self.inner.nodes,
                         <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
-                            &self.#storage, &self.nodes
+                            &self.inner.#storage, &self.inner.nodes
                         ),
                     ),
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate;
+    use crate::model::Input;
+    use quote::ToTokens;
+    use syn::{parse_quote, Fields, ImplItem, Item};
+
+    #[test]
+    fn public_map_contains_only_inner_state_and_public_api_methods() {
+        let input = Input::parse(parse_quote! {
+            pub struct Record {
+                #[multi_index(ById)]
+                pub id: u64,
+                value: String,
+            }
+        })
+        .unwrap();
+        let file = syn::parse2::<syn::File>(generate(input)).unwrap();
+
+        let map = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Struct(item) if item.ident == "MultiIndexRecordMap" => Some(item),
+                _ => None,
+            })
+            .unwrap();
+        let Fields::Named(fields) = &map.fields else {
+            panic!("generated map must have named fields");
+        };
+        assert_eq!(fields.named.len(), 1);
+        assert_eq!(fields.named[0].ident.as_ref().unwrap(), "inner");
+
+        let map_methods = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Impl(item)
+                    if item.self_ty.as_ref().to_token_stream().to_string()
+                        == "MultiIndexRecordMap" =>
+                {
+                    Some(item)
+                }
+                _ => None,
+            })
+            .flat_map(|item| &item.items)
+            .filter_map(|item| match item {
+                ImplItem::Fn(method) => Some(method.sig.ident.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for private_method in [
+            "link_all",
+            "unlink_all",
+            "remove_id",
+            "replace_id",
+            "modify_id",
+            "update_id",
+            "validate_debug",
+        ] {
+            assert!(!map_methods.iter().any(|method| method == private_method));
         }
     }
 }
