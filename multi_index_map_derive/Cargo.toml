@@ -11,26 +11,13 @@ keywords = ["multi_index", "container", "map", "boost"]
 categories = ["data-structures"]
 readme = "README.md"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-# Library for parsing rust tokens, used by most proc macro crates
-syn = { version = "1.0", features = ["full"] }
-
-# Library for parsing syntax trees into rust tokens, used by most proc macro crates
-quote = { version = "1.0" }
-
-# Necessary for syn and quote
-proc-macro2 = { version = "1.0" }
-
-# Better error handling in proc macros, avoids using panic!
-proc-macro-error2 = { version = "2.0" }
-
-# Used to convert the field names into UpperCamelCase for the Iterator names, and to snake_case for the module namespace.
-convert_case = { version = "0.8" }
-
 [lib]
 proc-macro = true
 
-[features]
-rustc-hash = []
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits", "visit-mut"] }
+
+[dev-dependencies]
+trybuild = "1.0"

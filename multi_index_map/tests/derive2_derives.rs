@@ -1,7 +1,7 @@
 #![allow(clippy::duplicated_attributes)]
 #![allow(deprecated)]
 
-use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -10,7 +10,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 #[multi_index(hashed_unique)]
 struct ByDerivedId;
 
-#[derive(Clone, Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Clone, Debug, Eq, MultiIndexMap, PartialEq)]
 #[multi_index_derive(Clone, Debug)]
 struct DerivedRecord {
     #[multi_index(by(ByDerivedId))]
@@ -23,7 +23,7 @@ struct DerivedRecord {
 #[derive(Clone)]
 struct CloneOnlyPayload(u64);
 
-#[derive(Clone, MultiIndexMap2)]
+#[derive(Clone, MultiIndexMap)]
 #[multi_index_derive(Clone)]
 struct CloneOnlyRecord {
     #[multi_index(hashed_unique)]
@@ -35,7 +35,7 @@ struct CloneOnlyRecord {
 #[allow(dead_code)]
 struct DebugOnlyPayload(u64);
 
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 #[multi_index_derive(Debug, Default)]
 #[multi_index_derive(Debug, Default)]
 #[allow(dead_code)]
@@ -49,7 +49,7 @@ struct DebugOnlyRecord {
 #[multi_index(hashed_unique)]
 struct ByGenericDerivedKey;
 
-#[derive(Clone, Debug, MultiIndexMap2)]
+#[derive(Clone, Debug, MultiIndexMap)]
 #[multi_index_derive(Clone)]
 #[multi_index_derive(Debug, Default, Clone)]
 struct GenericDerived<'a, K: Clone + Debug + Eq + Hash, T: Clone + Debug, const N: usize> {
@@ -69,7 +69,7 @@ impl Clone for CollapsingKey {
     }
 }
 
-#[derive(Clone, MultiIndexMap2)]
+#[derive(Clone, MultiIndexMap)]
 #[multi_index_derive(Clone)]
 struct CollapsingRecord {
     #[multi_index(hashed_unique)]

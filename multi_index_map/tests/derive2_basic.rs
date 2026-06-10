@@ -1,7 +1,7 @@
 #![allow(deprecated)]
 
 use multi_index_map::{
-    IndexView, IndexViewMut, MultiIndexMap2, MultiIndexSelector, NonUniqueView, NonUniqueViewMut,
+    IndexView, IndexViewMut, MultiIndexMap, MultiIndexSelector, NonUniqueView, NonUniqueViewMut,
     OrderedView, UniqueView, UniqueViewMut,
 };
 use std::collections::BTreeMap;
@@ -27,7 +27,7 @@ struct ByPrice;
 #[multi_index(ordered_non_unique)]
 struct ByTraderTimestamp;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct Order {
     #[multi_index(by(ById))]
     id: u64,
@@ -49,7 +49,7 @@ struct NonCloneKey(u64);
 struct ByNonCloneKey;
 
 #[allow(dead_code)]
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct NonCloneRecord {
     #[multi_index(by(ByNonCloneKey))]
     key: NonCloneKey,
@@ -61,7 +61,7 @@ struct NonCloneRecord {
 #[multi_index(ordered_unique)]
 struct ByNoExtrasKey;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct NoExtras {
     #[multi_index(by(ByNoExtrasKey))]
     key: u64,
@@ -72,7 +72,7 @@ struct NoExtras {
 struct ByGroup;
 
 #[allow(dead_code)]
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct OtherRecord {
     #[multi_index(by(ByGroup))]
     group: u8,
@@ -84,7 +84,7 @@ struct OtherRecord {
 #[multi_index(ordered_non_unique)]
 struct ByName;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct OrderedName {
     #[multi_index(by(ByName))]
     name: String,
@@ -104,7 +104,7 @@ struct ByHashedPair;
 struct ByOrderedUniquePair;
 
 #[allow(dead_code)]
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct CompoundKinds {
     #[multi_index(by(ByHashedUniquePair))]
     hu_name: String,
@@ -122,21 +122,21 @@ struct CompoundKinds {
     payload: u64,
 }
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct ReusedSelector {
     #[multi_index(by(ById))]
     id: u64,
 }
 
 mod exposed {
-    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+    use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 
     #[derive(MultiIndexSelector)]
     #[multi_index(hashed_unique)]
     pub struct ByPublicId;
 
     #[allow(dead_code)]
-    #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+    #[derive(Debug, Eq, MultiIndexMap, PartialEq)]
     pub struct PublicRecord {
         #[multi_index(by(ByPublicId))]
         pub id: u64,
@@ -159,7 +159,7 @@ mod exposed {
 }
 
 mod rebased_paths {
-    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+    use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 
     pub(super) type LocalKey = u64;
 
@@ -167,7 +167,7 @@ mod rebased_paths {
     #[multi_index(hashed_unique)]
     pub(super) struct ByLocal;
 
-    #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+    #[derive(Debug, Eq, MultiIndexMap, PartialEq)]
     pub(super) struct Record {
         #[multi_index(by(self::ByLocal))]
         pub(super) local: self::LocalKey,

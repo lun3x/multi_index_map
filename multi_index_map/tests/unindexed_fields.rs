@@ -1,4 +1,4 @@
-use multi_index_map::MultiIndexMap2;
+use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct TestCloneableType(u64);
@@ -6,7 +6,7 @@ struct TestCloneableType(u64);
 #[derive(Hash, PartialEq, Eq)]
 struct TestNonCloneableType(u64);
 
-#[derive(MultiIndexMap2, PartialEq)]
+#[derive(MultiIndexMap, PartialEq)]
 struct TestNonCloneableElement {
     #[multi_index(hashed_unique)]
     field1: TestCloneableType,

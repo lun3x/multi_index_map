@@ -16,9 +16,6 @@ struct TestElement {
 fn should_compile() {
     let mut map = MultiIndexTestElementMap::default();
 
-    // check that formatting produces non empty strings
-    assert!(!format!("{:?}", map._field1_index).is_empty());
-    assert!(!format!("{:?}", map._store).is_empty());
     assert!(!format!("{map:?}").is_empty());
 
     let elem1 = TestElement {

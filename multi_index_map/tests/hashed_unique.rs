@@ -1,11 +1,11 @@
 #![allow(deprecated)]
 
-use multi_index_map::MultiIndexMap2;
+use multi_index_map::MultiIndexMap;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct TestNonPrimitiveType(u64);
 
-#[derive(MultiIndexMap2)]
+#[derive(MultiIndexMap)]
 struct TestElement {
     #[multi_index(hashed_unique)]
     field1: TestNonPrimitiveType,

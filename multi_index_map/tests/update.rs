@@ -1,8 +1,8 @@
 #![allow(deprecated)]
 
-use multi_index_map::MultiIndexMap2;
+use multi_index_map::MultiIndexMap;
 
-#[derive(MultiIndexMap2, PartialEq, Debug)]
+#[derive(MultiIndexMap, PartialEq, Debug)]
 #[multi_index_derive(Debug)]
 struct TestElement {
     #[multi_index(hashed_non_unique)]

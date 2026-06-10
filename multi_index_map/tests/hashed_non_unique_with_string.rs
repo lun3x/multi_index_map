@@ -1,8 +1,8 @@
 #![allow(deprecated)]
 
-use multi_index_map::MultiIndexMap2;
+use multi_index_map::MultiIndexMap;
 
-#[derive(MultiIndexMap2, Debug)]
+#[derive(MultiIndexMap, Debug)]
 #[multi_index_derive(Debug)]
 pub(crate) struct Order {
     #[multi_index(hashed_unique)]

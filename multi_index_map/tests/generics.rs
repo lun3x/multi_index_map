@@ -8,7 +8,7 @@ struct TestNonPrimitiveType2(u64);
 
 #[derive(MultiIndexMap, Clone, Debug)]
 #[multi_index_derive(Clone, Debug)]
-struct TestElement<'a, F1: Clone + Eq + std::hash::Hash, F2: Clone + Eq + Ord, T, Q> {
+struct TestElement<'a, F1: Clone + Eq + std::hash::Hash, F2: Clone + Eq + Ord, T, Q: 'a> {
     #[multi_index(hashed_unique)]
     field1: F1,
     #[multi_index(ordered_unique)]

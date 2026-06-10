@@ -1,9 +1,9 @@
 #![allow(deprecated)]
 
-use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 use std::hash::Hash;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct LegacyOrder {
     #[multi_index(hashed_unique)]
     id: u64,
@@ -32,7 +32,7 @@ fn order(id: u64, timestamp: u64, trader: &str, price: u64) -> LegacyOrder {
 #[multi_index(hashed_unique)]
 struct ByHybridId;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct HybridRecord {
     #[multi_index(by(ByHybridId))]
     id: u64,
@@ -46,7 +46,7 @@ struct HybridRecord {
 #[multi_index(hashed_non_unique)]
 struct hashed_non_unique;
 
-#[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+#[derive(Debug, Eq, MultiIndexMap, PartialEq)]
 struct CategoryNamedSelector {
     #[multi_index(by(hashed_non_unique))]
     key: String,
@@ -55,7 +55,7 @@ struct CategoryNamedSelector {
 #[derive(Debug, Eq, Hash, PartialEq)]
 struct NonCloneKey(u64);
 
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 struct GenericLegacy<K: Eq + Hash, T> {
     #[multi_index(hashed_unique)]
     key: K,

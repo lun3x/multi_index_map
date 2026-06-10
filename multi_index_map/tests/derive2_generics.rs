@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -20,7 +20,7 @@ struct ByGroup;
 #[multi_index(ordered_non_unique)]
 struct ByRank;
 
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 struct GenericRecord<'a, H: Eq + Hash = String, O: Eq + Ord = u64, T = (), const N: usize = 4>
 where
     T: std::fmt::Debug,
@@ -45,7 +45,7 @@ struct ByCompound;
 #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct NoClone(u64);
 
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 struct GenericCompound<A: Eq + Hash, B: Eq + Hash, T>
 where
     T: Debug,
@@ -61,7 +61,7 @@ where
 #[multi_index(hashed_unique)]
 struct ByOwnedKey;
 
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 struct OwnedGeneric<K: Eq + Hash, T>
 where
     T: Debug,
@@ -72,7 +72,7 @@ where
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, MultiIndexMap2)]
+#[derive(Debug, MultiIndexMap)]
 struct CollisionNames<
     '__mim_view,
     __MimKind: Eq + Hash,
@@ -107,7 +107,7 @@ pub struct RootKey(u64);
 impl RootBound for RootKey {}
 
 mod generic_paths {
-    use multi_index_map::{MultiIndexMap2, MultiIndexSelector};
+    use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 
     pub trait LocalBound: crate::RootBound + Eq + std::hash::Hash {}
 
@@ -119,7 +119,7 @@ mod generic_paths {
     #[multi_index(hashed_unique)]
     pub struct ByNestedKey;
 
-    #[derive(Debug, MultiIndexMap2)]
+    #[derive(Debug, MultiIndexMap)]
     pub struct Nested<
         K: self::LocalBound = self::LocalDefault,
         T: super::RootBound = crate::RootPayload,

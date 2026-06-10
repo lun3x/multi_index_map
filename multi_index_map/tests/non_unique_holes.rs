@@ -1,10 +1,10 @@
 #![allow(deprecated)]
 
-use multi_index_map::MultiIndexMap2;
+use multi_index_map::MultiIndexMap;
 
 // Non-unique index traversal must work with holes in the slab (after removals).
 // One compact struct and three focused tests cover modify_by_, update_by_, get_mut_by_.
-#[derive(MultiIndexMap2, Debug, Clone)]
+#[derive(MultiIndexMap, Debug, Clone)]
 #[multi_index_derive(Clone, Debug)]
 struct Entry {
     // Non-unique index we query by

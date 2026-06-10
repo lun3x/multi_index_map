@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use multi_index_map::{MultiIndexMap, MultiIndexMap2, MultiIndexSelector};
+use multi_index_map::{MultiIndexMap, MultiIndexSelector};
 use std::hint::black_box;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -36,7 +36,7 @@ pub struct OldElement {
 }
 
 #[allow(clippy::struct_field_names)]
-#[derive(Clone, MultiIndexMap2)]
+#[derive(Clone, MultiIndexMap)]
 #[multi_index_derive(Clone)]
 pub struct SelectorElement {
     #[multi_index(by(ByHashedUnique))]
@@ -50,7 +50,7 @@ pub struct SelectorElement {
 }
 
 #[allow(clippy::struct_field_names)]
-#[derive(Clone, MultiIndexMap2)]
+#[derive(Clone, MultiIndexMap)]
 #[multi_index_derive(Clone)]
 pub struct CompatibilityElement {
     #[multi_index(hashed_unique)]

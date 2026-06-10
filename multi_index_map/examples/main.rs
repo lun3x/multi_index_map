@@ -32,7 +32,9 @@ fn main() {
         note: String::new(),
     };
 
-    let map = [o1, o2].into_iter().collect::<MultiIndexOrderMap>();
+    let mut map = MultiIndexOrderMap::default();
+    map.insert(o1);
+    map.insert(o2);
 
     for o in map.iter_by_timestamp() {
         println!("iter_by_timestamp: {o:?}");
@@ -42,7 +44,7 @@ fn main() {
         println!("iter_by_order_id: {o:?}");
     }
 
-    for (_, o) in &map {
+    for (o,) in map.iter_mut() {
         println!("iter: {o:?}");
     }
 
@@ -51,9 +53,6 @@ fn main() {
         "Got {}'s order by id {}",
         o1_ref.trader_name, o1_ref.order_id
     );
-
-    // Set mutable so we can mutate the map.
-    let mut map = map;
 
     for (o,) in map.iter_mut() {
         println!("iter_mut: {o:?}");
