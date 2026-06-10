@@ -257,6 +257,7 @@ where
         Self::Index: 'a;
 
     fn len(index: &Self::Index) -> usize;
+    fn clear(index: &mut Self::Index);
     fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>);
     fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a>;
     fn insert(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
@@ -429,6 +430,11 @@ where
 
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    pub fn clear(&mut self) {
+        self.buckets.fill(None);
+        self.len = 0;
     }
 
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> u64 {
@@ -896,6 +902,13 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
 
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    pub fn clear(&mut self) {
+        self.root = None;
+        self.first = None;
+        self.last = None;
+        self.len = 0;
     }
 
     fn color<N>(&self, id: Option<NodeId>, nodes: &Slab<N>) -> Color
@@ -1662,6 +1675,10 @@ macro_rules! impl_hashed_kind {
                 index.len()
             }
 
+            fn clear(index: &mut Self::Index) {
+                index.clear();
+            }
+
             fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>) {
                 index.reserve_for_insert(nodes);
             }
@@ -1745,6 +1762,10 @@ macro_rules! impl_ordered_kind {
 
             fn len(index: &Self::Index) -> usize {
                 index.len()
+            }
+
+            fn clear(index: &mut Self::Index) {
+                index.clear();
             }
 
             fn reserve_for_insert(_index: &mut Self::Index, _nodes: &mut Slab<N>) {}

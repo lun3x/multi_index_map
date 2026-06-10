@@ -864,6 +864,16 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             );
         }
     });
+    let clears = indexes.iter().map(|index| {
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
+        quote! {
+            <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::clear(
+                &mut self.#storage,
+            );
+        }
+    });
     let inserts = indexes.iter().map(|index| {
         let conflict_name = index.conflict_name();
         let kind = &index.kind;
@@ -1146,12 +1156,8 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             }
 
             fn clear(&mut self) {
-                let ids = self.nodes.iter()
-                    .map(|(id, _)| ::multi_index_map::__private::NodeId(id))
-                    .collect::<Vec<_>>();
-                for id in ids {
-                    self.remove_id(id);
-                }
+                #(#clears)*
+                self.nodes.clear();
                 self.validate_debug();
             }
 

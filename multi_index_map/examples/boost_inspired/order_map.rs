@@ -384,10 +384,12 @@ impl OrderMapInner {
     }
 
     fn clear(&mut self) {
-        let ids: Vec<_> = self.nodes.iter().map(|(id, _)| NodeId(id)).collect();
-        for id in ids {
-            self.remove_id(id);
-        }
+        self.id.clear();
+        self.timestamp.clear();
+        self.trader.clear();
+        self.price.clear();
+        self.trader_timestamp.clear();
+        self.nodes.clear();
         self.validate_debug();
     }
 
