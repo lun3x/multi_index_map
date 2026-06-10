@@ -3,7 +3,7 @@ name = "multi_index_map"
 version = "0.15.1"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
-rust-version = "1.71"
+rust-version = "1.88"
 license = "MIT"
 description = "MultiIndexMap: A generic multi index map inspired by boost multi index containers"
 repository = "https://github.com/lun3x/multi_index_map"
@@ -25,7 +25,7 @@ rustc-hash = { version = "2.1", optional = true }
 
 [dev-dependencies]
 # Used for benchmarking
-criterion = "0.5.0"
+criterion = { version = "0.8", features = ["html_reports"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 trybuild = "1.0"

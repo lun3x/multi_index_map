@@ -700,7 +700,7 @@ where
                 let key = S::key(node.value());
                 if groups
                     .last()
-                    .map_or(true, |last| S::key(nodes[last.0].value()) != key)
+                    .is_none_or(|last| S::key(nodes[last.0].value()) != key)
                 {
                     if groups
                         .iter()
@@ -1491,7 +1491,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         let key = S::key(nodes[id.0].value());
         let previous = self.predecessor(id, nodes);
         let next = self.successor(id, nodes);
-        let after_previous = previous.map_or(true, |previous| {
+        let after_previous = previous.is_none_or(|previous| {
             let previous = S::key(nodes[previous.0].value());
             if UNIQUE {
                 previous < key
@@ -1499,7 +1499,7 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
                 previous <= key
             }
         });
-        let before_next = next.map_or(true, |next| {
+        let before_next = next.is_none_or(|next| {
             let next = S::key(nodes[next.0].value());
             if UNIQUE {
                 key < next
