@@ -53,12 +53,26 @@ pub trait OrderedView: IndexView {
         R: RangeBounds<Self::Key>;
 }
 
+/// Non-indexed-field mutation shared by every mutable index view.
+///
+/// The selected index determines traversal order. Ordered indices visit values
+/// in sorted order, while hashed index order is unspecified. The traversal is
+/// snapshotted before the first update, so each original element is visited
+/// exactly once. If the callback panics, completed and partial field updates
+/// remain, but index invariants are unaffected.
+pub trait IndexViewMut: IndexView {
+    type Update<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>);
+}
+
 /// Mutation capabilities provided by unique indices.
 ///
 /// A mutable unique view also implements its corresponding read capabilities.
-pub trait UniqueViewMut: UniqueView {
+pub trait UniqueViewMut: UniqueView + IndexViewMut {
     type Conflict;
-    type Update<'a>;
 
     fn remove(&mut self, key: &Self::Key) -> Option<Self::Value>;
 
@@ -80,9 +94,8 @@ pub trait UniqueViewMut: UniqueView {
 /// Mutation capabilities provided by non-unique indices.
 ///
 /// Batch methods snapshot the original equal range before making changes.
-pub trait NonUniqueViewMut: NonUniqueView {
+pub trait NonUniqueViewMut: NonUniqueView + IndexViewMut {
     type ModifyAllResult;
-    type Update<'a>;
 
     fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value>;
 

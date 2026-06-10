@@ -1,6 +1,6 @@
 use multi_index_map::{
-    IndexView, MultiIndexMap2, MultiIndexSelector, NonUniqueView, NonUniqueViewMut, OrderedView,
-    UniqueView, UniqueViewMut,
+    IndexView, IndexViewMut, MultiIndexMap2, MultiIndexSelector, NonUniqueView, NonUniqueViewMut,
+    OrderedView, UniqueView, UniqueViewMut,
 };
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -308,6 +308,101 @@ fn capability_mutation_traits_work() {
             1
         );
     }
+    {
+        let mut view = orders.by_mut::<ByTimestamp>();
+        assert_eq!(
+            IndexViewMut::update_each(&mut view, |fields| fields.note.push('!')),
+            1
+        );
+    }
+}
+
+#[test]
+fn update_each_visits_every_element_through_the_selected_index() {
+    let mut orders = MultiIndexOrderMap::new();
+    orders.insert(order(1, 30, "Grace", 100));
+    orders.insert(order(2, 10, "Ada", 90));
+    orders.insert(order(3, 20, "Ada", 100));
+
+    let mut sequence = 0;
+    assert_eq!(
+        orders.by_mut::<ByTimestamp>().update_each(|fields| {
+            *fields.note = sequence.to_string();
+            sequence += 1;
+        }),
+        3
+    );
+    assert_eq!(
+        orders
+            .by::<ByTimestamp>()
+            .iter()
+            .map(|order| order.note.as_str())
+            .collect::<Vec<_>>(),
+        vec!["0", "1", "2"]
+    );
+
+    for update_count in [
+        orders
+            .by_mut::<ById>()
+            .update_each(|fields| *fields.filled = true),
+        orders
+            .by_mut::<ByTrader>()
+            .update_each(|fields| fields.note.push('h')),
+        orders
+            .by_mut::<ByPrice>()
+            .update_each(|fields| fields.note.push('o')),
+        orders
+            .by_mut::<ByTraderTimestamp>()
+            .update_each(|fields| fields.note.push('c')),
+    ] {
+        assert_eq!(update_count, 3);
+    }
+    assert!(orders.by::<ById>().iter().all(|order| order.filled));
+    let mut notes = orders
+        .by::<ById>()
+        .iter()
+        .map(|order| order.note.as_str())
+        .collect::<Vec<_>>();
+    notes.sort_unstable();
+    assert_eq!(notes, vec!["0hoc", "1hoc", "2hoc"]);
+    orders.validate().unwrap();
+}
+
+#[test]
+fn update_each_handles_empty_zero_field_and_panicking_updates() {
+    let mut empty = MultiIndexOrderMap::new();
+    assert_eq!(empty.by_mut::<ById>().update_each(|_| unreachable!()), 0);
+
+    let mut no_extras = MultiIndexNoExtrasMap::new();
+    no_extras.insert(NoExtras { key: 1 });
+    assert_eq!(no_extras.by_mut::<ByNoExtrasKey>().update_each(|_| {}), 1);
+    no_extras.validate().unwrap();
+
+    let mut orders = MultiIndexOrderMap::new();
+    orders.insert(order(1, 10, "A", 1));
+    orders.insert(order(2, 20, "B", 2));
+    orders.insert(order(3, 30, "C", 3));
+    let mut calls = 0;
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        orders.by_mut::<ByTimestamp>().update_each(|fields| {
+            calls += 1;
+            fields.note.push_str("visited");
+            if calls == 2 {
+                panic!("stop");
+            }
+        });
+    }));
+    assert!(panic.is_err());
+    assert_eq!(calls, 2);
+    assert_eq!(
+        orders
+            .by::<ByTimestamp>()
+            .iter()
+            .map(|order| order.note.as_str())
+            .collect::<Vec<_>>(),
+        vec!["visited", "visited", ""]
+    );
+    orders.validate().unwrap();
 }
 
 #[test]

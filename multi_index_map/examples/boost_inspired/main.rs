@@ -44,6 +44,9 @@ fn main() {
         fields.note.push_str("priority");
         *fields.filled = true;
     });
+    orders.by_mut::<ByTimestamp>().update_each(|fields| {
+        fields.note.push_str(" timestamp-visited");
+    });
 
     println!("Orders priced at 25 after mutation:");
     for order in orders.by::<ByPrice>().equal_range(&25) {
@@ -58,7 +61,8 @@ mod tests {
     use super::*;
     use crate::order_map::{Conflict, ModifyAllResult, OrderUpdate};
     use multi_index_map::{
-        IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
+        IndexView, IndexViewMut, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
+        UniqueViewMut,
     };
     use std::collections::{BTreeMap, HashMap};
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -202,7 +206,7 @@ mod tests {
         fn mutate_unique<V>(view: &mut V, key: &V::Key)
         where
             V: UniqueViewMut<Value = Order, Conflict = Conflict>,
-            for<'a> V: UniqueViewMut<Update<'a> = OrderUpdate<'a>>,
+            for<'a> V: IndexViewMut<Update<'a> = OrderUpdate<'a>>,
         {
             view.modify(key, |order| order.price += 1).unwrap();
             view.update(key, |fields| {
@@ -231,13 +235,21 @@ mod tests {
         fn mutate_non_unique<V>(view: &mut V, key: &V::Key) -> ModifyAllResult
         where
             V: NonUniqueViewMut<Value = Order, ModifyAllResult = ModifyAllResult>,
-            for<'a> V: NonUniqueViewMut<Update<'a> = OrderUpdate<'a>>,
+            for<'a> V: IndexViewMut<Update<'a> = OrderUpdate<'a>>,
         {
             let result = view.modify_all(key, |order| order.price += 10);
             view.update_all(key, |fields| {
                 fields.note.push_str("trait update");
             });
             result
+        }
+
+        fn update_each<V>(view: &mut V) -> usize
+        where
+            V: IndexViewMut<Value = Order>,
+            for<'a> V: IndexViewMut<Update<'a> = OrderUpdate<'a>>,
+        {
+            view.update_each(|fields| fields.note.push_str(" each"))
         }
 
         fn remove_non_unique<V>(view: &mut V, key: &V::Key) -> Vec<Order>
@@ -265,11 +277,12 @@ mod tests {
             let mut view = map.by_mut::<ByTrader>();
             assert_eq!(equal_ids(&view, &john).len(), 2);
             assert_eq!(mutate_non_unique(&mut view, &john).modified, 2);
+            assert_eq!(update_each(&mut view), 4);
         }
         assert!(map
             .by::<ByTrader>()
             .equal_range("John")
-            .all(|order| order.note == "trait update"));
+            .all(|order| order.note == "trait update each"));
 
         {
             let view = map.by_mut::<ByPrice>();
@@ -400,6 +413,34 @@ mod tests {
             .by::<ByTrader>()
             .equal_range("Moved")
             .all(|order| order.filled && order.note == "updated"));
+        map.validate().unwrap();
+    }
+
+    #[test]
+    fn update_each_visits_the_whole_selected_index_in_index_order() {
+        let mut map = populated();
+        let mut sequence = 0;
+        assert_eq!(
+            map.by_mut::<ByTimestamp>().update_each(|fields| {
+                *fields.note = sequence.to_string();
+                sequence += 1;
+            }),
+            4
+        );
+        assert_eq!(
+            map.by::<ByTimestamp>()
+                .iter()
+                .map(|order| order.note.as_str())
+                .collect::<Vec<_>>(),
+            vec!["0", "1", "2", "3"]
+        );
+
+        assert_eq!(
+            map.by_mut::<ByTraderTimestamp>()
+                .update_each(|fields| *fields.filled = true),
+            4
+        );
+        assert!(map.by::<ById>().iter().all(|order| order.filled));
         map.validate().unwrap();
     }
 

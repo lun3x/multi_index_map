@@ -705,7 +705,6 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         quote!(#ty: 'static,)
     });
     let update_static_bounds = update_static_bounds.collect::<Vec<_>>();
-
     let storages = indexes.iter().map(|index| {
         let storage = &index.storage;
         let kind = &index.kind;
@@ -1538,6 +1537,20 @@ fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenS
                     ),
                 }
             }
+
+            #vis fn update_each(
+                &mut self,
+                f: impl FnMut(#update_ty),
+            ) -> usize
+            where
+                #(#update_static_bounds)*
+            {
+                let ids = <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::iter_ids(
+                    #index_ref,
+                    &self.map.inner.nodes,
+                ).collect();
+                self.map.inner.update_ids(ids, f)
+            }
         }
 
         impl #unique_lifetime_impl #view #unique_lifetime_ty #unique_lifetime_where {
@@ -1893,7 +1906,7 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
         ],
     );
     let ordered_generics = with_predicates(
-        selected_generics,
+        selected_generics.clone(),
         [
             parse_quote!(#kind: ::multi_index_map::__private::OrderedCategory),
             parse_quote!(#kind: ::multi_index_map::__private::OrderedIndexKind<#node, #spec>),
@@ -1906,12 +1919,15 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
         parse_quote!(#ty: 'static)
     });
     let update_static_predicates = update_static_predicates.collect::<Vec<WherePredicate>>();
+    let selected_mut_generics =
+        with_predicates(selected_generics, update_static_predicates.clone());
     let unique_mut_generics =
         with_predicates(unique_generics.clone(), update_static_predicates.clone());
     let non_unique_mut_generics =
         with_predicates(non_unique_generics.clone(), update_static_predicates);
     let (unique_impl, _, unique_where) = unique_generics.split_for_impl();
     let (non_unique_impl, _, non_unique_where) = non_unique_generics.split_for_impl();
+    let (selected_mut_impl, _, selected_mut_where) = selected_mut_generics.split_for_impl();
     let (unique_mut_impl, _, unique_mut_where) = unique_mut_generics.split_for_impl();
     let (non_unique_mut_impl, _, non_unique_mut_where) = non_unique_mut_generics.split_for_impl();
     let (ordered_impl, _, ordered_where) = ordered_generics.split_for_impl();
@@ -1954,9 +1970,19 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
             }
         }
 
+        impl #selected_mut_impl ::multi_index_map::IndexViewMut for #view_mut_elided #selected_mut_where {
+            type Update<#update_lifetime> = #update_gat;
+
+            fn update_each<F>(&mut self, f: F) -> usize
+            where
+                F: for<#update_lifetime> FnMut(Self::Update<#update_lifetime>),
+            {
+                #view_mut::update_each(self, f)
+            }
+        }
+
         impl #unique_mut_impl ::multi_index_map::UniqueViewMut for #view_mut_elided #unique_mut_where {
             type Conflict = ::multi_index_map::Conflict<#element>;
-            type Update<#update_lifetime> = #update_gat;
 
             fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
                 #query_setup
@@ -2047,7 +2073,6 @@ fn generate_capability_traits(input: &Input, names: &Names, index: &IndexNames<'
 
         impl #non_unique_mut_impl ::multi_index_map::NonUniqueViewMut for #view_mut_elided #non_unique_mut_where {
             type ModifyAllResult = ::multi_index_map::ModifyAllResult<#element>;
-            type Update<#update_lifetime> = #update_gat;
 
             fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
                 #query_setup

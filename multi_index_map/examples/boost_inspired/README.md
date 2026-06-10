@@ -106,6 +106,10 @@ selector method or public selector type for every indexed field:
 ```rust
 orders.by::<ByTimestamp>().range(start..end);
 orders.by_mut::<ByTrader>().remove_all("John");
+orders.by_mut::<ByTimestamp>().update_each(|fields| {
+    fields.note.clear();
+    *fields.filled = true;
+});
 ```
 
 The example-local `OrderMapIndex` trait uses generic associated types to map each selector to its
@@ -122,7 +126,9 @@ supports:
 - unique views implement `UniqueView`
 - non-unique views implement `NonUniqueView`
 - ordered views additionally implement `OrderedView`
-- mutable views implement the corresponding read traits plus `UniqueViewMut` or
+- every mutable view implements `IndexViewMut`; `update_each` visits the whole
+  selected index and exposes only non-indexed fields
+- mutable unique and non-unique views additionally implement `UniqueViewMut` or
   `NonUniqueViewMut`
 
 The generated inherent methods remain the primary ergonomic API and support richer borrowed-query
@@ -172,6 +178,9 @@ modifiers finish processing the original snapshotted batch before reporting a co
 - A uniqueness conflict during `modify` removes and returns the modified value.
 - A panic inside a modifier removes the partially modified value before resuming the panic.
 - `update` exposes only unindexed fields through `OrderUpdate`, so it performs no index work.
+- `update_each` snapshots the selected index traversal and exposes `OrderUpdate`
+  once for every element. Ordered selectors visit values in sorted order;
+  hashed selector order is unspecified.
 
 ## Deliberate Deferrals
 

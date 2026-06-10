@@ -192,15 +192,20 @@ fn supports_generic_update_proxies_and_compatibility_methods() {
 
     map.by_mut::<ByOwnedKey>()
         .update("key", |fields| fields.value.push(2));
-    map.update_by_key("key", |value| value.push(3));
-    assert_eq!(map.get_by_key("key").unwrap().value, vec![1, 2, 3]);
+    assert_eq!(
+        map.by_mut::<ByOwnedKey>()
+            .update_each(|fields| fields.value.push(3)),
+        1
+    );
+    map.update_by_key("key", |value| value.push(4));
+    assert_eq!(map.get_by_key("key").unwrap().value, vec![1, 2, 3, 4]);
 
-    map.modify_by_key(&String::from("key"), |record| record.value.push(4))
+    map.modify_by_key(&String::from("key"), |record| record.value.push(5))
         .unwrap();
-    assert_eq!(map.iter_by_key().next().unwrap().value, vec![1, 2, 3, 4]);
+    assert_eq!(map.iter_by_key().next().unwrap().value, vec![1, 2, 3, 4, 5]);
     assert_eq!(
         map.remove_by_key(&String::from("key")).unwrap().value,
-        vec![1, 2, 3, 4]
+        vec![1, 2, 3, 4, 5]
     );
 }
 

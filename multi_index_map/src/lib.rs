@@ -2,7 +2,8 @@ pub use multi_index_map_derive::MultiIndexMap;
 pub use multi_index_map_derive2::MultiIndexMap as MultiIndexMap2;
 pub use multi_index_map_derive2::MultiIndexSelector;
 pub use views::{
-    IndexView, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView, UniqueViewMut,
+    IndexView, IndexViewMut, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
+    UniqueViewMut,
 };
 
 #[doc(hidden)]

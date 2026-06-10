@@ -4,8 +4,8 @@ use multi_index_map::__private::{
 };
 use multi_index_map::{Conflict as GenericConflict, ModifyAllResult as GenericModifyAllResult};
 use multi_index_map::{
-    IndexView, MultiIndexSelector, NonUniqueView, NonUniqueViewMut, OrderedView, UniqueView,
-    UniqueViewMut,
+    IndexView, IndexViewMut, MultiIndexSelector, NonUniqueView, NonUniqueViewMut, OrderedView,
+    UniqueView, UniqueViewMut,
 };
 use std::borrow::Borrow;
 use std::hash::Hash;
@@ -964,6 +964,11 @@ pub(crate) struct IdViewMut<'a> {
 }
 
 impl IdViewMut<'_> {
+    pub(crate) fn update_each(&mut self, f: impl FnMut(OrderUpdate<'_>)) -> usize {
+        let ids = self.map.inner.id.iter_ids(&self.map.inner.nodes).collect();
+        self.map.inner.update_ids(ids, f)
+    }
+
     pub(crate) fn remove(&mut self, key: &u64) -> Option<Order> {
         let id = self.map.inner.id.find(key, &self.map.inner.nodes)?;
         let order = self.map.inner.remove_id(id);
@@ -1042,6 +1047,16 @@ pub(crate) struct TimestampViewMut<'a> {
 }
 
 impl TimestampViewMut<'_> {
+    pub(crate) fn update_each(&mut self, f: impl FnMut(OrderUpdate<'_>)) -> usize {
+        let ids = self
+            .map
+            .inner
+            .timestamp
+            .iter_ids(&self.map.inner.nodes)
+            .collect();
+        self.map.inner.update_ids(ids, f)
+    }
+
     pub(crate) fn remove(&mut self, key: &u64) -> Option<Order> {
         let id = self.map.inner.timestamp.find(key, &self.map.inner.nodes)?;
         let order = self.map.inner.remove_id(id);
@@ -1109,6 +1124,16 @@ pub(crate) struct TraderViewMut<'a> {
 }
 
 impl TraderViewMut<'_> {
+    pub(crate) fn update_each(&mut self, f: impl FnMut(OrderUpdate<'_>)) -> usize {
+        let ids = self
+            .map
+            .inner
+            .trader
+            .iter_ids(&self.map.inner.nodes)
+            .collect();
+        self.map.inner.update_ids(ids, f)
+    }
+
     pub(crate) fn remove_all<Q>(&mut self, key: &Q) -> Vec<Order>
     where
         String: Borrow<Q>,
@@ -1183,6 +1208,16 @@ pub(crate) struct PriceViewMut<'a> {
 }
 
 impl PriceViewMut<'_> {
+    pub(crate) fn update_each(&mut self, f: impl FnMut(OrderUpdate<'_>)) -> usize {
+        let ids = self
+            .map
+            .inner
+            .price
+            .iter_ids(&self.map.inner.nodes)
+            .collect();
+        self.map.inner.update_ids(ids, f)
+    }
+
     pub(crate) fn remove_all(&mut self, key: &u64) -> Vec<Order> {
         let ids = self.map.inner.price.equal_ids(key, &self.map.inner.nodes);
         let orders = ids
@@ -1261,6 +1296,16 @@ pub(crate) struct TraderTimestampViewMut<'a> {
 }
 
 impl TraderTimestampViewMut<'_> {
+    pub(crate) fn update_each(&mut self, f: impl FnMut(OrderUpdate<'_>)) -> usize {
+        let ids = self
+            .map
+            .inner
+            .trader_timestamp
+            .iter_ids(&self.map.inner.nodes)
+            .collect();
+        self.map.inner.update_ids(ids, f)
+    }
+
     pub(crate) fn remove_all<'query, Q0, Q1>(&mut self, key: (&'query Q0, &'query Q1)) -> Vec<Order>
     where
         String: Borrow<Q0>,
@@ -1380,9 +1425,19 @@ impl UniqueView for IdViewMut<'_> {
     }
 }
 
+impl IndexViewMut for IdViewMut<'_> {
+    type Update<'a> = OrderUpdate<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>),
+    {
+        IdViewMut::update_each(self, f)
+    }
+}
+
 impl UniqueViewMut for IdViewMut<'_> {
     type Conflict = Conflict;
-    type Update<'a> = OrderUpdate<'a>;
 
     fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
         IdViewMut::remove(self, key)
@@ -1511,9 +1566,19 @@ impl OrderedView for TimestampViewMut<'_> {
     }
 }
 
+impl IndexViewMut for TimestampViewMut<'_> {
+    type Update<'a> = OrderUpdate<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>),
+    {
+        TimestampViewMut::update_each(self, f)
+    }
+}
+
 impl UniqueViewMut for TimestampViewMut<'_> {
     type Conflict = Conflict;
-    type Update<'a> = OrderUpdate<'a>;
 
     fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
         TimestampViewMut::remove(self, key)
@@ -1616,9 +1681,19 @@ impl NonUniqueView for TraderViewMut<'_> {
     }
 }
 
+impl IndexViewMut for TraderViewMut<'_> {
+    type Update<'a> = OrderUpdate<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>),
+    {
+        TraderViewMut::update_each(self, f)
+    }
+}
+
 impl NonUniqueViewMut for TraderViewMut<'_> {
     type ModifyAllResult = ModifyAllResult;
-    type Update<'a> = OrderUpdate<'a>;
 
     fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
         TraderViewMut::remove_all(self, key)
@@ -1753,9 +1828,19 @@ impl OrderedView for PriceViewMut<'_> {
     }
 }
 
+impl IndexViewMut for PriceViewMut<'_> {
+    type Update<'a> = OrderUpdate<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>),
+    {
+        PriceViewMut::update_each(self, f)
+    }
+}
+
 impl NonUniqueViewMut for PriceViewMut<'_> {
     type ModifyAllResult = ModifyAllResult;
-    type Update<'a> = OrderUpdate<'a>;
 
     fn remove_all(&mut self, key: &Self::Key) -> Vec<Self::Value> {
         PriceViewMut::remove_all(self, key)
@@ -1773,5 +1858,62 @@ impl NonUniqueViewMut for PriceViewMut<'_> {
         F: for<'a> FnMut(Self::Update<'a>),
     {
         PriceViewMut::update_all(self, key, f)
+    }
+}
+
+impl IndexView for TraderTimestampView<'_> {
+    type Value = Order;
+    type Key = (String, u64);
+    type Iter<'a>
+        = TraderTimestampIter<'a>
+    where
+        Self: 'a;
+
+    fn len(&self) -> usize {
+        self.map.inner.trader_timestamp.len()
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        TraderTimestampIter::new(OrderRefs::new(
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader_timestamp
+                .iter_ids(&self.map.inner.nodes),
+        ))
+    }
+}
+
+impl IndexView for TraderTimestampViewMut<'_> {
+    type Value = Order;
+    type Key = (String, u64);
+    type Iter<'a>
+        = TraderTimestampIter<'a>
+    where
+        Self: 'a;
+
+    fn len(&self) -> usize {
+        self.map.inner.trader_timestamp.len()
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        TraderTimestampIter::new(OrderRefs::new(
+            &self.map.inner.nodes,
+            self.map
+                .inner
+                .trader_timestamp
+                .iter_ids(&self.map.inner.nodes),
+        ))
+    }
+}
+
+impl IndexViewMut for TraderTimestampViewMut<'_> {
+    type Update<'a> = OrderUpdate<'a>;
+
+    fn update_each<F>(&mut self, f: F) -> usize
+    where
+        F: for<'a> FnMut(Self::Update<'a>),
+    {
+        TraderTimestampViewMut::update_each(self, f)
     }
 }
