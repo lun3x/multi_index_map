@@ -2,14 +2,16 @@ use crate::model::{Index, Input};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
-pub(crate) fn generate(input: Input) -> TokenStream {
+pub(crate) fn generate(mut input: Input) -> TokenStream {
     let names = Names::new(&input);
+    let export_vis = input.vis.clone();
+    input.rebase_for_child_module();
     let indexes = input
         .indexes
         .iter()
         .map(|index| IndexNames::new(&names, index))
         .collect::<Vec<_>>();
-    let node = generate_node_and_specs(&names, &indexes);
+    let node = generate_node_and_specs(&input, &names, &indexes);
     let update = generate_update(&input, &names);
     let iterators = generate_iterators(&input, &names, &indexes);
     let map = generate_map(&input, &names, &indexes);
@@ -17,19 +19,31 @@ pub(crate) fn generate(input: Input) -> TokenStream {
         .iter()
         .map(|index| generate_view(&input, &names, index));
     let compatibility = generate_compatibility(&input, &names, &indexes);
+    let module = &names.module;
+    let map_name = &names.map;
 
     quote! {
-        #node
-        #update
-        #iterators
-        #map
-        #(#views)*
-        #compatibility
+        #[doc(hidden)]
+        #[allow(non_snake_case, unused_imports)]
+        mod #module {
+            use super::*;
+
+            #node
+            #update
+            #iterators
+            #map
+            #(#views)*
+            #compatibility
+        }
+
+        #[allow(unused_imports)]
+        #export_vis use #module::#map_name;
     }
 }
 
 struct Names {
     element: Ident,
+    module: Ident,
     map: Ident,
     inner: Ident,
     node: Ident,
@@ -43,6 +57,7 @@ impl Names {
         let element = input.element.clone();
         let map = format_ident!("MultiIndex{}Map", element);
         Self {
+            module: format_ident!("__multi_index_map2_{}", element),
             inner: format_ident!("__{}Inner", map),
             node: format_ident!("__{}Node", map),
             update: format_ident!("{}Update", map),
@@ -123,7 +138,12 @@ impl<'a> IndexNames<'a> {
     }
 }
 
-fn generate_node_and_specs(names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
+fn generate_node_and_specs(
+    input: &Input,
+    names: &Names,
+    indexes: &[IndexNames<'_>],
+) -> TokenStream {
+    let vis = input.child_visibility();
     let element = &names.element;
     let node = &names.node;
     let links = indexes.iter().map(|index| {
@@ -143,8 +163,8 @@ fn generate_node_and_specs(names: &Names, indexes: &[IndexNames<'_>]) -> TokenSt
         let borrowed_key = index.borrowed_key();
         let key_expr = index.key_expr();
         quote! {
-            type #kind = <#accessor as ::multi_index_map::MultiIndexAccessor>::Kind;
-            struct #spec;
+            #vis type #kind = <#accessor as ::multi_index_map::MultiIndexAccessor>::Kind;
+            #vis struct #spec;
 
             impl ::multi_index_map::__private::IndexSpec<#node> for #spec {
                 type Key<'a> = #borrowed_key;
@@ -168,7 +188,7 @@ fn generate_node_and_specs(names: &Names, indexes: &[IndexNames<'_>]) -> TokenSt
     });
 
     quote! {
-        struct #node {
+        #vis struct #node {
             value: #element,
             #(#links,)*
         }
@@ -195,7 +215,7 @@ fn generate_node_and_specs(names: &Names, indexes: &[IndexNames<'_>]) -> TokenSt
 }
 
 fn generate_update(input: &Input, names: &Names) -> TokenStream {
-    let vis = &input.vis;
+    let vis = input.child_visibility();
     let update = &names.update;
     let element = &names.element;
     if input.unindexed.is_empty() {
@@ -280,7 +300,7 @@ fn generate_iterators(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) 
 }
 
 fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenStream {
-    let vis = &input.vis;
+    let vis = input.child_visibility();
     let element = &names.element;
     let refs = &names.refs;
     let node = &names.node;
@@ -379,7 +399,7 @@ fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>
 }
 
 fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
-    let vis = &input.vis;
+    let vis = input.child_visibility();
     let element = &names.element;
     let map = &names.map;
     let inner = &names.inner;
@@ -872,7 +892,7 @@ fn query(index: &Index) -> Query {
 }
 
 fn generate_view(input: &Input, names: &Names, index: &IndexNames<'_>) -> TokenStream {
-    let vis = &input.vis;
+    let vis = input.child_visibility();
     let element = &names.element;
     let map = &names.map;
     let node = &names.node;
@@ -1665,7 +1685,7 @@ mod tests {
     use syn::{parse_quote, Fields, ImplItem, Item};
 
     #[test]
-    fn public_map_contains_only_inner_state_and_public_api_methods() {
+    fn top_level_contains_only_private_module_and_map_reexport() {
         let input = Input::parse(parse_quote! {
             pub struct Record {
                 #[multi_index(ById)]
@@ -1675,9 +1695,18 @@ mod tests {
         })
         .unwrap();
         let file = syn::parse2::<syn::File>(generate(input)).unwrap();
+        assert_eq!(file.items.len(), 2);
+        assert!(
+            matches!(&file.items[0], Item::Mod(module) if module.ident == "__multi_index_map2_Record")
+        );
+        assert!(matches!(&file.items[1], Item::Use(_)));
 
-        let map = file
-            .items
+        let module = match &file.items[0] {
+            Item::Mod(module) => module.content.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        let map = module
+            .1
             .iter()
             .find_map(|item| match item {
                 Item::Struct(item) if item.ident == "MultiIndexRecordMap" => Some(item),
@@ -1690,8 +1719,8 @@ mod tests {
         assert_eq!(fields.named.len(), 1);
         assert_eq!(fields.named[0].ident.as_ref().unwrap(), "inner");
 
-        let map_methods = file
-            .items
+        let map_methods = module
+            .1
             .iter()
             .filter_map(|item| match item {
                 Item::Impl(item)

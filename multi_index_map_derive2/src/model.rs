@@ -1,6 +1,7 @@
 use quote::ToTokens;
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Error, Fields, Ident, Path, Type, Visibility};
+use syn::visit_mut::{self, VisitMut};
+use syn::{parse_quote, Data, DeriveInput, Error, Fields, Ident, Path, Type, Visibility};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Field {
@@ -28,6 +29,73 @@ pub(crate) struct Input {
     pub(crate) vis: Visibility,
     pub(crate) indexes: Vec<Index>,
     pub(crate) unindexed: Vec<Field>,
+}
+
+impl Input {
+    pub(crate) fn child_visibility(&self) -> Visibility {
+        let mut vis = self.vis.clone();
+        rebase_visibility(&mut vis);
+        vis
+    }
+
+    pub(crate) fn rebase_for_child_module(&mut self) {
+        let mut rebasing = RebaseForChildModule;
+        for index in &mut self.indexes {
+            rebasing.visit_path_mut(&mut index.accessor);
+            for field in &mut index.fields {
+                rebasing.visit_type_mut(&mut field.ty);
+                rebase_visibility(&mut field.vis);
+            }
+        }
+        for field in &mut self.unindexed {
+            rebasing.visit_type_mut(&mut field.ty);
+            rebase_visibility(&mut field.vis);
+        }
+    }
+}
+
+struct RebaseForChildModule;
+
+impl VisitMut for RebaseForChildModule {
+    fn visit_path_mut(&mut self, path: &mut Path) {
+        if path.leading_colon.is_none() {
+            if path
+                .segments
+                .first()
+                .is_some_and(|segment| segment.ident == "self")
+            {
+                path.segments[0] = parent_segment();
+            } else if path
+                .segments
+                .first()
+                .is_some_and(|segment| segment.ident == "super")
+            {
+                path.segments.insert(0, parent_segment());
+            }
+        }
+        visit_mut::visit_path_mut(self, path);
+    }
+}
+
+fn parent_segment() -> syn::PathSegment {
+    let path: Path = parse_quote!(super::placeholder);
+    path.segments[0].clone()
+}
+
+fn rebase_visibility(vis: &mut Visibility) {
+    match vis {
+        Visibility::Inherited => *vis = parse_quote!(pub(super)),
+        Visibility::Restricted(restricted) if restricted.path.is_ident("self") => {
+            *vis = parse_quote!(pub(super));
+        }
+        Visibility::Restricted(restricted) if restricted.path.is_ident("super") => {
+            *vis = parse_quote!(pub(in super::super));
+        }
+        Visibility::Restricted(restricted) => {
+            RebaseForChildModule.visit_path_mut(&mut restricted.path);
+        }
+        Visibility::Public(_) => {}
+    }
 }
 
 impl Input {
@@ -283,5 +351,56 @@ mod tests {
             }
         };
         assert!(Input::parse(input).is_err());
+    }
+
+    #[test]
+    fn rebases_child_module_paths_macros_and_visibilities() {
+        let input: DeriveInput = parse_quote! {
+            struct Record {
+                #[multi_index(self::ById)]
+                pub(self) id: self::key_type!(),
+                pub(super) payload: super::Payload,
+                pub(in crate::scope) scoped: u8,
+            }
+        };
+        let mut parsed = Input::parse(input).unwrap();
+        assert_eq!(
+            parsed.child_visibility().to_token_stream().to_string(),
+            "pub (super)"
+        );
+
+        parsed.rebase_for_child_module();
+        assert_eq!(path_key(&parsed.indexes[0].accessor), "super::ById");
+        assert_eq!(
+            parsed.indexes[0].fields[0]
+                .ty
+                .to_token_stream()
+                .to_string()
+                .replace(' ', ""),
+            "super::key_type!()"
+        );
+        assert_eq!(
+            parsed.unindexed[0]
+                .ty
+                .to_token_stream()
+                .to_string()
+                .replace(' ', ""),
+            "super::super::Payload"
+        );
+        assert_eq!(
+            parsed.indexes[0].fields[0]
+                .vis
+                .to_token_stream()
+                .to_string(),
+            "pub (super)"
+        );
+        assert_eq!(
+            parsed.unindexed[0].vis.to_token_stream().to_string(),
+            "pub (in super :: super)"
+        );
+        assert_eq!(
+            parsed.unindexed[1].vis.to_token_stream().to_string(),
+            "pub (in crate :: scope)"
+        );
     }
 }

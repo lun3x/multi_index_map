@@ -92,9 +92,11 @@ struct OrderedName {
 #[derive(MultiIndexAccessor)]
 #[multi_index(hashed_unique)]
 struct ByHashedUniquePair;
+
 #[derive(MultiIndexAccessor)]
 #[multi_index(hashed_non_unique)]
 struct ByHashedPair;
+
 #[derive(MultiIndexAccessor)]
 #[multi_index(ordered_unique)]
 struct ByOrderedUniquePair;
@@ -136,6 +138,7 @@ mod exposed {
     pub struct PublicRecord {
         #[multi_index(ByPublicId)]
         pub id: u64,
+        pub note: String,
         #[allow(dead_code)]
         hidden: String,
     }
@@ -143,12 +146,40 @@ mod exposed {
     pub fn record(id: u64) -> PublicRecord {
         PublicRecord {
             id,
+            note: String::new(),
             hidden: "hidden".to_owned(),
         }
     }
 
     pub fn hidden(record: &PublicRecord) -> &str {
         &record.hidden
+    }
+}
+
+mod rebased_paths {
+    use multi_index_map::{MultiIndexAccessor, MultiIndexMap2};
+
+    pub(super) type LocalKey = u64;
+
+    #[derive(MultiIndexAccessor)]
+    #[multi_index(hashed_unique)]
+    pub(super) struct ByLocal;
+
+    #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
+    pub(super) struct Record {
+        #[multi_index(self::ByLocal)]
+        pub(super) local: self::LocalKey,
+        #[multi_index(super::ById)]
+        pub(crate) outer: u64,
+        pub(super) payload: super::NonCloneKey,
+    }
+
+    pub(super) fn record(local: u64, outer: u64) -> Record {
+        Record {
+            local,
+            outer,
+            payload: super::NonCloneKey(0),
+        }
     }
 }
 
@@ -445,12 +476,49 @@ fn supports_all_compound_categories_and_reused_accessors() {
 fn generated_visibility_follows_the_source_struct_and_indexed_field() {
     let mut records = exposed::MultiIndexPublicRecordMap::new();
     records.insert(exposed::record(7));
+    records
+        .by_mut::<exposed::ByPublicId>()
+        .update(&7, |fields| fields.note.push_str("visible"));
     let record = records.by::<exposed::ByPublicId>().get(&7).unwrap();
     assert_eq!(record.id, 7);
+    assert_eq!(record.note, "visible");
     assert_eq!(exposed::hidden(record), "hidden");
     #[allow(deprecated)]
     {
         assert_eq!(records.get_by_id(&7).unwrap().id, 7);
+    }
+}
+
+#[test]
+fn generated_module_rebases_paths_and_restricted_visibility() {
+    let mut records = rebased_paths::MultiIndexRecordMap::new();
+    records.insert(rebased_paths::record(7, 9));
+    assert_eq!(
+        records
+            .by::<rebased_paths::ByLocal>()
+            .get(&7)
+            .unwrap()
+            .outer,
+        9
+    );
+    assert_eq!(records.by::<ById>().get(&9).unwrap().local, 7);
+
+    records
+        .by_mut::<rebased_paths::ByLocal>()
+        .update(&7, |fields| fields.payload.0 = 11);
+    assert_eq!(
+        records
+            .by::<rebased_paths::ByLocal>()
+            .get(&7)
+            .unwrap()
+            .payload
+            .0,
+        11
+    );
+
+    #[allow(deprecated)]
+    {
+        assert_eq!(records.get_by_local(&7).unwrap().outer, 9);
     }
 }
 

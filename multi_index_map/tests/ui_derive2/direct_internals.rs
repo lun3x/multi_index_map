@@ -12,6 +12,7 @@ struct Record {
 
 fn main() {
     let mut map = MultiIndexRecordMap::new();
+    let _ = &map.inner;
     let _ = &map.nodes;
     let _ = &map.__mim_index_0;
     map.link_all(multi_index_map::__private::NodeId(0));
