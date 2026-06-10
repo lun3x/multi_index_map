@@ -12,14 +12,14 @@ struct ByTraderTimestamp;
 
 #[derive(MultiIndexMap2)]
 struct Order {
-    #[multi_index(ByTrader, ByTraderTimestamp)]
+    #[multi_index(by(ByTrader), by(ByTraderTimestamp))]
     trader: String,
-    #[multi_index(ByTraderTimestamp)]
+    #[multi_index(by(ByTraderTimestamp))]
     timestamp: u64,
 }
 ```
 
-Repeating an selector groups those fields into one compound index, in element
+Repeating a selector groups those fields into one compound index, in element
 field declaration order. Full compound keys use tuples of borrowed components:
 
 ```rust
@@ -27,6 +27,19 @@ orders.by::<ByTraderTimestamp>().equal_range(("John", &100));
 orders
     .by::<ByTraderTimestamp>()
     .range(("John", &0)..=("John", &u64::MAX));
+```
+
+Users who only need the deprecated field-named compatibility methods can define
+single-field indexes without selectors:
+
+```rust
+#[derive(MultiIndexMap2)]
+struct LegacyOrder {
+    #[multi_index(hashed_unique)]
+    id: u64,
+    #[multi_index(hashed_non_unique)]
+    trader: String,
+}
 ```
 
 It does not change the existing `MultiIndexMap` derive.

@@ -27,13 +27,13 @@ struct ByTraderTimestamp;
 
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct Order {
-    #[multi_index(ById)]
+    #[multi_index(by(ById))]
     id: u64,
-    #[multi_index(ByTrader, ByTraderTimestamp)]
+    #[multi_index(by(ByTrader), by(ByTraderTimestamp))]
     trader: String,
-    #[multi_index(ByTimestamp, ByTraderTimestamp)]
+    #[multi_index(by(ByTimestamp), by(ByTraderTimestamp))]
     timestamp: u64,
-    #[multi_index(ByPrice)]
+    #[multi_index(by(ByPrice))]
     price: u64,
     note: String,
     filled: bool,
@@ -49,7 +49,7 @@ struct ByNonCloneKey;
 #[allow(dead_code)]
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct NonCloneRecord {
-    #[multi_index(ByNonCloneKey)]
+    #[multi_index(by(ByNonCloneKey))]
     key: NonCloneKey,
     #[allow(dead_code)]
     payload: String,
@@ -61,7 +61,7 @@ struct ByNoExtrasKey;
 
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct NoExtras {
-    #[multi_index(ByNoExtrasKey)]
+    #[multi_index(by(ByNoExtrasKey))]
     key: u64,
 }
 
@@ -72,7 +72,7 @@ struct ByGroup;
 #[allow(dead_code)]
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct OtherRecord {
-    #[multi_index(ByGroup)]
+    #[multi_index(by(ByGroup))]
     group: u8,
     #[allow(dead_code)]
     value: u64,
@@ -84,7 +84,7 @@ struct ByName;
 
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct OrderedName {
-    #[multi_index(ByName)]
+    #[multi_index(by(ByName))]
     name: String,
     value: u64,
 }
@@ -104,17 +104,17 @@ struct ByOrderedUniquePair;
 #[allow(dead_code)]
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct CompoundKinds {
-    #[multi_index(ByHashedUniquePair)]
+    #[multi_index(by(ByHashedUniquePair))]
     hu_name: String,
-    #[multi_index(ByHashedUniquePair)]
+    #[multi_index(by(ByHashedUniquePair))]
     hu_number: NonCloneKey,
-    #[multi_index(ByHashedPair)]
+    #[multi_index(by(ByHashedPair))]
     h_name: String,
-    #[multi_index(ByHashedPair)]
+    #[multi_index(by(ByHashedPair))]
     h_number: u64,
-    #[multi_index(ByOrderedUniquePair)]
+    #[multi_index(by(ByOrderedUniquePair))]
     ou_name: String,
-    #[multi_index(ByOrderedUniquePair)]
+    #[multi_index(by(ByOrderedUniquePair))]
     ou_number: u64,
     #[allow(dead_code)]
     payload: u64,
@@ -122,7 +122,7 @@ struct CompoundKinds {
 
 #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
 struct ReusedSelector {
-    #[multi_index(ById)]
+    #[multi_index(by(ById))]
     id: u64,
 }
 
@@ -136,7 +136,7 @@ mod exposed {
     #[allow(dead_code)]
     #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
     pub struct PublicRecord {
-        #[multi_index(ByPublicId)]
+        #[multi_index(by(ByPublicId))]
         pub id: u64,
         pub note: String,
         #[allow(dead_code)]
@@ -167,9 +167,9 @@ mod rebased_paths {
 
     #[derive(Debug, Eq, MultiIndexMap2, PartialEq)]
     pub(super) struct Record {
-        #[multi_index(self::ByLocal)]
+        #[multi_index(by(self::ByLocal))]
         pub(super) local: self::LocalKey,
-        #[multi_index(super::ById)]
+        #[multi_index(by(super::ById))]
         pub(crate) outer: u64,
         pub(super) payload: super::NonCloneKey,
     }

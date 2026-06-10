@@ -23,13 +23,13 @@ struct GenericRecord<'a, H: Eq + Hash = String, O: Eq + Ord = u64, T = (), const
 where
     T: std::fmt::Debug,
 {
-    #[multi_index(ByHashed)]
+    #[multi_index(by(ByHashed))]
     hashed: H,
-    #[multi_index(ByOrdered)]
+    #[multi_index(by(ByOrdered))]
     ordered: O,
-    #[multi_index(ByGroup)]
+    #[multi_index(by(ByGroup))]
     group: H,
-    #[multi_index(ByRank)]
+    #[multi_index(by(ByRank))]
     rank: O,
     payload: T,
     borrowed: &'a str,
@@ -48,9 +48,9 @@ struct GenericCompound<A: Eq + Hash, B: Eq + Hash, T>
 where
     T: Debug,
 {
-    #[multi_index(ByCompound)]
+    #[multi_index(by(ByCompound))]
     first: A,
-    #[multi_index(ByCompound)]
+    #[multi_index(by(ByCompound))]
     second: B,
     payload: T,
 }
@@ -64,7 +64,7 @@ struct OwnedGeneric<K: Eq + Hash, T>
 where
     T: Debug,
 {
-    #[multi_index(ByOwnedKey)]
+    #[multi_index(by(ByOwnedKey))]
     key: K,
     value: T,
 }
@@ -83,7 +83,7 @@ struct CollisionNames<
     __MimRange: Debug,
     __MimIter: Debug,
 {
-    #[multi_index(ByOwnedKey)]
+    #[multi_index(by(ByOwnedKey))]
     key: __MimKind,
     query: __MimQuery,
     range: __MimRange,
@@ -125,7 +125,7 @@ mod generic_paths {
     where
         K: crate::RootBound,
     {
-        #[multi_index(self::ByNestedKey)]
+        #[multi_index(by(self::ByNestedKey))]
         pub key: K,
         pub payload: T,
     }

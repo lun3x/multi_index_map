@@ -1,7 +1,9 @@
 use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
-use syn::{parse_quote, Data, DeriveInput, Error, Fields, Generics, Ident, Path, Type, Visibility};
+use syn::{
+    parse_quote, Data, DeriveInput, Error, Fields, Generics, Ident, Meta, Path, Type, Visibility,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Field {
@@ -12,7 +14,7 @@ pub(crate) struct Field {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Index {
-    pub(crate) selector: Path,
+    pub(crate) source: IndexSource,
     pub(crate) fields: Vec<Field>,
     pub(crate) ordinal: usize,
 }
@@ -20,6 +22,37 @@ pub(crate) struct Index {
 impl Index {
     pub(crate) fn single_field(&self) -> Option<&Field> {
         (self.fields.len() == 1).then(|| &self.fields[0])
+    }
+
+    pub(crate) fn selector(&self) -> Option<&Path> {
+        match &self.source {
+            IndexSource::Selector(path) => Some(path),
+            IndexSource::Legacy(_) => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum IndexCategory {
+    HashedUnique,
+    HashedNonUnique,
+    OrderedUnique,
+    OrderedNonUnique,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum IndexSource {
+    Legacy(IndexCategory),
+    Selector(Path),
+}
+
+impl IndexSource {
+    fn span(&self) -> proc_macro2::Span {
+        match self {
+            Self::Legacy(_) => proc_macro2::Span::call_site(),
+            Self::Selector(path) => path.span(),
+        }
     }
 }
 
@@ -43,7 +76,9 @@ impl Input {
         let mut rebasing = RebaseForChildModule;
         rebasing.visit_generics_mut(&mut self.generics);
         for index in &mut self.indexes {
-            rebasing.visit_path_mut(&mut index.selector);
+            if let IndexSource::Selector(selector) = &mut index.source {
+                rebasing.visit_path_mut(selector);
+            }
             for field in &mut index.fields {
                 rebasing.visit_type_mut(&mut field.ty);
                 rebase_visibility(&mut field.vis);
@@ -149,25 +184,32 @@ impl Input {
                     ty: field.ty.clone(),
                     vis: field.vis.clone(),
                 };
-                let selectors = parse_selectors(&field, &mut errors);
-                if selectors.is_empty() {
-                    unindexed.push(value);
-                    continue;
-                }
-
-                for selector in selectors {
-                    let key = path_key(&selector);
-                    if let Some(index) = indexes
-                        .iter_mut()
-                        .find(|index| path_key(&index.selector) == key)
-                    {
-                        index.fields.push(value.clone());
-                    } else {
+                match parse_index_declaration(&field, &mut errors) {
+                    None => unindexed.push(value),
+                    Some(FieldIndexDeclaration::Legacy(category)) => {
                         indexes.push(Index {
-                            selector,
-                            fields: vec![value.clone()],
+                            source: IndexSource::Legacy(category),
+                            fields: vec![value],
                             ordinal: indexes.len(),
                         });
+                    }
+                    Some(FieldIndexDeclaration::Selectors(selectors)) => {
+                        for selector in selectors {
+                            let key = path_key(&selector);
+                            if let Some(index) = indexes.iter_mut().find(|index| {
+                                index
+                                    .selector()
+                                    .is_some_and(|existing| path_key(existing) == key)
+                            }) {
+                                index.fields.push(value.clone());
+                            } else {
+                                indexes.push(Index {
+                                    source: IndexSource::Selector(selector),
+                                    fields: vec![value.clone()],
+                                    ordinal: indexes.len(),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -178,7 +220,7 @@ impl Input {
                 &mut errors,
                 Error::new(
                     input.ident.span(),
-                    "MultiIndexMap2 requires at least one #[multi_index(Selector, ...)] field",
+                    "MultiIndexMap2 requires at least one indexed field",
                 ),
             );
         }
@@ -187,7 +229,7 @@ impl Input {
                 push_error(
                     &mut errors,
                     Error::new(
-                        index.selector.span(),
+                        index.source.span(),
                         "compound indexes support at most 12 fields",
                     ),
                 );
@@ -208,8 +250,15 @@ impl Input {
     }
 }
 
-fn parse_selectors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> {
-    let mut selectors = Vec::new();
+enum FieldIndexDeclaration {
+    Legacy(IndexCategory),
+    Selectors(Vec<Path>),
+}
+
+fn parse_index_declaration(
+    field: &syn::Field,
+    errors: &mut Option<Error>,
+) -> Option<FieldIndexDeclaration> {
     let attrs = field
         .attrs
         .iter()
@@ -220,58 +269,109 @@ fn parse_selectors(field: &syn::Field, errors: &mut Option<Error>) -> Vec<Path> 
             errors,
             Error::new(
                 attr.span(),
-                "use one #[multi_index(Selector, ...)] attribute per field",
+                "use one #[multi_index(...)] attribute per field",
             ),
         );
     }
-    if let Some(attr) = attrs.first() {
-        let paths = match attr
-            .parse_args_with(syn::punctuated::Punctuated::<Path, syn::Token![,]>::parse_terminated)
-        {
-            Ok(paths) => paths,
-            Err(error) => {
-                push_error(errors, error);
-                return selectors;
-            }
-        };
-        if paths.is_empty() {
-            push_error(
-                errors,
-                Error::new(attr.span(), "#[multi_index(...)] requires an selector path"),
-            );
-            return selectors;
+    let attr = attrs.first()?;
+    let metas = match attr
+        .parse_args_with(syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+    {
+        Ok(metas) => metas,
+        Err(error) => {
+            push_error(errors, error);
+            return None;
         }
-        for selector in paths {
-            if selector.get_ident().is_some_and(|ident| {
-                matches!(
-                    ident.to_string().as_str(),
-                    "hashed_unique" | "hashed_non_unique" | "ordered_unique" | "ordered_non_unique"
-                )
-            }) {
-                push_error(
-                    errors,
-                    Error::new(
-                        selector.span(),
-                        "index categories belong on #[derive(MultiIndexSelector)] types; expected an selector path",
-                    ),
-                );
-                continue;
+    };
+    if metas.is_empty() {
+        push_error(
+            errors,
+            Error::new(
+                attr.span(),
+                "#[multi_index(...)] requires one category or at least one by(Selector)",
+            ),
+        );
+        return None;
+    }
+
+    let mut category = None;
+    let mut selectors = Vec::new();
+    for meta in metas {
+        match meta {
+            Meta::Path(path) => {
+                let Some(parsed) = parse_category(&path) else {
+                    push_error(
+                        errors,
+                        Error::new(
+                            path.span(),
+                            "bare selector paths are unsupported; use by(Selector)",
+                        ),
+                    );
+                    continue;
+                };
+                if category.replace(parsed).is_some() {
+                    push_error(
+                        errors,
+                        Error::new(path.span(), "only one legacy index category is allowed"),
+                    );
+                }
             }
-            let key = path_key(&selector);
-            if selectors.iter().any(|existing| path_key(existing) == key) {
-                push_error(
-                    errors,
-                    Error::new(
-                        selector.span(),
-                        "duplicate use of this selector on the same field",
-                    ),
-                );
-                continue;
+            Meta::List(list) if list.path.is_ident("by") => {
+                let selector = match list.parse_args::<Path>() {
+                    Ok(selector) => selector,
+                    Err(error) => {
+                        push_error(errors, error);
+                        continue;
+                    }
+                };
+                let key = path_key(&selector);
+                if selectors.iter().any(|existing| path_key(existing) == key) {
+                    push_error(
+                        errors,
+                        Error::new(
+                            selector.span(),
+                            "duplicate use of this selector on the same field",
+                        ),
+                    );
+                    continue;
+                }
+                selectors.push(selector);
             }
-            selectors.push(selector);
+            other => push_error(
+                errors,
+                Error::new(
+                    other.span(),
+                    "expected a legacy index category or by(Selector)",
+                ),
+            ),
         }
     }
-    selectors
+
+    if category.is_some() && !selectors.is_empty() {
+        push_error(
+            errors,
+            Error::new(
+                attr.span(),
+                "a field cannot mix a legacy index category with by(Selector)",
+            ),
+        );
+        return None;
+    }
+    match (category, selectors.is_empty()) {
+        (Some(category), true) => Some(FieldIndexDeclaration::Legacy(category)),
+        (None, false) => Some(FieldIndexDeclaration::Selectors(selectors)),
+        _ => None,
+    }
+}
+
+fn parse_category(path: &Path) -> Option<IndexCategory> {
+    match path.get_ident()?.to_string().as_str() {
+        "hashed_unique" => Some(IndexCategory::HashedUnique),
+        "hashed_non_unique" => Some(IndexCategory::HashedNonUnique),
+        "ordered_unique" => Some(IndexCategory::OrderedUnique),
+        "ordered_non_unique" => Some(IndexCategory::OrderedNonUnique),
+        _ => None,
+    }
 }
 
 fn path_key(path: &Path) -> String {
@@ -295,11 +395,11 @@ mod tests {
     fn groups_overlapping_compound_indexes() {
         let input: DeriveInput = parse_quote! {
             struct Order {
-                #[multi_index(ById)]
+                #[multi_index(by(ById))]
                 id: u64,
-                #[multi_index(crate::ByTraderTimestamp)]
+                #[multi_index(by(crate::ByTraderTimestamp))]
                 trader: String,
-                #[multi_index(ByTimestamp, crate::ByTraderTimestamp)]
+                #[multi_index(by(ByTimestamp), by(crate::ByTraderTimestamp))]
                 timestamp: u64,
                 note: String,
             }
@@ -316,7 +416,7 @@ mod tests {
     fn rejects_duplicate_selector_on_one_field() {
         let input: DeriveInput = parse_quote! {
             struct Bad {
-                #[multi_index(ById, ById)]
+                #[multi_index(by(ById), by(ById))]
                 id: u64,
             }
         };
@@ -327,8 +427,8 @@ mod tests {
     fn rejects_multiple_index_attributes_on_one_field() {
         let input: DeriveInput = parse_quote! {
             struct Bad {
-                #[multi_index(ById)]
-                #[multi_index(ByTimestamp)]
+                #[multi_index(by(ById))]
+                #[multi_index(by(ByTimestamp))]
                 id: u64,
             }
         };
@@ -336,21 +436,98 @@ mod tests {
     }
 
     #[test]
-    fn rejects_old_index_kind_syntax() {
+    fn accepts_legacy_index_kind_syntax() {
         let input: DeriveInput = parse_quote! {
-            struct Bad {
+            struct Record {
                 #[multi_index(hashed_unique)]
+                id: u64,
+                #[multi_index(ordered_non_unique)]
+                rank: u64,
+            }
+        };
+        let parsed = Input::parse(input).unwrap();
+        assert!(matches!(
+            parsed.indexes[0].source,
+            IndexSource::Legacy(IndexCategory::HashedUnique)
+        ));
+        assert!(matches!(
+            parsed.indexes[1].source,
+            IndexSource::Legacy(IndexCategory::OrderedNonUnique)
+        ));
+    }
+
+    #[test]
+    fn rejects_bare_selectors_mixed_forms_and_multiple_categories() {
+        for input in [
+            parse_quote! {
+                struct Bad {
+                    #[multi_index(ById)]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                struct Bad {
+                    #[multi_index(hashed_unique, by(ById))]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                struct Bad {
+                    #[multi_index(hashed_unique, ordered_unique)]
+                    id: u64,
+                }
+            },
+        ] {
+            assert!(Input::parse(input).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_by_and_empty_attributes() {
+        for input in [
+            parse_quote! {
+                struct Bad {
+                    #[multi_index(by())]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                struct Bad {
+                    #[multi_index(by(ById, ByOther))]
+                    id: u64,
+                }
+            },
+            parse_quote! {
+                struct Bad {
+                    #[multi_index()]
+                    id: u64,
+                }
+            },
+        ] {
+            assert!(Input::parse(input).is_err());
+        }
+    }
+
+    #[test]
+    fn category_name_inside_by_is_a_selector() {
+        let input: DeriveInput = parse_quote! {
+            struct Record {
+                #[multi_index(by(hashed_non_unique))]
                 id: u64,
             }
         };
-        assert!(Input::parse(input).is_err());
+        let parsed = Input::parse(input).unwrap();
+        assert_eq!(
+            path_key(parsed.indexes[0].selector().unwrap()),
+            "hashed_non_unique"
+        );
     }
 
     #[test]
     fn rebases_child_module_paths_macros_and_visibilities() {
         let input: DeriveInput = parse_quote! {
             struct Record {
-                #[multi_index(self::ById)]
+                #[multi_index(by(self::ById))]
                 pub(self) id: self::key_type!(),
                 pub(super) payload: super::Payload,
                 pub(in crate::scope) scoped: u8,
@@ -363,7 +540,10 @@ mod tests {
         );
 
         parsed.rebase_for_child_module();
-        assert_eq!(path_key(&parsed.indexes[0].selector), "super::ById");
+        assert_eq!(
+            path_key(parsed.indexes[0].selector().unwrap()),
+            "super::ById"
+        );
         assert_eq!(
             parsed.indexes[0].fields[0]
                 .ty
@@ -409,7 +589,7 @@ mod tests {
                 T: crate::RootBound,
                 [u8; N]: super::ArrayBound,
             {
-                #[multi_index(ById)]
+                #[multi_index(by(ById))]
                 id: u64,
                 value: &'a T,
             }

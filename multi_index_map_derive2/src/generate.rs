@@ -1,4 +1,4 @@
-use crate::model::{Index, Input};
+use crate::model::{Index, IndexCategory, IndexSource, Input};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use std::collections::HashSet;
@@ -21,6 +21,7 @@ pub(crate) fn generate(mut input: Input) -> TokenStream {
     let map = generate_map(&input, &names, &indexes);
     let views = indexes
         .iter()
+        .filter(|index| index.index.selector().is_some())
         .map(|index| generate_view(&input, &names, index));
     let compatibility = generate_compatibility(&input, &names, &indexes);
     let module = &names.module;
@@ -329,8 +330,33 @@ impl<'a> IndexNames<'a> {
         }
     }
 
-    fn selector(&self) -> &syn::Path {
-        &self.index.selector
+    fn selector(&self) -> Option<&syn::Path> {
+        self.index.selector()
+    }
+
+    fn kind_definition(&self) -> TokenStream {
+        match &self.index.source {
+            IndexSource::Selector(selector) => {
+                quote!(<#selector as ::multi_index_map::MultiIndexSelector>::Kind)
+            }
+            IndexSource::Legacy(category) => category.kind(),
+        }
+    }
+
+    fn conflict_name(&self) -> TokenStream {
+        match &self.index.source {
+            IndexSource::Selector(selector) => {
+                quote!(<#selector as ::multi_index_map::MultiIndexSelector>::NAME)
+            }
+            IndexSource::Legacy(_) => {
+                let field = &self
+                    .index
+                    .single_field()
+                    .expect("legacy indexes are single-field")
+                    .ident;
+                quote!(stringify!(#field))
+            }
+        }
     }
 
     fn owned_key(&self) -> TokenStream {
@@ -367,6 +393,17 @@ impl<'a> IndexNames<'a> {
     }
 }
 
+impl IndexCategory {
+    fn kind(self) -> TokenStream {
+        match self {
+            Self::HashedUnique => quote!(::multi_index_map::__private::HashedUnique),
+            Self::HashedNonUnique => quote!(::multi_index_map::__private::HashedNonUnique),
+            Self::OrderedUnique => quote!(::multi_index_map::__private::OrderedUnique),
+            Self::OrderedNonUnique => quote!(::multi_index_map::__private::OrderedNonUnique),
+        }
+    }
+}
+
 fn generate_node_and_specs(
     input: &Input,
     names: &Names,
@@ -390,7 +427,8 @@ fn generate_node_and_specs(
         quote!(#link: ::std::default::Default::default())
     });
     let specs = indexes.iter().map(|index| {
-        let selector = index.selector();
+        let kind_definition = index.kind_definition();
+        let conflict_name = index.conflict_name();
         let kind = &index.kind;
         let spec = &index.spec;
         let link = &index.link;
@@ -405,7 +443,7 @@ fn generate_node_and_specs(
         );
         let (spec_impl_generics, _, spec_where_clause) = spec_generics.split_for_impl();
         quote! {
-            #vis type #kind = <#selector as ::multi_index_map::MultiIndexSelector>::Kind;
+            #vis type #kind = #kind_definition;
             #vis struct #spec;
 
             impl #spec_impl_generics ::multi_index_map::__private::IndexSpec<#node_ty>
@@ -413,8 +451,7 @@ fn generate_node_and_specs(
             {
                 type Key<#key_lifetime> = #borrowed_key;
                 type Link = <#kind as ::multi_index_map::__private::IndexCategory>::Link;
-                const NAME: &'static str =
-                    <#selector as ::multi_index_map::MultiIndexSelector>::NAME;
+                const NAME: &'static str = #conflict_name;
 
                 fn key<#key_lifetime>(
                     value: &#key_lifetime #element,
@@ -587,7 +624,7 @@ fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>
     let (iterator_impl, iterator_ty, iterator_where) = iterator_generics.split_for_impl();
     let (double_impl, double_ty, double_where) = double_generics.split_for_impl();
 
-    quote! {
+    let base_wrapper = quote! {
         #[doc(hidden)]
         #vis struct #iter #iterator_generics #iterator_where {
             inner: #refs<#lifetime, #node, #ids>,
@@ -602,6 +639,13 @@ fn generate_index_iterators(input: &Input, names: &Names, index: &IndexNames<'_>
         impl #double_impl DoubleEndedIterator for #iter #double_ty #double_where {
             fn next_back(&mut self) -> Option<Self::Item> { self.inner.next_back() }
         }
+    };
+    if index.index.selector().is_none() {
+        return base_wrapper;
+    }
+
+    quote! {
+        #base_wrapper
 
         #[doc(hidden)]
         #vis struct #equal #iterator_generics #iterator_where {
@@ -672,14 +716,14 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         let storage = &index.storage;
         quote!(#storage: ::std::default::Default::default())
     });
-    let selector_impls = indexes.iter().map(|index| {
-        let selector = index.selector();
+    let selector_impls = indexes.iter().filter_map(|index| {
+        let selector = index.selector()?;
         let kind = &index.kind;
         let view = &index.view;
         let view_mut = &index.view_mut;
         let view_ty = application(view, input, [quote!(#view_lifetime)], [quote!(#kind)]);
         let view_mut_ty = application(view_mut, input, [quote!(#view_lifetime)], [quote!(#kind)]);
-        quote! {
+        Some(quote! {
             impl #map_impl_generics #selector_ty for #selector #map_where_clause {
                 type View<#view_lifetime> = #view_ty
                 where
@@ -706,7 +750,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                     #view_mut { map, marker: ::std::marker::PhantomData }
                 }
             }
-        }
+        })
     });
     let reserves = indexes.iter().map(|index| {
         let kind = &index.kind;
@@ -720,7 +764,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         }
     });
     let inserts = indexes.iter().map(|index| {
-        let selector = index.selector();
+        let conflict_name = index.conflict_name();
         let kind = &index.kind;
         let spec = &index.spec;
         let storage = &index.storage;
@@ -731,7 +775,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 &mut self.nodes,
             ).is_err() {
                 self.unlink_all(id);
-                return Some(<#selector as ::multi_index_map::MultiIndexSelector>::NAME);
+                return Some(#conflict_name);
             }
         }
     });
@@ -748,7 +792,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
         }
     });
     let reconciles = indexes.iter().map(|index| {
-        let selector = index.selector();
+        let conflict_name = index.conflict_name();
         let kind = &index.kind;
         let spec = &index.spec;
         let storage = &index.storage;
@@ -760,7 +804,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                     &mut self.nodes,
                 ).is_err()
             {
-                conflict = Some(<#selector as ::multi_index_map::MultiIndexSelector>::NAME);
+                conflict = Some(#conflict_name);
             }
         }
     });
@@ -783,43 +827,82 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     });
     let update_expr = update_expr(input, names);
     let compatibility_helpers = generate_compatibility_helpers(input, names, indexes);
-    let bindings = indexes.iter().map(|index| {
-        let binding = &index.binding;
-        let kind_param = &names.kind;
-        let concrete_kind = &index.kind;
-        let spec = &index.spec;
-        let storage = &index.storage;
-        let binding_generics = with_predicates(
-            with_type(helper_generics(input), kind_param),
-            [
-                parse_quote!(
-                    #kind_param: ::multi_index_map::__private::IndexCategory<
-                        Link = <#concrete_kind as ::multi_index_map::__private::IndexCategory>::Link
-                    >
-                ),
-                parse_quote!(
-                    #kind_param: ::multi_index_map::__private::IndexKind<#node, #spec>
-                ),
-            ]
-            .into_iter()
-            .chain(index.index.fields.iter().map(|field| {
-                let ty = &field.ty;
-                parse_quote!(#ty: 'static)
-            })),
-        );
-        let binding_where = &binding_generics.where_clause;
-        let concrete_binding = application(binding, input, [], [quote!(#concrete_kind)]);
+    let bindings = indexes
+        .iter()
+        .filter(|index| index.selector().is_some())
+        .map(|index| {
+            let binding = &index.binding;
+            let kind_param = &names.kind;
+            let concrete_kind = &index.kind;
+            let spec = &index.spec;
+            let storage = &index.storage;
+            let binding_generics = with_predicates(
+                with_type(helper_generics(input), kind_param),
+                [
+                    parse_quote!(
+                        #kind_param: ::multi_index_map::__private::IndexCategory<
+                            Link = <#concrete_kind as ::multi_index_map::__private::IndexCategory>::Link
+                        >
+                    ),
+                    parse_quote!(
+                        #kind_param: ::multi_index_map::__private::IndexKind<#node, #spec>
+                    ),
+                ]
+                .into_iter()
+                .chain(index.index.fields.iter().map(|field| {
+                    let ty = &field.ty;
+                    parse_quote!(#ty: 'static)
+                })),
+            );
+            let binding_where = &binding_generics.where_clause;
+            let concrete_binding = application(binding, input, [], [quote!(#concrete_kind)]);
+            quote! {
+                trait #binding #binding_generics #binding_where {
+                    fn index(&self) -> &<#kind_param as
+                        ::multi_index_map::__private::IndexKind<#node, #spec>>::Index;
+                }
+
+                impl #map_impl_generics #concrete_binding for #inner_ty #map_where_clause {
+                    fn index(&self) -> &<#concrete_kind as
+                        ::multi_index_map::__private::IndexKind<#node, #spec>>::Index {
+                        &self.#storage
+                    }
+                }
+            }
+        });
+    let has_selectors = indexes.iter().any(|index| index.selector().is_some());
+    let selector_trait = has_selectors.then(|| {
         quote! {
-            trait #binding #binding_generics #binding_where {
-                fn index(&self) -> &<#kind_param as
-                    ::multi_index_map::__private::IndexKind<#node, #spec>>::Index;
+            #vis trait #selector #selector_generics: ::multi_index_map::MultiIndexSelector #selector_where {
+                type View<#view_lifetime>
+                where
+                    Self: #view_lifetime,
+                    #map_ty: #view_lifetime;
+                type ViewMut<#view_lifetime>
+                where
+                    Self: #view_lifetime,
+                    #map_ty: #view_lifetime;
+                fn view<#view_lifetime>(
+                    map: &#view_lifetime #map_ty,
+                ) -> Self::View<#view_lifetime>
+                where
+                    #map_ty: #view_lifetime;
+                fn view_mut<#view_lifetime>(
+                    map: &#view_lifetime mut #map_ty,
+                ) -> Self::ViewMut<#view_lifetime>
+                where
+                    #map_ty: #view_lifetime;
+            }
+        }
+    });
+    let selector_methods = has_selectors.then(|| {
+        quote! {
+            #vis fn by<#selector_param: #selector_ty>(&self) -> #selector_param::View<'_> {
+                #selector_param::view(self)
             }
 
-            impl #map_impl_generics #concrete_binding for #inner_ty #map_where_clause {
-                fn index(&self) -> &<#concrete_kind as
-                    ::multi_index_map::__private::IndexKind<#node, #spec>>::Index {
-                    &self.#storage
-                }
+            #vis fn by_mut<#selector_param: #selector_ty>(&mut self) -> #selector_param::ViewMut<'_> {
+                #selector_param::view_mut(self)
             }
         }
     });
@@ -827,26 +910,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     quote! {
         #(#bindings)*
 
-        #vis trait #selector #selector_generics: ::multi_index_map::MultiIndexSelector #selector_where {
-            type View<#view_lifetime>
-            where
-                Self: #view_lifetime,
-                #map_ty: #view_lifetime;
-            type ViewMut<#view_lifetime>
-            where
-                Self: #view_lifetime,
-                #map_ty: #view_lifetime;
-            fn view<#view_lifetime>(
-                map: &#view_lifetime #map_ty,
-            ) -> Self::View<#view_lifetime>
-            where
-                #map_ty: #view_lifetime;
-            fn view_mut<#view_lifetime>(
-                map: &#view_lifetime mut #map_ty,
-            ) -> Self::ViewMut<#view_lifetime>
-            where
-                #map_ty: #view_lifetime;
-        }
+        #selector_trait
 
         #vis struct #map #map_decl_generics #map_decl_where {
             inner: #inner_ty,
@@ -879,13 +943,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             #vis fn len(&self) -> usize { self.inner.nodes.len() }
             #vis fn is_empty(&self) -> bool { self.inner.nodes.is_empty() }
 
-            #vis fn by<#selector_param: #selector_ty>(&self) -> #selector_param::View<'_> {
-                #selector_param::view(self)
-            }
-
-            #vis fn by_mut<#selector_param: #selector_ty>(&mut self) -> #selector_param::ViewMut<'_> {
-                #selector_param::view_mut(self)
-            }
+            #selector_methods
 
             #vis fn try_insert(
                 &mut self,
@@ -2084,10 +2142,30 @@ fn generate_inherent_compatibility_index(
             quote!(#ty: 'static,)
         })
         .collect::<Vec<_>>();
+    let (get_note, get_mut_note, modify_note, update_note, remove_note, iter_note) =
+        if index.index.selector().is_some() {
+            (
+                "use map.by::<Selector>().get/equal_range(key)",
+                "use map.by_mut::<Selector>().update/update_all(key, ...)",
+                "use map.by_mut::<Selector>().modify/modify_all(key, ...)",
+                "use map.by_mut::<Selector>().update/update_all(key, ...)",
+                "use map.by_mut::<Selector>().remove/remove_all(key)",
+                "use map.by::<Selector>().iter()",
+            )
+        } else {
+            (
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+                "declare a selector with #[multi_index(by(Selector))] to use selector views",
+            )
+        };
 
     quote! {
         impl #map_impl #map_ty #map_where {
-            #[deprecated(note = "use map.by::<Selector>().get/equal_range(key)")]
+            #[deprecated(note = #get_note)]
             #field_vis fn #get_by<#query: ?Sized>(&self, key: &#query) -> #collection<&#element>
             where
                 #kind: ::multi_index_map::__private::QueryIndexKind<#node, #spec, #query>,
@@ -2102,7 +2180,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Selector>().update/update_all(key, ...)")]
+            #[deprecated(note = #get_mut_note)]
             #field_vis fn #get_mut_by(&mut self, key: &#ty) -> #collection<#tuple_type> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
@@ -2112,7 +2190,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(fields)
             }
 
-            #[deprecated(note = "use map.by_mut::<Selector>().modify/modify_all(key, ...)")]
+            #[deprecated(note = #modify_note)]
             #field_vis fn #modify_by(
                 &mut self,
                 key: &#ty,
@@ -2128,7 +2206,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Selector>().update/update_all(key, ...)")]
+            #[deprecated(note = #update_note)]
             #field_vis fn #update_by<#query: ?Sized>(
                 &mut self,
                 key: &#query,
@@ -2149,7 +2227,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by_mut::<Selector>().remove/remove_all(key)")]
+            #[deprecated(note = #remove_note)]
             #field_vis fn #remove_by(&mut self, key: &#ty) -> #collection<#element> {
                 let ids =
                     <#kind as ::multi_index_map::__private::QueryIndexKind<#node, #spec, #ty>>::equal_ids(
@@ -2160,7 +2238,7 @@ fn generate_inherent_compatibility_index(
                 <#kind as ::multi_index_map::__private::CompatibilityKind>::from_vec(values)
             }
 
-            #[deprecated(note = "use map.by::<Selector>().iter()")]
+            #[deprecated(note = #iter_note)]
             #field_vis fn #iter_by(&self) -> #iter_ty {
                 #iter {
                     inner: #refs::new(
@@ -2186,7 +2264,7 @@ mod tests {
     fn top_level_contains_only_private_module_and_map_reexport() {
         let input = Input::parse(parse_quote! {
             pub struct Record {
-                #[multi_index(ById)]
+                #[multi_index(by(ById))]
                 pub id: u64,
                 value: String,
             }
@@ -2246,6 +2324,66 @@ mod tests {
             "validate_debug",
         ] {
             assert!(!map_methods.iter().any(|method| method == private_method));
+        }
+    }
+
+    #[test]
+    fn legacy_only_map_omits_selector_api_and_bindings() {
+        let input = Input::parse(parse_quote! {
+            pub struct Legacy {
+                #[multi_index(hashed_unique)]
+                pub id: u64,
+                value: String,
+            }
+        })
+        .unwrap();
+        let file = syn::parse2::<syn::File>(generate(input)).unwrap();
+        let module = match &file.items[0] {
+            Item::Mod(module) => module.content.as_ref().unwrap(),
+            _ => unreachable!(),
+        };
+        let map_methods = module
+            .1
+            .iter()
+            .filter_map(|item| match item {
+                Item::Impl(item)
+                    if item.self_ty.as_ref().to_token_stream().to_string()
+                        == "MultiIndexLegacyMap" =>
+                {
+                    Some(item)
+                }
+                _ => None,
+            })
+            .flat_map(|item| &item.items)
+            .filter_map(|item| match item {
+                ImplItem::Fn(method) => Some(method.sig.ident.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!map_methods.iter().any(|method| method == "by"));
+        assert!(!map_methods.iter().any(|method| method == "by_mut"));
+        assert!(!module.1.iter().any(
+            |item| matches!(item, Item::Trait(item) if item.ident == "MultiIndexLegacyMapIndex")
+        ));
+        assert!(!module.1.iter().any(
+            |item| matches!(item, Item::Trait(item) if item.ident.to_string().contains("Binding"))
+        ));
+        let generated_structs = module
+            .1
+            .iter()
+            .filter_map(|item| match item {
+                Item::Struct(item) => Some(item.ident.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(generated_structs
+            .iter()
+            .any(|name| name == "__MultiIndexLegacyMapIndex0Iter"));
+        for omitted in ["View", "ViewMut", "EqualRange", "Range"] {
+            assert!(!generated_structs
+                .iter()
+                .any(|name| name == &format!("__MultiIndexLegacyMapIndex0{omitted}")));
         }
     }
 }
