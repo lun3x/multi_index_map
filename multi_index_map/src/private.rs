@@ -279,6 +279,12 @@ where
     fn reserve_for_insert(index: &mut Self::Index, nodes: &mut Slab<N>);
     fn iter_ids<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Ids<'a>;
     fn iter_values<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Values<'a>;
+    fn conflict(
+        index: &Self::Index,
+        candidate: NodeId,
+        ignore: NodeId,
+        nodes: &Slab<N>,
+    ) -> Option<NodeId>;
     fn insert(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
     fn remove(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>);
     fn reconcile(index: &mut Self::Index, id: NodeId, nodes: &mut Slab<N>) -> Result<(), NodeId>;
@@ -671,6 +677,29 @@ where
         }
         self.len += 1;
         Ok(())
+    }
+
+    pub fn conflict<N>(&self, candidate: NodeId, ignore: NodeId, nodes: &Slab<N>) -> Option<NodeId>
+    where
+        N: NodeValue,
+        S: IndexSpec<N, Link = HashLink>,
+        for<'a> S::Key<'a>: Eq + Hash,
+    {
+        if !UNIQUE {
+            return None;
+        }
+        let key = S::key(nodes[candidate.slot()].value());
+        let hash = self.hash(&key);
+        let mut current = self.buckets[self.bucket(hash)];
+        while let Some(other) = current {
+            let node = &nodes[other.slot()];
+            let link = S::link(node);
+            if other != ignore && link.hash == hash && S::key(node.value()) == key {
+                return Some(other);
+            }
+            current = link.next;
+        }
+        None
     }
 
     pub fn remove<N>(&mut self, id: NodeId, nodes: &mut Slab<N>)
@@ -1387,6 +1416,27 @@ impl<S, const UNIQUE: bool> OrderedIndex<S, UNIQUE> {
         Ok(())
     }
 
+    pub fn conflict<N>(&self, candidate: NodeId, ignore: NodeId, nodes: &Slab<N>) -> Option<NodeId>
+    where
+        N: NodeValue,
+        S: IndexSpec<N, Link = OrderedLink>,
+        for<'a> S::Key<'a>: Ord,
+    {
+        if !UNIQUE {
+            return None;
+        }
+        let key = S::key(nodes[candidate.slot()].value());
+        let mut current = self.root;
+        while let Some(other) = current {
+            match key.cmp(&S::key(nodes[other.slot()].value())) {
+                Ordering::Less => current = S::link(&nodes[other.slot()]).left,
+                Ordering::Greater => current = S::link(&nodes[other.slot()]).right,
+                Ordering::Equal => return (other != ignore).then_some(other),
+            }
+        }
+        None
+    }
+
     fn rotate_left<N>(&mut self, x: NodeId, nodes: &mut Slab<N>)
     where
         N: NodeValue,
@@ -1842,6 +1892,15 @@ macro_rules! impl_hashed_kind {
                 index.iter_values(nodes)
             }
 
+            fn conflict(
+                index: &Self::Index,
+                candidate: NodeId,
+                ignore: NodeId,
+                nodes: &Slab<N>,
+            ) -> Option<NodeId> {
+                index.conflict(candidate, ignore, nodes)
+            }
+
             fn insert(
                 index: &mut Self::Index,
                 id: NodeId,
@@ -1937,6 +1996,15 @@ macro_rules! impl_ordered_kind {
 
             fn iter_values<'a>(index: &'a Self::Index, nodes: &'a Slab<N>) -> Self::Values<'a> {
                 index.iter_values(nodes)
+            }
+
+            fn conflict(
+                index: &Self::Index,
+                candidate: NodeId,
+                ignore: NodeId,
+                nodes: &Slab<N>,
+            ) -> Option<NodeId> {
+                index.conflict(candidate, ignore, nodes)
             }
 
             fn insert(

@@ -909,6 +909,26 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
             }
         }
     });
+    let replacement_preflights = indexes.iter().map(|index| {
+        let conflict_name = index.conflict_name();
+        let kind = &index.kind;
+        let spec = &index.spec;
+        let storage = &index.storage;
+        quote! {
+            if <#kind as ::multi_index_map::__private::IndexKind<#node, #spec>>::conflict(
+                &self.#storage,
+                candidate,
+                id,
+                &self.nodes,
+            ).is_some() {
+                let replacement = self.nodes.remove(candidate.slot()).value;
+                return Err(::multi_index_map::Conflict {
+                    index: #conflict_name,
+                    value: replacement,
+                });
+            }
+        }
+    });
     let removes = indexes.iter().map(|index| {
         let kind = &index.kind;
         let spec = &index.spec;
@@ -1203,20 +1223,13 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
                 id: ::multi_index_map::__private::NodeId,
                 replacement: #element,
             ) -> Result<#element, ::multi_index_map::Conflict<#element>> {
-                self.unlink_all(id);
-                self.reserve_all();
                 let candidate =
                     ::multi_index_map::__private::NodeId::new(self.nodes.insert(<#node>::new(replacement)));
-                if let Some(index) = self.link_all(candidate) {
-                    let replacement = self.nodes.remove(candidate.slot()).value;
-                    assert!(self.link_all(id).is_none(), "restoring replaced element conflicted");
-                    self.validate_debug();
-                    return Err(::multi_index_map::Conflict { index, value: replacement });
-                }
-                self.unlink_all(candidate);
+                #(#replacement_preflights)*
+                self.unlink_all(id);
                 let replacement = self.nodes.remove(candidate.slot()).value;
                 let old = ::std::mem::replace(&mut self.nodes[id.slot()].value, replacement);
-                assert!(self.link_all(id).is_none(), "prepared replacement unexpectedly conflicted");
+                assert!(self.link_all(id).is_none(), "preflighted replacement unexpectedly conflicted");
                 self.validate_debug();
                 Ok(old)
             }

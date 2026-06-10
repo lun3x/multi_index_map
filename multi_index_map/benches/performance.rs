@@ -526,6 +526,41 @@ fn bench_modify(c: &mut Criterion) {
     }
 }
 
+fn bench_replace(c: &mut Criterion) {
+    for &n in BENCH_SIZES {
+        let selector = selector_map(n);
+
+        c.bench_function(&format!("selector/replace_same/{n}"), |b| {
+            b.iter_batched(
+                || selector.clone(),
+                |mut map| {
+                    for i in 0..n {
+                        let _ = black_box(
+                            map.by_mut::<ByHashedUnique>()
+                                .replace(&TestKey(i), selector_element(i)),
+                        );
+                    }
+                },
+                BatchSize::LargeInput,
+            )
+        });
+        c.bench_function(&format!("selector/replace_conflict/{n}"), |b| {
+            b.iter_batched(
+                || selector.clone(),
+                |mut map| {
+                    for _ in 0..n {
+                        let _ = black_box(
+                            map.by_mut::<ByHashedUnique>()
+                                .replace(&TestKey(n - 1), selector_element(0)),
+                        );
+                    }
+                },
+                BatchSize::LargeInput,
+            )
+        });
+    }
+}
+
 #[allow(deprecated)]
 fn bench_iteration(c: &mut Criterion) {
     for &n in BENCH_SIZES {
@@ -608,6 +643,7 @@ criterion_group!(
     bench_lookup_and_ranges,
     bench_remove,
     bench_modify,
+    bench_replace,
     bench_iteration,
 );
 criterion_main!(benches);
