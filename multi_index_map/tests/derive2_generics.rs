@@ -150,6 +150,16 @@ fn supports_lifetime_type_const_defaults_and_where_clauses() {
     assert_eq!(map.by::<ByGroup>().equal_range("group").count(), 1);
     assert_eq!(map.by::<ByRank>().range(9..=9).count(), 1);
 
+    #[allow(deprecated)]
+    {
+        let (payload, borrowed, bytes) = map.iter_mut().next().unwrap();
+        *payload = ();
+        *borrowed = "changed";
+        bytes[1] = 9;
+    }
+    assert_eq!(map.by::<ByHashed>().get("id").unwrap().borrowed, "changed");
+    assert_eq!(map.by::<ByHashed>().get("id").unwrap().bytes[1], 9);
+
     map.by_mut::<ByHashed>()
         .modify("id", |record| record.bytes[0] = 8)
         .unwrap();

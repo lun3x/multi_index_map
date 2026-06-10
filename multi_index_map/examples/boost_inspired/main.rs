@@ -579,6 +579,32 @@ mod tests {
         }
 
         #[test]
+        fn iter_mut_visits_unindexed_fields_in_slab_order() {
+            fn assert_fused<I: std::iter::FusedIterator>(_: &I) {}
+
+            let mut map = populated();
+            map.remove_by_id(&2);
+            map.insert(Order::new(20, 200, "Reuse", 20)).unwrap();
+
+            let mut iter = map.iter_mut();
+            assert_fused(&iter);
+            assert_eq!(iter.len(), 4);
+            *iter.next().unwrap().0 = "front".to_owned();
+            *iter.next_back().unwrap().0 = "back".to_owned();
+            *iter.next().unwrap().0 = "reused".to_owned();
+            *iter.next().unwrap().0 = "middle".to_owned();
+            assert!(iter.next().is_none());
+            assert!(iter.next().is_none());
+            drop(iter);
+
+            assert_eq!(map.by::<ById>().get(&1).unwrap().note, "front");
+            assert_eq!(map.by::<ById>().get(&20).unwrap().note, "reused");
+            assert_eq!(map.by::<ById>().get(&3).unwrap().note, "middle");
+            assert_eq!(map.by::<ById>().get(&4).unwrap().note, "back");
+            map.validate().unwrap();
+        }
+
+        #[test]
         fn field_named_updates_preserve_legacy_closure_and_return_shapes() {
             let mut map = populated();
             let john = "John".to_string();

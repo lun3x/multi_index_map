@@ -42,6 +42,40 @@ pub(crate) struct OrderUpdate<'a> {
     pub(crate) filled: &'a mut bool,
 }
 
+pub(crate) struct OrderIterMut<'a> {
+    inner: slab::IterMut<'a, OrderNode>,
+}
+
+impl<'a> Iterator for OrderIterMut<'a> {
+    type Item = (&'a mut String, &'a mut bool);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|(_, node)| (&mut node.order.note, &mut node.order.filled))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for OrderIterMut<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next_back()
+            .map(|(_, node)| (&mut node.order.note, &mut node.order.filled))
+    }
+}
+
+impl ExactSizeIterator for OrderIterMut<'_> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl std::iter::FusedIterator for OrderIterMut<'_> {}
+
 pub(crate) type ModifyAllResult = GenericModifyAllResult<Order>;
 
 #[derive(Debug)]
@@ -304,6 +338,13 @@ impl OrderMap {
 
     pub(crate) fn clear(&mut self) {
         self.inner.clear();
+    }
+
+    #[deprecated(note = "use a selector view's update_each(...)")]
+    pub(crate) fn iter_mut(&mut self) -> OrderIterMut<'_> {
+        OrderIterMut {
+            inner: self.inner.nodes.iter_mut(),
+        }
     }
 
     pub(crate) fn by<I: OrderMapIndex>(&self) -> I::View<'_> {

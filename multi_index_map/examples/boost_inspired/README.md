@@ -135,6 +135,11 @@ The generated inherent methods remain the primary ergonomic API and support rich
 types. Capability-trait methods use the exact associated key type, making them suitable for generic
 algorithms without forcing hashed and ordered borrowed-query bounds into one trait.
 
+The deprecated map-level `iter_mut()` compatibility wrapper lazily walks occupied
+slab slots and yields tuples of mutable unindexed fields. Its slab order is
+independent of selector order; prefer `by_mut::<Selector>().update_each(...)`
+when the selected index's traversal order matters.
+
 Because public traits expose iterator associated types, `order_map.rs` defines thin, named iterator
 wrappers for each generated traversal type. These wrappers hide private node and index-spec types
 without boxing or allocation.
@@ -151,6 +156,7 @@ modify_by_*
 update_by_*
 remove_by_*
 iter_by_*
+iter_mut
 ```
 
 These methods preserve the existing closure shapes and `Option`/`Vec` return types while delegating

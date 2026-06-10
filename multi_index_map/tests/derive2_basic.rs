@@ -720,6 +720,49 @@ fn compatibility_wrappers_remain_for_unambiguous_single_field_indexes() {
 }
 
 #[test]
+#[allow(deprecated)]
+fn iter_mut_compatibility_is_lazy_slab_ordered_and_field_restricted() {
+    fn assert_fused<I: std::iter::FusedIterator>(_: &I) {}
+
+    let mut orders = MultiIndexOrderMap::new();
+    orders.insert(order(1, 10, "A", 10));
+    orders.insert(order(2, 20, "B", 20));
+    orders.insert(order(3, 30, "C", 30));
+    orders.by_mut::<ById>().remove(&2);
+    orders.insert(order(4, 40, "D", 40));
+
+    {
+        let mut iter = orders.iter_mut();
+        assert_fused(&iter);
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+        *iter.next().unwrap().0 = "front".to_owned();
+        *iter.next_back().unwrap().0 = "back".to_owned();
+        *iter.next().unwrap().0 = "reused".to_owned();
+        assert!(iter.next().is_none());
+        assert!(iter.next().is_none());
+    }
+
+    assert_eq!(orders.by::<ById>().get(&1).unwrap().note, "front");
+    assert_eq!(orders.by::<ById>().get(&4).unwrap().note, "reused");
+    assert_eq!(orders.by::<ById>().get(&3).unwrap().note, "back");
+
+    let mut fields = orders.iter_mut().collect::<Vec<_>>();
+    for (note, filled) in &mut fields {
+        note.push('!');
+        **filled = true;
+    }
+    drop(fields);
+    assert!(orders.by::<ById>().iter().all(|order| order.filled));
+
+    let mut no_extras = MultiIndexNoExtrasMap::new();
+    no_extras.insert(NoExtras { key: 1 });
+    assert_eq!(no_extras.iter_mut().collect::<Vec<_>>(), vec![()]);
+    orders.validate().unwrap();
+    no_extras.validate().unwrap();
+}
+
+#[test]
 fn deterministic_operations_match_a_simple_model() {
     let mut orders = MultiIndexOrderMap::new();
     let mut model = BTreeMap::<u64, (u64, String, u64, String, bool)>::new();

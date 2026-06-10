@@ -17,6 +17,7 @@ pub(crate) fn generate(mut input: Input) -> TokenStream {
         .collect::<Vec<_>>();
     let node = generate_node_and_specs(&input, &names, &indexes);
     let update = generate_update(&input, &names);
+    let iter_mut = generate_iter_mut(&input, &names);
     let iterators = generate_iterators(&input, &names, &indexes);
     let map = generate_map(&input, &names, &indexes);
     let views = indexes
@@ -35,6 +36,7 @@ pub(crate) fn generate(mut input: Input) -> TokenStream {
 
             #node
             #update
+            #iter_mut
             #iterators
             #map
             #(#views)*
@@ -53,6 +55,7 @@ struct Names {
     inner: Ident,
     node: Ident,
     update: Ident,
+    iter_mut: Ident,
     refs: Ident,
     selector: Ident,
     kind: Ident,
@@ -78,6 +81,7 @@ impl Names {
             inner: format_ident!("__{}Inner", map),
             node: format_ident!("__{}Node", map),
             update: format_ident!("{}Update", map),
+            iter_mut: format_ident!("__{}IterMut", map),
             refs: format_ident!("__{}Refs", map),
             selector: format_ident!("{}Index", map),
             kind: fresh.ident("__MimKind"),
@@ -528,6 +532,74 @@ fn generate_update(input: &Input, names: &Names) -> TokenStream {
     }
 }
 
+fn generate_iter_mut(input: &Input, names: &Names) -> TokenStream {
+    let vis = input.child_visibility();
+    let iter_mut = &names.iter_mut;
+    let node = applied(&names.node, input);
+    let lifetime = &names.view_lifetime;
+    let generics = with_predicates(
+        with_lifetime(helper_generics(input), lifetime),
+        [parse_quote!(#node: #lifetime)],
+    );
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let tuple_types = input.unindexed.iter().map(|field| {
+        let ty = &field.ty;
+        quote!(&#lifetime mut #ty)
+    });
+    let tuple_type = quote!((#(#tuple_types,)*));
+    let next = if input.unindexed.is_empty() {
+        quote!(self.inner.next().map(|_| ()))
+    } else {
+        let fields = input.unindexed.iter().map(|field| {
+            let ident = &field.ident;
+            quote!(&mut node.value.#ident)
+        });
+        quote!(self.inner.next().map(|(_, node)| (#(#fields,)*)))
+    };
+    let next_back = if input.unindexed.is_empty() {
+        quote!(self.inner.next_back().map(|_| ()))
+    } else {
+        let fields = input.unindexed.iter().map(|field| {
+            let ident = &field.ident;
+            quote!(&mut node.value.#ident)
+        });
+        quote!(self.inner.next_back().map(|(_, node)| (#(#fields,)*)))
+    };
+
+    quote! {
+        #[doc(hidden)]
+        #vis struct #iter_mut #generics #where_clause {
+            inner: ::multi_index_map::slab::IterMut<#lifetime, #node>,
+        }
+
+        impl #impl_generics Iterator for #iter_mut #ty_generics #where_clause {
+            type Item = #tuple_type;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                #next
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl #impl_generics DoubleEndedIterator for #iter_mut #ty_generics #where_clause {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                #next_back
+            }
+        }
+
+        impl #impl_generics ExactSizeIterator for #iter_mut #ty_generics #where_clause {
+            fn len(&self) -> usize {
+                self.inner.len()
+            }
+        }
+
+        impl #impl_generics ::std::iter::FusedIterator for #iter_mut #ty_generics #where_clause {}
+    }
+}
+
 fn generate_iterators(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> TokenStream {
     let refs = &names.refs;
     let view_lifetime = &names.view_lifetime;
@@ -686,6 +758,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     let inner = &names.inner;
     let node = applied(&names.node, input);
     let update = &names.update;
+    let iter_mut = &names.iter_mut;
     let selector = &names.selector;
     let map_ty = applied(map, input);
     let inner_ty = applied(inner, input);
@@ -700,6 +773,7 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
     let selector_where = &selector_generics.where_clause;
     let view_lifetime = &names.view_lifetime;
     let update_ty = application(update, input, [quote!('_)], []);
+    let iter_mut_ty = application(iter_mut, input, [quote!('_)], []);
     let update_static_bounds = input.unindexed.iter().map(|field| {
         let ty = &field.ty;
         quote!(#ty: 'static,)
@@ -1021,6 +1095,13 @@ fn generate_map(input: &Input, names: &Names, indexes: &[IndexNames<'_>]) -> Tok
 
             #vis fn clear(&mut self) {
                 self.inner.clear();
+            }
+
+            #[deprecated(note = "use a selector view's update_each(...)")]
+            #vis fn iter_mut(&mut self) -> #iter_mut_ty {
+                #iter_mut {
+                    inner: self.inner.nodes.iter_mut(),
+                }
             }
 
             #vis fn validate(&self) -> Result<(), String> {
@@ -2377,6 +2458,9 @@ mod tests {
         };
         assert_eq!(fields.named.len(), 1);
         assert_eq!(fields.named[0].ident.as_ref().unwrap(), "inner");
+        assert!(module.1.iter().any(
+            |item| matches!(item, Item::Struct(item) if item.ident == "__MultiIndexRecordMapIterMut")
+        ));
 
         let map_methods = module
             .1
@@ -2396,6 +2480,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        assert!(map_methods.iter().any(|method| method == "iter_mut"));
 
         for private_method in [
             "link_all",

@@ -90,6 +90,10 @@ fn legacy_only_indexes_support_all_compatibility_operations() {
         note.push_str("legacy");
         *filled = true;
     }
+    for (note, filled) in orders.iter_mut().rev() {
+        note.push_str(" slab");
+        *filled = true;
+    }
     assert_eq!(
         orders
             .update_by_trader("Ada", |note, _| note.push('!'))
@@ -180,6 +184,10 @@ fn hybrid_maps_expose_selectors_and_legacy_wrappers() {
         .unwrap();
     assert_eq!(map.get_by_group("A").len(), 1);
     assert_eq!(map.get_by_group("B").len(), 1);
+    assert_eq!(
+        map.iter_mut().map(|(value,)| *value).collect::<Vec<_>>(),
+        vec![10, 20]
+    );
     map.validate().unwrap();
 }
 
