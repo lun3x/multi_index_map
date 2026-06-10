@@ -1,7 +1,7 @@
 use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::visit_mut::{self, VisitMut};
-use syn::{parse_quote, Data, DeriveInput, Error, Fields, Ident, Path, Type, Visibility};
+use syn::{parse_quote, Data, DeriveInput, Error, Fields, Generics, Ident, Path, Type, Visibility};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Field {
@@ -27,6 +27,7 @@ impl Index {
 pub(crate) struct Input {
     pub(crate) element: Ident,
     pub(crate) vis: Visibility,
+    pub(crate) generics: Generics,
     pub(crate) indexes: Vec<Index>,
     pub(crate) unindexed: Vec<Field>,
 }
@@ -40,6 +41,7 @@ impl Input {
 
     pub(crate) fn rebase_for_child_module(&mut self) {
         let mut rebasing = RebaseForChildModule;
+        rebasing.visit_generics_mut(&mut self.generics);
         for index in &mut self.indexes {
             rebasing.visit_path_mut(&mut index.accessor);
             for field in &mut index.fields {
@@ -101,16 +103,6 @@ fn rebase_visibility(vis: &mut Visibility) {
 impl Input {
     pub(crate) fn parse(input: DeriveInput) -> syn::Result<Self> {
         let mut errors = None;
-
-        if !input.generics.params.is_empty() || input.generics.where_clause.is_some() {
-            push_error(
-                &mut errors,
-                Error::new(
-                    input.generics.span(),
-                    "MultiIndexMap2 does not support generic structs yet",
-                ),
-            );
-        }
 
         let named = match input.data {
             Data::Struct(data) => match data.fields {
@@ -209,6 +201,7 @@ impl Input {
         Ok(Self {
             element: input.ident,
             vis: input.vis,
+            generics: input.generics,
             indexes,
             unindexed,
         })
@@ -402,5 +395,42 @@ mod tests {
             parsed.unindexed[1].vis.to_token_stream().to_string(),
             "pub (in crate :: scope)"
         );
+    }
+
+    #[test]
+    fn preserves_and_rebases_generic_parameters() {
+        let input: DeriveInput = parse_quote! {
+            struct Record<
+                'a,
+                T: self::Bound = super::DefaultType,
+                const N: usize = { self::DEFAULT_SIZE },
+            >
+            where
+                T: crate::RootBound,
+                [u8; N]: super::ArrayBound,
+            {
+                #[multi_index(ById)]
+                id: u64,
+                value: &'a T,
+            }
+        };
+        let mut parsed = Input::parse(input).unwrap();
+        parsed.rebase_for_child_module();
+
+        let generics = parsed
+            .generics
+            .to_token_stream()
+            .to_string()
+            .replace(' ', "");
+        assert!(generics.contains("T:super::Bound=super::super::DefaultType"));
+        assert!(generics.contains("constN:usize={super::DEFAULT_SIZE}"));
+        let where_clause = parsed
+            .generics
+            .where_clause
+            .to_token_stream()
+            .to_string()
+            .replace(' ', "");
+        assert!(where_clause.contains("T:crate::RootBound"));
+        assert!(where_clause.contains("[u8;N]:super::super::ArrayBound"));
     }
 }

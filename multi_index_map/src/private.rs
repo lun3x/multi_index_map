@@ -133,9 +133,7 @@ impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6,
 impl_tuple_query!(T0 Q0 0, T1 Q1 1, T2 Q2 2, T3 Q3 3, T4 Q4 4, T5 Q5 5, T6 Q6 6, T7 Q7 7, T8 Q8 8, T9 Q9 9, T10 Q10 10, T11 Q11 11);
 
 pub trait IndexSpec<N: NodeValue> {
-    type Key<'a>
-    where
-        N: 'a;
+    type Key<'a>;
     type Link;
 
     const NAME: &'static str;
