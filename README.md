@@ -41,7 +41,7 @@ Current implementation supports:
 * Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
 * The types of all indexed fields must implement `Clone`.
 * Optionally, `multi_index_derive` can be used to derive traits on the generated MultiIndexMap, eg. `#[multi_index_derive(Clone, Debug)]`
-* Keyed accessors accept borrowed forms via `Borrow<Q>`, so `String` indexes can be queried with `&str` and `Vec<T>` indexes with `&[T]`.
+* Keyed accessors accept `&Q` where the indexed field type implements `Borrow<Q>`, so for example `String` indexes can be queried with either `&String` or `&str`, and `Vec<T>` indexes with either `&Vec<T>` or `&[T]`.
 See `examples/main.rs` for more details.
 
 ## Example
@@ -134,7 +134,7 @@ The above example will generate the following MultiIndexMap and associated Itera
 The `Order`s are stored in a `Slab`, in contiguous memory, which allows for fast lookup and quick iteration. 
 A lookup table is created for each indexed field, which maps the index key to a index in the `Slab`.
 These lookup tables store the owned field type as their key, such as `String` for `trader_name`.
-The keyed accessors can still accept borrowed key forms through `Borrow<Q>`, so a `String` index can be queried with `&str` and a `Vec<T>` index can be queried with `&[T]`.
+The keyed accessors accept `&Q` where the indexed field type implements `Borrow<Q>`, so a `String` index can be queried with either `&String` or `&str`, and a `Vec<T>` index can be queried with either `&Vec<T>` or `&[T]`.
 The exact type used for these depends on the annotations.
 For `hashed_unique` and `hashed_non_unique` a `HashMap` is used, for `ordered_unique` and `ordered_non_unique` a `BTreeMap` is used.
 * When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
@@ -270,4 +270,3 @@ See [Cargo.toml](Cargo.toml) for information on each dependency.
 * Potentially a vector-map style lookup table would be very quick for small tables with integer indexes.
 * Allow overwriting behaviour upon inserting a duplicate unique index, returning a Vec of the overwritten elements.
 * Implement [clever tricks](https://www.boost.org/doc/libs/1_36_0/libs/multi_index/doc/performance.html) used in boost::multi_index_containers to improve performance.
-
