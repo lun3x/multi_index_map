@@ -41,6 +41,7 @@ Current implementation supports:
 * Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
 * The types of all indexed fields must implement `Clone`.
 * Optionally, `multi_index_derive` can be used to derive traits on the generated MultiIndexMap, eg. `#[multi_index_derive(Clone, Debug)]`
+* Keyed accessors accept borrowed forms via `Borrow<Q>`, so `String` indexes can be queried with `&str` and `Vec<T>` indexes with `&[T]`.
 See `examples/main.rs` for more details.
 
 ## Example
@@ -84,7 +85,7 @@ fn main() {
     map.try_insert(order1).unwrap();
     map.insert(order2);
 
-    let orders = map.get_by_trader_name(&"JohnDoe".to_string());
+    let orders = map.get_by_trader_name("JohnDoe");
     assert_eq!(orders.len(), 2);
     println!("Found 2 orders for JohnDoe: [{orders:?}]");
 
@@ -111,11 +112,11 @@ fn main() {
     assert_eq!(order2_ref.filled, true);
     assert_eq!(order2_ref.volume, 0);
 
-    let orders = map.get_by_trader_name(&"JohnDoe".to_string());
+    let orders = map.get_by_trader_name("JohnDoe");
     assert_eq!(orders.len(), 2);
     println!("Found 2 orders for JohnDoe: [{orders:?}]");
 
-    let orders = map.remove_by_trader_name(&"JohnDoe".to_string());
+    let orders = map.remove_by_trader_name("JohnDoe");
     for (_idx, order) in map.iter() {
         assert_eq!(order.trader_name, "JohnDoe");
     }
@@ -132,6 +133,8 @@ fn main() {
 The above example will generate the following MultiIndexMap and associated Iterators.
 The `Order`s are stored in a `Slab`, in contiguous memory, which allows for fast lookup and quick iteration. 
 A lookup table is created for each indexed field, which maps the index key to a index in the `Slab`.
+These lookup tables store the owned field type as their key, such as `String` for `trader_name`.
+The keyed accessors can still accept borrowed key forms through `Borrow<Q>`, so a `String` index can be queried with `&str` and a `Vec<T>` index can be queried with `&[T]`.
 The exact type used for these depends on the annotations.
 For `hashed_unique` and `hashed_non_unique` a `HashMap` is used, for `ordered_unique` and `ordered_non_unique` a `BTreeMap` is used.
 * When inserting an element, we add it to the backing store, then add elements to each lookup table pointing to the index in the backing store.
@@ -178,25 +181,70 @@ impl MultiIndexOrderMap {
     fn is_empty(&self) -> bool;
     fn clear(&mut self);
     
-    fn get_by_order_id(&self, key: &u32) -> Option<&Order>;
-    fn get_by_timestamp(&self, key: &u64) -> Option<&Order>;
-    fn get_by_trader_name(&self, key: &String) -> Vec<&Order>;
+    fn get_by_order_id<Q>(&self, key: &Q) -> Option<&Order>
+    where
+        u32: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+    fn get_by_timestamp<Q>(&self, key: &Q) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn get_by_trader_name<Q>(&self, key: &Q) -> Vec<&Order>
+    where
+        String: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
 
-    fn get_mut_by_order_id(&mut self, key: &u32) -> Option<(&mut bool, &mut u64)>;
-    fn get_mut_by_timestamp(&mut self, key: &u64) -> Option<(&mut bool, &mut u64)>;
-    fn get_mut_by_trader_name(&mut self, key: &String) -> Vec<(&mut bool, &mut u64)>;
+    fn get_mut_by_order_id<Q>(&mut self, key: &Q) -> Option<(&mut bool, &mut u64)>
+    where
+        u32: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+    fn get_mut_by_timestamp<Q>(&mut self, key: &Q) -> Option<(&mut bool, &mut u64)>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn get_mut_by_trader_name<Q>(&mut self, key: &Q) -> Vec<(&mut bool, &mut u64)>
+    where
+        String: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
 
-    fn update_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
-    fn update_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>;
-    fn update_by_trader_name(&mut self, key: &String, f: impl FnMut(&mut bool, &mut u64)) -> Vec<&Order>;
+    fn update_by_order_id<Q>(&mut self, key: &Q, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>
+    where
+        u32: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+    fn update_by_timestamp<Q>(&mut self, key: &Q, f: impl FnOnce(&mut bool, &mut u64)) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn update_by_trader_name<Q>(&mut self, key: &Q, f: impl FnMut(&mut bool, &mut u64)) -> Vec<&Order>
+    where
+        String: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
     
-    fn modify_by_order_id(&mut self, key: &u32, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_timestamp(&mut self, key: &u64, f: impl FnOnce(&mut Order)) -> Option<&Order>;
-    fn modify_by_trader_name(&mut self, key: &String, f: impl FnMut(&mut Order)) -> Vec<&Order>;
+    fn modify_by_order_id<Q>(&mut self, key: &Q, f: impl FnOnce(&mut Order)) -> Option<&Order>
+    where
+        u32: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+    fn modify_by_timestamp<Q>(&mut self, key: &Q, f: impl FnOnce(&mut Order)) -> Option<&Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn modify_by_trader_name<Q>(&mut self, key: &Q, f: impl FnMut(&mut Order)) -> Vec<&Order>
+    where
+        String: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
     
-    fn remove_by_order_id(&mut self, key: &u32) -> Option<Order>;
-    fn remove_by_timestamp(&mut self, key: &u64) -> Option<Order>;
-    fn remove_by_trader_name(&mut self, key: &String) -> Vec<Order>;
+    fn remove_by_order_id<Q>(&mut self, key: &Q) -> Option<Order>
+    where
+        u32: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+    fn remove_by_timestamp<Q>(&mut self, key: &Q) -> Option<Order>
+    where
+        u64: Borrow<Q>,
+        Q: Ord + ?Sized;
+    fn remove_by_trader_name<Q>(&mut self, key: &Q) -> Vec<Order>
+    where
+        String: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
     
     fn iter(&self) -> slab::Iter<Order>;
     fn iter_mut(&mut self) -> OrderMutIter;

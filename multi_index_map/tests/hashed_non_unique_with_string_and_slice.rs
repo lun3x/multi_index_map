@@ -9,6 +9,8 @@ pub(crate) struct Order {
     pub(crate) timestamp: u64,
     #[multi_index(hashed_non_unique)]
     pub(crate) trader_name: String,
+    #[multi_index(hashed_non_unique)]
+    pub(crate) correlation_id: Vec<u8>,
 }
 
 #[test]
@@ -17,24 +19,28 @@ fn iter_after_modify() {
         order_id: 1,
         timestamp: 111,
         trader_name: "John".to_string(),
+        correlation_id: vec![1, 2],
     };
 
     let o2 = Order {
         order_id: 2,
         timestamp: 22,
         trader_name: "Mike".to_string(),
+        correlation_id: vec![1, 3],
     };
 
     let o3 = Order {
         order_id: 3,
         timestamp: 33,
         trader_name: "Tom".to_string(),
+        correlation_id: vec![1, 4],
     };
 
     let o4 = Order {
         order_id: 4,
         timestamp: 44,
         trader_name: "Jerry".to_string(),
+        correlation_id: vec![1, 5],
     };
 
     let mut map = MultiIndexOrderMap::default();
@@ -76,6 +82,7 @@ fn get_by_borrowed_string() {
         order_id: 1,
         timestamp: 111,
         trader_name: "John".to_string(),
+        correlation_id: vec![1, 2],
     };
 
     let mut map = MultiIndexOrderMap::default();
@@ -83,6 +90,27 @@ fn get_by_borrowed_string() {
     map.insert(o1);
 
     let res = map.get_by_trader_name("John");
+    assert_eq!(res.len(), 1);
+    assert_eq!(res.first().unwrap().order_id, 1);
+}
+
+#[test]
+fn get_by_borrowed_slice() {
+    let o1 = Order {
+        order_id: 1,
+        timestamp: 111,
+        trader_name: "John".to_string(),
+        correlation_id: vec![1, 2],
+    };
+
+    let mut map = MultiIndexOrderMap::default();
+    let corr = o1.correlation_id.clone();
+
+    map.insert(o1);
+
+    let key: &[u8] = corr.as_ref();
+
+    let res = map.get_by_correlation_id(key);
     assert_eq!(res.len(), 1);
     assert_eq!(res.first().unwrap().order_id, 1);
 }
