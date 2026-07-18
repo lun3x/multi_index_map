@@ -87,7 +87,7 @@ fn main() {
         7, o1_note_ref,
     );
 
-    let toms_orders = map.remove_by_trader_name(&"Tom".to_string());
+    let toms_orders = map.remove_by_trader_name("Tom");
     assert_eq!(toms_orders.len(), 2);
     println!("Removed Tom's order by name: {toms_orders:?}");
 
