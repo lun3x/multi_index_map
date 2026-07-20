@@ -236,7 +236,7 @@ pub(crate) fn generate_removes(
 ) -> Vec<::proc_macro2::TokenStream> {
     fields
         .iter()
-        .map(|(_f, idents, _ordering, uniqueness)| {
+        .map(|(f, idents, _ordering, uniqueness)| {
             let field_name = &idents.name;
             let field_name_string = stringify!(field_name);
             let error_msg = format!(
@@ -247,20 +247,21 @@ pub(crate) fn generate_removes(
                 field_name_string
             );
             let index_name = &idents.index_name;
+            let field_type = &f.ty;
 
             match uniqueness {
                 Uniqueness::Unique => quote! {
-                    let _removed_elem = self.#index_name.remove(&elem_orig.#field_name);
+                    let _removed_elem = self.#index_name.remove::<#field_type>(&elem_orig.#field_name);
                 },
                 Uniqueness::NonUnique => quote! {
                     let key_to_remove = &elem_orig.#field_name;
-                    if let Some(elems) = self.#index_name.get_mut(key_to_remove) {
+                    if let Some(elems) = self.#index_name.get_mut::<#field_type>(key_to_remove) {
                         if elems.len() > 1 {
-                            if !elems.remove(&idx){
+                            if !elems.remove::<usize>(&idx){
                                 panic!(#error_msg);
                             }
                         } else {
-                            self.#index_name.remove(key_to_remove);
+                            self.#index_name.remove::<#field_type>(key_to_remove);
                         }
                     }
 
@@ -303,11 +304,12 @@ pub(crate) fn generate_pre_modifies(
 pub(crate) fn generate_post_modifies(
     fields: &[(Field, FieldIdents, Ordering, Uniqueness)],
 ) -> Vec<::proc_macro2::TokenStream> {
-    fields.iter().map(|(_f, idents, _ordering, uniqueness)| {
+    fields.iter().map(|(f, idents, _ordering, uniqueness)| {
         let field_name = &idents.name;
         let field_name_string = stringify!(field_name);
         let orig_ident = &idents.cloned_name;
         let index_name = &idents.index_name;
+        let field_type = &f.ty;
         let error_msg = format!(
             concat!(
                 "Internal invariants broken, ",
@@ -319,7 +321,7 @@ pub(crate) fn generate_post_modifies(
         match uniqueness {
             Uniqueness::Unique => quote! {
                 if elem.#field_name != #orig_ident {
-                    let idx = self.#index_name.remove(&#orig_ident).expect(#error_msg);
+                    let idx = self.#index_name.remove::<#field_type>(&#orig_ident).expect(#error_msg);
                     let orig_elem_idx = self.#index_name.insert(elem.#field_name.clone(), idx);
                     if orig_elem_idx.is_some() {
                         panic!(
@@ -331,13 +333,13 @@ pub(crate) fn generate_post_modifies(
             },
             Uniqueness::NonUnique => quote! {
                 if elem.#field_name != #orig_ident {
-                    let idxs = self.#index_name.get_mut(&#orig_ident).expect(#error_msg);
+                    let idxs = self.#index_name.get_mut::<#field_type>(&#orig_ident).expect(#error_msg);
                     if idxs.len() > 1 {
-                        if !(idxs.remove(&idx)) {
+                        if !(idxs.remove::<usize>(&idx)) {
                             panic!(#error_msg);
                         }
                     } else {
-                        self.#index_name.remove(&#orig_ident);
+                        self.#index_name.remove::<#field_type>(&#orig_ident);
                     }
                     self.#index_name.entry(elem.#field_name.clone())
                         .or_insert(::std::collections::BTreeSet::new())
@@ -420,6 +422,7 @@ fn generate_field_getter(
 fn generate_field_mut_getter(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
     unindexed_types: &[&Type],
     unindexed_idents: &[&Ident],
@@ -429,16 +432,38 @@ fn generate_field_mut_getter(
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
+        },
+        Ordering::Ordered => quote! {
+            __MultiIndexMapKeyType: Ord + ?Sized
+        },
+    };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Option<(#(&mut #unindexed_types,)*)> {
+            #field_vis fn #mut_getter_name<__MultiIndexMapKeyType>(
+                &mut self,
+                key: &__MultiIndexMapKeyType,
+            ) -> Option<(#(&mut #unindexed_types,)*)>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
                 let elem = &mut self._store[*self.#index_name.get(key)?];
                 Some((#(&mut elem.#unindexed_idents,)*))
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #mut_getter_name(&mut self, key: &#field_type) -> Vec<(#(&mut #unindexed_types,)*)> {
+            #field_vis fn #mut_getter_name<__MultiIndexMapKeyType>(
+                &mut self,
+                key: &__MultiIndexMapKeyType,
+            ) -> Vec<(#(&mut #unindexed_types,)*)>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
                 if let Some(idxs) = self.#index_name.get(key) {
                     // Use a single iterator over the slab and advance it to each desired key,
                     // matching by slab index to safely build multiple &mut refs without UB.
@@ -480,6 +505,7 @@ fn generate_field_remover(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
     removes: &[proc_macro2::TokenStream],
     generics: &Generics,
@@ -489,19 +515,41 @@ fn generate_field_remover(
     let field_vis = &field_info.vis;
     let field_type = &field_info.ty;
     let (_, types, _) = generics.split_for_impl();
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
+        },
+        Ordering::Ordered => quote! {
+            __MultiIndexMapKeyType: Ord + ?Sized
+        },
+    };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Option<#element_name #types> {
-                let idx = self.#index_name.remove(key)?;
+            #field_vis fn #remover_name<__MultiIndexMapKeyType>(
+                &mut self,
+                key: &__MultiIndexMapKeyType,
+            ) -> Option<#element_name #types>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
+                let idx = self.#index_name.remove::<__MultiIndexMapKeyType>(key)?;
                 let elem_orig = self._store.remove(idx);
                 #(#removes)*
                 Some(elem_orig)
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #remover_name(&mut self, key: &#field_type) -> Vec<#element_name #types> {
-                if let Some(idxs) = self.#index_name.remove(key) {
+            #field_vis fn #remover_name<__MultiIndexMapKeyType>(
+                &mut self,
+                key: &__MultiIndexMapKeyType,
+            ) -> Vec<#element_name #types>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
+                if let Some(idxs) = self.#index_name.remove::<__MultiIndexMapKeyType>(key) {
                     let mut elems = Vec::with_capacity(idxs.len());
                     for idx in idxs {
                         let elem_orig = self._store.remove(idx);
@@ -615,6 +663,7 @@ fn generate_field_modifier(
     field_idents: &FieldIdents,
     field_info: &FieldInfo,
     element_name: &Ident,
+    ordering: &Ordering,
     uniqueness: &Uniqueness,
     pre_modifies: &[proc_macro2::TokenStream],
     post_modifies: &[proc_macro2::TokenStream],
@@ -626,14 +675,26 @@ fn generate_field_modifier(
     let field_type = &field_info.ty;
     let field_name_str = &field_info.str;
     let (_, types, _) = generics.split_for_impl();
+    let key_bounds = match ordering {
+        Ordering::Hashed => quote! {
+            __MultiIndexMapKeyType: ::std::hash::Hash + Eq + ?Sized
+        },
+        Ordering::Ordered => quote! {
+            __MultiIndexMapKeyType: Ord + ?Sized
+        },
+    };
 
     match uniqueness {
         Uniqueness::Unique => quote! {
-            #field_vis fn #modifier_name(
+            #field_vis fn #modifier_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &#field_type,
+                key: &__MultiIndexMapKeyType,
                 f: impl FnOnce(&mut #element_name #types)
-            ) -> Option<&#element_name #types> {
+            ) -> Option<&#element_name #types>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
                 let idx = *self.#index_name.get(key)?;
                 let elem = &mut self._store[idx];
                 #(#pre_modifies)*
@@ -643,11 +704,15 @@ fn generate_field_modifier(
             }
         },
         Uniqueness::NonUnique => quote! {
-            #field_vis fn #modifier_name(
+            #field_vis fn #modifier_name<__MultiIndexMapKeyType>(
                 &mut self,
-                key: &#field_type,
+                key: &__MultiIndexMapKeyType,
                 mut f: impl FnMut(&mut #element_name #types)
-            ) -> Vec<&#element_name #types> {
+            ) -> Vec<&#element_name #types>
+            where
+                #field_type: ::std::borrow::Borrow<__MultiIndexMapKeyType>,
+                #key_bounds,
+            {
                 let idxs_set = match self.#index_name.get(key) {
                     Some(container) => container.clone(), // clone to decouple from mutations during post_modifies
                     None => return Vec::new(),
@@ -797,6 +862,7 @@ pub(crate) fn generate_accessors<'a>(
             let mut_getter = generate_field_mut_getter(
                 idents,
                 &field_info,
+                ordering,
                 uniqueness,
                 unindexed_types,
                 unindexed_idents,
@@ -806,6 +872,7 @@ pub(crate) fn generate_accessors<'a>(
                 idents,
                 &field_info,
                 element_name,
+                ordering,
                 uniqueness,
                 removes,
                 generics,
@@ -826,6 +893,7 @@ pub(crate) fn generate_accessors<'a>(
                 idents,
                 &field_info,
                 element_name,
+                ordering,
                 uniqueness,
                 pre_modifies,
                 post_modifies,
