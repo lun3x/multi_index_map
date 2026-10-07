@@ -1,5 +1,5 @@
 use ::quote::format_ident;
-use ::syn::{parse_quote};
+use ::syn::parse_quote;
 use convert_case::Casing;
 use generators::{generate_iter_mut, FieldIdents, EXPECT_NAMED_FIELDS};
 use manyhow::{bail, error_message, manyhow};
@@ -44,7 +44,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
 
     // Filter out all the fields that do not have a multi_index attribute,
     // so we can ignore the non-indexed fields.
-    let (indexed_fields, unindexed_fields): (Vec<_>, Vec<_>) = named_fields_with_kind.into_iter()
+    let (indexed_fields, unindexed_fields): (Vec<_>, Vec<_>) = named_fields_with_kind
+        .into_iter()
         .partition(|(_, index_kind)| index_kind.is_some());
 
     let element_name = &input.ident;
@@ -55,11 +56,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
     let indexed_fields = indexed_fields
         .into_iter()
         .map(|(field, kind)| -> syn::Result<_> {
-            let (ordering, uniqueness) = kind
-                .ok_or_else(|| error_message!("Internal logic broken, all indexed fields should have a kind"))?;
+            let (ordering, uniqueness) = kind.ok_or_else(|| {
+                error_message!("Internal logic broken, all indexed fields should have a kind")
+            })?;
 
-            let field_ident = field.ident.as_ref()
-                .ok_or_else(|| error_message!("Internal logic broken, all indexed fields should have a name"))?;
+            let field_ident = field.ident.as_ref().ok_or_else(|| {
+                error_message!("Internal logic broken, all indexed fields should have a name")
+            })?;
 
             let idents = FieldIdents {
                 name: field_ident.clone(),
@@ -107,7 +110,11 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
     let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
     let unindexed_idents = unindexed_fields
         .iter()
-        .map(|f| f.ident.as_ref().ok_or_else(|| error_message!("{EXPECT_NAMED_FIELDS}").into()))
+        .map(|f| {
+            f.ident
+                .as_ref()
+                .ok_or_else(|| error_message!("{EXPECT_NAMED_FIELDS}").into())
+        })
         .collect::<syn::Result<Vec<_>>>()?;
 
     let mut iter_generics = input.generics.clone();

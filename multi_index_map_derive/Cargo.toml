@@ -3,7 +3,7 @@ name = "multi_index_map_derive"
 version = "0.15.1"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
-rust-version = "1.71"
+rust-version = "1.86"
 license = "MIT"
 description = "MultiIndexMap: A generic multi index map inspired by boost multi index containers"
 repository = "https://github.com/lun3x/multi_index_map"
@@ -24,10 +24,10 @@ quote = { version = "1.0" }
 proc-macro2 = { version = "1.0" }
 
 # Better error handling in proc macros, avoids using panic!
-manyhow = { version = "0.12" }
+manyhow = { version = "0.14.0" }
 
 # Used to convert the field names into UpperCamelCase for the Iterator names, and to snake_case for the module namespace.
-convert_case = { version = "0.8" }
+convert_case = { version = "0.12.0" }
 
 [lib]
 proc-macro = true
