@@ -57,7 +57,7 @@ impl Default for ExtraAttributes {
             #[cfg(feature = "rustc-hash")]
             hasher: syn::parse_quote!(::multi_index_map::rustc_hash::FxBuildHasher),
             #[cfg(not(feature = "rustc-hash"))]
-            hasher: syn::parse_quote!(::std::hash::RandomState),
+            hasher: syn::parse_quote!(::std::collections::hash_map::RandomState),
         }
     }
 }
