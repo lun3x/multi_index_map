@@ -63,6 +63,11 @@ macro_rules! elements {
 macro_rules! check_access {
     ($module:ident) => {{
         let mut map: $module::MultiIndexElementMap = $module::map();
+        assert_eq!(map.get_by_hashed_unique(&1).unwrap().hashed_unique, 1);
+        assert_eq!(map.iter_by_hashed_unique().count(), 1);
+        assert_eq!(map.iter_by_hashed_non_unique().count(), 1);
+        assert_eq!(map.iter_by_ordered_unique().count(), 1);
+        assert_eq!(map.iter_by_ordered_non_unique().count(), 1);
         let iter: $module::MultiIndexElementMapHashedUniqueIter<'_> = $module::hashed_unique(&map);
         assert_eq!(iter.count(), 1);
         let iter: $module::MultiIndexElementMapHashedNonUniqueIter<'_> =
@@ -83,6 +88,7 @@ elements!(public, pub, pub);
 elements!(crate_visible, pub(crate), pub(crate));
 elements!(public_private_fields, pub,);
 elements!(self_visible, pub(self), pub(self));
+elements!(self_restricted, pub(in self), pub(in self));
 elements!(private, , );
 
 mod scope {
@@ -91,11 +97,16 @@ mod scope {
     elements!(restricted, pub, pub(in crate::scope));
     elements!(restricted_element, pub(in crate::scope), pub(in crate::scope));
     elements!(parent_visible, pub, pub(super));
+    elements!(relative_restricted, pub(in super), pub(in super));
+    elements!(grandparent_visible, pub(in super::super), pub(in super::super));
+    pub(super) use grandparent_visible::map as grandparent_map;
 
     pub(super) fn check() {
         check_access!(restricted);
         check_access!(restricted_element);
         check_access!(parent_visible);
+        check_access!(relative_restricted);
+        check_access!(grandparent_visible);
     }
 }
 
@@ -114,6 +125,10 @@ fn main() {
     assert!(iter.next().is_some());
     public_private_fields::check_private_types();
     self_visible::check_private_types();
+    self_restricted::check_private_types();
     private::check_private_types();
     scope::check();
+    let mut map = scope::grandparent_map();
+    assert_eq!(map.iter_by_hashed_unique().count(), 1);
+    assert!(map.iter_mut().next().is_some());
 }

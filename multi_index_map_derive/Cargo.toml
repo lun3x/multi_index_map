@@ -15,7 +15,7 @@ readme = "README.md"
 
 [dependencies]
 # Library for parsing rust tokens, used by most proc macro crates
-syn = { version = "3.0", features = ["full"] }
+syn = { version = "3.0", features = ["full", "visit-mut"] }
 
 # Library for parsing syntax trees into rust tokens, used by most proc macro crates
 quote = { version = "1.0" }
@@ -26,7 +26,7 @@ proc-macro2 = { version = "1.0" }
 # Better error handling in proc macros, avoids using panic!
 manyhow = { version = "0.14.0" }
 
-# Used to convert the field names into UpperCamelCase for the Iterator names, and to snake_case for the module namespace.
+# Used to convert the field names into UpperCamelCase for the Iterator names.
 convert_case = { version = "0.12.0" }
 
 [lib]

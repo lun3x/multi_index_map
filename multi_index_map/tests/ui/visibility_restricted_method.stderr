@@ -1,0 +1,35 @@
+error[E0624]: method `get_by_parent_key` is private
+  --> tests/ui/visibility_restricted_method.rs:20:9
+   |
+ 7 |         #[derive(MultiIndexMap, Debug)]
+   |                  ------------- private method defined here
+...
+20 |     map.get_by_parent_key(&1);
+   |         ^^^^^^^^^^^^^^^^^ private method
+
+error[E0624]: method `iter_by_parent_key` is private
+  --> tests/ui/visibility_restricted_method.rs:21:9
+   |
+ 7 |         #[derive(MultiIndexMap, Debug)]
+   |                  ------------- private method defined here
+...
+21 |     map.iter_by_parent_key();
+   |         ^^^^^^^^^^^^^^^^^^ private method
+
+error[E0624]: method `get_by_scoped_key` is private
+  --> tests/ui/visibility_restricted_method.rs:22:9
+   |
+ 7 |         #[derive(MultiIndexMap, Debug)]
+   |                  ------------- private method defined here
+...
+22 |     map.get_by_scoped_key(&1);
+   |         ^^^^^^^^^^^^^^^^^ private method
+
+error[E0624]: method `iter_by_scoped_key` is private
+  --> tests/ui/visibility_restricted_method.rs:23:9
+   |
+ 7 |         #[derive(MultiIndexMap, Debug)]
+   |                  ------------- private method defined here
+...
+23 |     map.iter_by_scoped_key();
+   |         ^^^^^^^^^^^^^^^^^^ private method
