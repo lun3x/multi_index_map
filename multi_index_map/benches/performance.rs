@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use multi_index_map::MultiIndexMap;
+use std::hint::black_box;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 struct TestNonPrimitiveType(u32);
@@ -199,9 +200,7 @@ fn modify_hashed_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterion
             }));
         }
         c.bench_function(
-            &format!(
-                "modify_hashed_non_unique_key_by_hashed_unique_key_bench_{n}"
-            ),
+            &format!("modify_hashed_non_unique_key_by_hashed_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -271,9 +270,7 @@ fn modify_ordered_non_unique_key_by_hashed_unique_key_benchmark(c: &mut Criterio
             }));
         }
         c.bench_function(
-            &format!(
-                "modify_ordered_non_unique_key_by_hashed_unique_key_bench_{n}"
-            ),
+            &format!("modify_ordered_non_unique_key_by_hashed_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -342,9 +339,7 @@ fn modify_hashed_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterio
             }));
         }
         c.bench_function(
-            &format!(
-                "modify_hashed_non_unique_key_by_ordered_unique_key_bench_{n}"
-            ),
+            &format!("modify_hashed_non_unique_key_by_ordered_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -380,9 +375,7 @@ fn modify_ordered_unique_key_by_ordered_unique_key_benchmark(c: &mut Criterion) 
             }));
         }
         c.bench_function(
-            &format!(
-                "modify_ordered_unique_key_by_ordered_unique_key_bench_{n}"
-            ),
+            &format!("modify_ordered_unique_key_by_ordered_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());
@@ -416,9 +409,7 @@ fn modify_ordered_non_unique_key_by_ordered_unique_key_benchmark(c: &mut Criteri
             }));
         }
         c.bench_function(
-            &format!(
-                "modify_ordered_non_unique_key_by_ordered_unique_key_bench_{n}"
-            ),
+            &format!("modify_ordered_non_unique_key_by_ordered_unique_key_bench_{n}"),
             |b| {
                 b.iter(|| {
                     let mut map_clone = black_box(map.clone());

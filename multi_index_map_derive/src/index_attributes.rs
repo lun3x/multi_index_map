@@ -1,9 +1,7 @@
 use manyhow::bail;
 use proc_macro2::Span;
 use quote::ToTokens;
-use syn::{
-    spanned::Spanned, DeriveInput, Field, Meta, MetaList, Path,
-};
+use syn::{spanned::Spanned, DeriveInput, Field, Meta, MetaList, Path};
 
 // Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
 //   as the lookup table.

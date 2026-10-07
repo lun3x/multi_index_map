@@ -17,8 +17,6 @@ mod inner {
     }
 }
 
-
-
 fn main() {
     let o1 = Order {
         order_id: 1,
