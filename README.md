@@ -29,11 +29,15 @@ Current implementation supports:
 * Each equal range of any non-unique index is stored as a BTreeSet, which we must iterate through the length of when retrieving all matching elements, and also when iterating over the whole index.
 
 # Default Hasher
-* The feature `rustc-hash` is enabled by default. It will set the default hash as [`rustc-hash`](https://github.com/rust-lang/rustc-hash/).
-* The hash can always be changed by specifying a `BuildHasher` implementation in the `multi_index_hash` attribute, eg. `#[multi_index_hash(ahash::RandomState)]`.
-* With default features disabled the default hash will be the standard library default (currently `SipHash`). Default features can be disabled in `Cargo.toml` like so:
+* Hashed indexes use the standard library's `std::collections::hash_map::RandomState` by default, just like `std::collections::HashMap`.
+* Select a custom hash by specifying a type that implements `BuildHasher` and `Default` in the `multi_index_hash` attribute, eg. `#[multi_index_hash(ahash::RandomState)]`.
+* To use [`rustc-hash`](https://github.com/rust-lang/rustc-hash/), add it to your own dependencies and annotate your element struct with `#[multi_index_hash(rustc_hash::FxBuildHasher)]`:
 
-```multi_index_map = { version = "*", default-features = false }```
+```toml
+[dependencies]
+multi_index_map = "*"
+rustc-hash = "2.1"
+```
 
 # How to use
 
@@ -53,7 +57,6 @@ use multi_index_map::MultiIndexMap;
 
 #[derive(MultiIndexMap, Debug)]
 #[multi_index_derive(Debug)]
-#[multi_index_hash(rustc_hash::FxBuildHasher)]
 struct Order {
     #[multi_index(hashed_unique)]
     order_id: u32,
@@ -154,9 +157,9 @@ We must then update all the lookup tables to account for any changes to indexed 
 ```rust
 struct MultiIndexOrderMap {
     _store: slab::Slab<Order>,
-    _order_id_index: HashMap<u32, usize, rustc_hash::FxBuildHasher>,
+    _order_id_index: HashMap<u32, usize, std::collections::hash_map::RandomState>,
     _timestamp_index: BTreeMap<u64, usize>,
-    _trader_name_index: HashMap<String, BTreeSet<usize>, rustc_hash::FxBuildHasher>,
+    _trader_name_index: HashMap<String, BTreeSet<usize>, std::collections::hash_map::RandomState>,
 }
 
 struct MultiIndexOrderMapOrderIdIter<'a> {

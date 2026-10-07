@@ -1,6 +1,6 @@
 [package]
 name = "multi_index_map"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 authors = ["Louis Wyborn <louiswyborn@gmail.com>"]
 rust-version = "1.86"
@@ -14,13 +14,10 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-multi_index_map_derive = { version = "0.15.1", path = "../multi_index_map_derive" }
+multi_index_map_derive = { version = "0.16.0", path = "../multi_index_map_derive" }
 
 # Used as the backing store of all the elements.
 slab = { version = "0.4.12" }
-
-# Used for the hashed indexes. Provides a faster (non-cryptographically secure) hash function than the standard library.
-rustc-hash = { version = "2.1", optional = true }
 
 [dev-dependencies]
 # Used for benchmarking
@@ -31,9 +28,7 @@ serde_json = { version = "1.0" }
 trybuild = { version = "=1.0.119" }
 
 [features]
-default = ["rustc-hash"]
 serde = ["slab/serde"]
-rustc-hash = ["multi_index_map_derive/rustc-hash", "dep:rustc-hash"]
 
 [[bench]]
 name = "performance"
