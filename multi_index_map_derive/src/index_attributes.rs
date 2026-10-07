@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{spanned::Spanned, DeriveInput, Field, Meta, MetaList, Path};
 
-// Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
+// Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a HashMap
 //   as the lookup table.
 pub(crate) enum Ordering {
     Hashed,
@@ -52,9 +52,6 @@ impl Default for ExtraAttributes {
     fn default() -> Self {
         Self {
             derives: Default::default(),
-            #[cfg(feature = "rustc-hash")]
-            hasher: syn::parse_quote!(::multi_index_map::rustc_hash::FxBuildHasher),
-            #[cfg(not(feature = "rustc-hash"))]
             hasher: syn::parse_quote!(::std::collections::hash_map::RandomState),
         }
     }

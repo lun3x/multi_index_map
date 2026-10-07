@@ -31,6 +31,3 @@ convert_case = { version = "0.12.0" }
 
 [lib]
 proc-macro = true
-
-[features]
-rustc-hash = []
