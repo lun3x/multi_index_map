@@ -1,0 +1,17 @@
+error[E0624]: method `get_by_id` is private
+  --> tests/ui/visibility_private_method.rs:19:9
+   |
+10 |     #[derive(MultiIndexMap, Debug)]
+   |              ------------- private method defined here
+...
+19 |     map.get_by_id(&1);
+   |         ^^^^^^^^^ private method
+
+error[E0624]: method `iter_by_id` is private
+  --> tests/ui/visibility_private_method.rs:20:9
+   |
+10 |     #[derive(MultiIndexMap, Debug)]
+   |              ------------- private method defined here
+...
+20 |     map.iter_by_id();
+   |         ^^^^^^^^^^ private method

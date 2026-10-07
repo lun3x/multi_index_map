@@ -928,6 +928,7 @@ pub(crate) fn generate_accessors<'a>(
 pub(crate) fn generate_iterators<'a>(
     fields: &'a [(Field, FieldIdents, Ordering, Uniqueness)],
     element_name: &'a proc_macro2::Ident,
+    element_vis: &'a Visibility,
     generics: &'a Generics,
     iter_generics: &'a Generics,
 ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
@@ -936,7 +937,6 @@ pub(crate) fn generate_iterators<'a>(
 
     fields.iter().map(move |(f, idents, ordering, uniqueness)| {
         let field_name = &idents.name;
-        let field_vis = &f.vis;
         let field_name_string = field_name.to_string();
         let error_msg = format!(
             "Internal invariants broken, found empty slice in non_unique index '{field_name_string}'"
@@ -1014,7 +1014,7 @@ pub(crate) fn generate_iterators<'a>(
         match ordering {
             // HashMap does not implement the DoubleEndedIterator trait,
             Ordering::Hashed => quote! {
-                #field_vis struct #iter_name #iter_impls #iter_where_clause {
+                #element_vis struct #iter_name #iter_impls #iter_where_clause {
                     _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
                     _inner_iter: Option<Box<dyn ::std::iter::Iterator<Item=&'__mim_iter_lifetime usize> + '__mim_iter_lifetime>>,
@@ -1028,7 +1028,7 @@ pub(crate) fn generate_iterators<'a>(
                 }
             },
             Ordering::Ordered => quote! {
-                #field_vis struct #iter_name #iter_impls #iter_where_clause {
+                #element_vis struct #iter_name #iter_impls #iter_where_clause {
                     _store_ref: &'__mim_iter_lifetime ::multi_index_map::slab::Slab<#element_name #element_types>,
                     _iter: #iter_type,
                     _iter_rev: ::std::iter::Rev<#iter_type>,
