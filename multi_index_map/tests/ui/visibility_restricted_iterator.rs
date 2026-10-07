@@ -1,5 +1,5 @@
-// An iterator for a restricted element must stay inside the allowed scope,
-// even when its indexed field is public.
+// An iterator for a restricted indexed field must stay inside the allowed scope,
+// even when its element is public.
 
 use multi_index_map::MultiIndexMap;
 
@@ -8,9 +8,9 @@ mod scope {
         use super::super::MultiIndexMap;
 
         #[derive(MultiIndexMap, Debug)]
-        pub(in crate::scope) struct Element {
+        pub struct Element {
             #[multi_index(ordered_non_unique)]
-            pub id: u32,
+            pub(in crate::scope) id: u32,
         }
     }
 }

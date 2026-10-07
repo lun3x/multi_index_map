@@ -1,6 +1,6 @@
 use multi_index_map::MultiIndexMap;
 
-// Field visibility must not make generated types narrower or wider than Element.
+// Map types follow Element; index iterator types and methods follow each field.
 macro_rules! elements {
     ($module:ident, $element_vis:vis, $($field_vis:tt)*) => {
         mod $module {
@@ -31,19 +31,19 @@ macro_rules! elements {
                 map
             }
 
-            $element_vis fn hashed_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapHashedUniqueIter<'_> {
+            $($field_vis)* fn hashed_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapHashedUniqueIter<'_> {
                 map.iter_by_hashed_unique()
             }
 
-            $element_vis fn hashed_non_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapHashedNonUniqueIter<'_> {
+            $($field_vis)* fn hashed_non_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapHashedNonUniqueIter<'_> {
                 map.iter_by_hashed_non_unique()
             }
 
-            $element_vis fn ordered_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapOrderedUniqueIter<'_> {
+            $($field_vis)* fn ordered_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapOrderedUniqueIter<'_> {
                 map.iter_by_ordered_unique()
             }
 
-            $element_vis fn ordered_non_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapOrderedNonUniqueIter<'_> {
+            $($field_vis)* fn ordered_non_unique(map: &MultiIndexElementMap) -> MultiIndexElementMapOrderedNonUniqueIter<'_> {
                 map.iter_by_ordered_non_unique()
             }
 
@@ -79,26 +79,27 @@ macro_rules! check_access {
     }};
 }
 
-elements!(public, pub,);
-elements!(crate_visible, pub(crate), );
-elements!(self_visible, pub(self), pub);
-elements!(private, , pub);
+elements!(public, pub, pub);
+elements!(crate_visible, pub(crate), pub(crate));
+elements!(public_private_fields, pub,);
+elements!(self_visible, pub(self), pub(self));
+elements!(private, , );
 
 mod scope {
     use super::MultiIndexMap;
 
-    elements!(restricted, pub(in crate::scope), );
-    elements!(restricted_public_fields, pub(in crate::scope), pub);
-    elements!(parent_visible, pub(super), pub);
+    elements!(restricted, pub, pub(in crate::scope));
+    elements!(restricted_element, pub(in crate::scope), pub(in crate::scope));
+    elements!(parent_visible, pub, pub(super));
 
     pub(super) fn check() {
         check_access!(restricted);
-        check_access!(restricted_public_fields);
+        check_access!(restricted_element);
         check_access!(parent_visible);
     }
 }
 
-// Re-exporting catches a pub(crate) iterator accidentally used for a pub element.
+// Public indexed fields must allow their iterator types to be publicly re-exported.
 pub use public::{
     Element, ElementIterMut, MultiIndexElementMap, MultiIndexElementMapHashedNonUniqueIter,
     MultiIndexElementMapHashedUniqueIter, MultiIndexElementMapOrderedNonUniqueIter,
@@ -108,6 +109,10 @@ pub use public::{
 fn main() {
     check_access!(public);
     check_access!(crate_visible);
+    let mut map: public_private_fields::MultiIndexElementMap = public_private_fields::map();
+    let mut iter: public_private_fields::ElementIterMut<'_> = map.iter_mut();
+    assert!(iter.next().is_some());
+    public_private_fields::check_private_types();
     self_visible::check_private_types();
     private::check_private_types();
     scope::check();

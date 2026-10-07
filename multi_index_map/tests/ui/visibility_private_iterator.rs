@@ -1,6 +1,6 @@
-// Public indexed fields must not expose a private element through its iterator.
+// A public element can have private indexed fields and private index iterators.
 // The derive should succeed inside the module, while naming the iterator here
-// must fail because the generated type has the element's private visibility.
+// must fail because the generated type has the indexed field's visibility.
 
 use multi_index_map::MultiIndexMap;
 
@@ -8,9 +8,9 @@ mod elements {
     use super::MultiIndexMap;
 
     #[derive(MultiIndexMap, Debug)]
-    struct Element {
+    pub struct Element {
         #[multi_index(hashed_unique)]
-        pub id: u32,
+        id: u32,
     }
 }
 

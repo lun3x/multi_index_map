@@ -133,15 +133,14 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
         &iter_generics,
     );
 
-    let element_vis = input.vis;
-
     let iterators = generators::generate_iterators(
         &indexed_fields,
         element_name,
-        &element_vis,
         &input.generics,
         &iter_generics,
     );
+
+    let element_vis = input.vis;
 
     let iter_mut_name = format_ident!("{}IterMut", element_name);
     let iter_mut = generate_iter_mut(

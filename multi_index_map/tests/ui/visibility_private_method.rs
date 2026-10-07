@@ -1,6 +1,6 @@
-// Generated types follow the public element's visibility, while keyed methods
-// follow the private indexed field's visibility. Widening the iterator type
-// must not expose either of these methods outside the element's module.
+// The map and mutable iterator follow the public element's visibility.
+// Keyed methods and per-index iterators follow the private indexed field and
+// must not be exposed outside the element's module.
 
 use multi_index_map::MultiIndexMap;
 
