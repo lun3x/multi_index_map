@@ -1,8 +1,8 @@
-use ::syn::Field;
+use manyhow::bail;
 use proc_macro2::Span;
-use proc_macro_error2::emit_error;
+use quote::ToTokens;
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, DeriveInput, Meta, MetaList, NestedMeta, Path,
+    spanned::Spanned, DeriveInput, Field, Meta, MetaList, Path,
 };
 
 // Represents whether the index is Ordered or Hashed, ie. whether we use a BTreeMap or a FxHashMap
@@ -22,29 +22,27 @@ pub(crate) enum Uniqueness {
 }
 
 // Get the Ordering and Uniqueness for a given field attribute.
-pub(crate) fn get_index_kind(f: &Field) -> Option<(Ordering, Uniqueness)> {
+pub(crate) fn get_index_kind(f: &Field) -> syn::Result<Option<(Ordering, Uniqueness)>> {
     let mut ident_buf = String::new();
     for attr in &f.attrs {
-        if attr.path.is_ident("multi_index") {
-            return {
-                let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else { return None };
-                let nested = meta_list.nested.first()?;
-                let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else { return None };
-
-                match nested_path.get_ident().map(|i| { ident_buf = i.to_string(); &*ident_buf }) {
+        if attr.path().is_ident("multi_index") {
+            let mut out = None;
+            attr.parse_nested_meta(|meta| {
+                out = match meta.path.get_ident().map(|i| { ident_buf = i.to_string(); &*ident_buf }) {
                     Some("hashed_unique") => Some((Ordering::Hashed, Uniqueness::Unique)),
                     Some("ordered_unique") => Some((Ordering::Ordered, Uniqueness::Unique)),
                     Some("hashed_non_unique") => Some((Ordering::Hashed, Uniqueness::NonUnique)),
                     Some("ordered_non_unique") => Some((Ordering::Ordered, Uniqueness::NonUnique)),
                     _ => {
-                        emit_error!(nested_path.span(), "Invalid multi_index attribute, should be one of [hashed_unique, ordered_unique, hashed_non_unique, ordered_non_unique]");
-                        None
+                        bail!(meta.path.span(), "Invalid multi_index attribute, should be one of [hashed_unique, ordered_unique, hashed_non_unique, ordered_non_unique]");
                     }
-                }
-            }
+                };
+                Ok(())
+            })?;
+            return Ok(out);
         }
     }
-    None
+    Ok(None)
 }
 
 pub(crate) struct ExtraAttributes {
@@ -74,59 +72,34 @@ impl ExtraAttributes {
 
         let derive = Meta::List(MetaList {
             path: Path::from(syn::Ident::new("derive", Span::call_site())),
-            paren_token: syn::token::Paren(Span::call_site()),
-            nested: Punctuated::from_iter([NestedMeta::Meta(Meta::Path(Path::from(
-                ident.clone(),
-            )))]),
+            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(Span::call_site())),
+            tokens: ident.into_token_stream(),
         });
 
         self.derives.push(derive);
     }
 }
 
-pub(crate) fn get_extra_attributes(f: &DeriveInput) -> ExtraAttributes {
+pub(crate) fn get_extra_attributes(f: &DeriveInput) -> syn::Result<ExtraAttributes> {
     let mut extra_attrs = ExtraAttributes::default();
 
     for attr in &f.attrs {
-        if attr.path.is_ident("multi_index_derive") {
-            let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else {
-                break
-            };
-            for nested in &meta_list.nested {
-                let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else {
-                    emit_error!(
-                        nested.span(),
-                        "Invalid multi_index_derive attribute, should be a deriveable trait, eg. Clone, Debug"
-                    );
-                    continue;
-                };
-
-                let Some(ident) = nested_path.get_ident() else {
-                    continue;
-                };
-
-                extra_attrs.add_derive(ident);
-            }
+        if attr.path().is_ident("multi_index_derive") {
+            attr.parse_nested_meta(|meta| {
+                if let Some(ident) = meta.path.get_ident() {
+                    extra_attrs.add_derive(ident);
+                }
+                Ok(())
+            })?;
         }
 
-        if attr.path.is_ident("multi_index_hash") {
-            let Ok(syn::Meta::List(meta_list)) = attr.parse_meta() else {
-                break
-            };
-            for nested in &meta_list.nested {
-                let syn::NestedMeta::Meta(syn::Meta::Path(nested_path)) = nested else {
-                    emit_error!(
-                        nested.span(),
-                        "Invalid multi_index_hash attribute, should be a struct implementing BuildHasher eg. FxBuildHasher"
-                    );
-                    continue;
-                };
-
-                extra_attrs.hasher = nested_path.clone();
-                break;
-            }
+        if attr.path().is_ident("multi_index_hash") {
+            attr.parse_nested_meta(|meta| {
+                extra_attrs.hasher = meta.path.clone();
+                Ok(())
+            })?;
         }
     }
 
-    extra_attrs
+    Ok(extra_attrs)
 }

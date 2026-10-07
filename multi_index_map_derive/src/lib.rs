@@ -1,49 +1,50 @@
-use ::proc_macro_error2::{abort_call_site, proc_macro_error};
 use ::quote::format_ident;
-use ::syn::{parse_macro_input, DeriveInput};
+use ::syn::{parse_quote};
 use convert_case::Casing;
 use generators::{generate_iter_mut, FieldIdents, EXPECT_NAMED_FIELDS};
-use proc_macro_error2::OptionExt;
-use syn::parse_quote;
+use manyhow::{bail, error_message, manyhow};
 
 mod generators;
 mod index_attributes;
 
+#[manyhow]
 #[proc_macro_derive(
     MultiIndexMap,
     attributes(multi_index, multi_index_derive, multi_index_hash)
 )]
-#[proc_macro_error]
-pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro::TokenStream> {
     // Parse the input tokens into a syntax tree.
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = syn::parse(input)?;
 
-    let extra_attrs = index_attributes::get_extra_attributes(&input);
+    let extra_attrs = index_attributes::get_extra_attributes(&input)?;
 
     // Extract the struct fields if we are parsing a struct,
     // otherwise throw an error as we do not support Enums or Unions.
     let fields = match input.data {
         syn::Data::Struct(d) => d.fields,
-        _ => abort_call_site!("MultiIndexMap only supports structs as elements"),
+        _ => bail!("MultiIndexMap only supports structs as elements"),
     };
 
     // Verify the struct fields are named fields,
     // otherwise throw an error as we do not support Unnamed or Unit structs.
     let syn::Fields::Named(named_fields) = fields else {
-        abort_call_site!(
+        bail!(
             "Struct fields must be named, unnamed tuple structs and unit structs are not supported"
         )
     };
 
-    // Filter out all the fields that do not have a multi_index attribute,
-    // so we can ignore the non-indexed fields.
-    let (indexed_fields, unindexed_fields): (Vec<_>, Vec<_>) = named_fields
+    let named_fields_with_kind = named_fields
         .named
         .into_iter()
         .map(|f| {
-            let index_kind = index_attributes::get_index_kind(&f);
-            (f, index_kind)
+            let index_kind = index_attributes::get_index_kind(&f)?;
+            Ok((f, index_kind))
         })
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    // Filter out all the fields that do not have a multi_index attribute,
+    // so we can ignore the non-indexed fields.
+    let (indexed_fields, unindexed_fields): (Vec<_>, Vec<_>) = named_fields_with_kind.into_iter()
         .partition(|(_, index_kind)| index_kind.is_some());
 
     let element_name = &input.ident;
@@ -53,11 +54,12 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     // Massage the two partitioned Vecs into the correct types
     let indexed_fields = indexed_fields
         .into_iter()
-        .map(|(field, kind)| {
+        .map(|(field, kind)| -> syn::Result<_> {
             let (ordering, uniqueness) = kind
-                .expect_or_abort("Internal logic broken, all indexed fields should have a kind");
+                .ok_or_else(|| error_message!("Internal logic broken, all indexed fields should have a kind"))?;
 
-            let field_ident = field.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS);
+            let field_ident = field.ident.as_ref()
+                .ok_or_else(|| error_message!("Internal logic broken, all indexed fields should have a name"))?;
 
             let idents = FieldIdents {
                 name: field_ident.clone(),
@@ -71,9 +73,9 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
                 ),
             };
 
-            (field, idents, ordering, uniqueness)
+            syn::Result::Ok((field, idents, ordering, uniqueness))
         })
-        .collect::<Vec<_>>();
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let unindexed_fields = unindexed_fields
         .into_iter()
@@ -105,8 +107,8 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     let unindexed_types = unindexed_fields.iter().map(|f| &f.ty).collect::<Vec<_>>();
     let unindexed_idents = unindexed_fields
         .iter()
-        .map(|f| f.ident.as_ref().expect_or_abort(EXPECT_NAMED_FIELDS))
-        .collect::<Vec<_>>();
+        .map(|f| f.ident.as_ref().ok_or_else(|| error_message!("{EXPECT_NAMED_FIELDS}").into()))
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let mut iter_generics = input.generics.clone();
     iter_generics
@@ -166,5 +168,5 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     );
 
     // Hand the output tokens back to the compiler.
-    proc_macro::TokenStream::from(expanded)
+    Ok(proc_macro::TokenStream::from(expanded))
 }
