@@ -38,7 +38,8 @@ Current implementation supports:
 # How to use
 
 * This crate provides a derive macro `MultiIndexMap`, which when applied to the struct representing an element will generate a map to store and access these elements.
-* The generated map, its general methods, and the mutable iterator follow the element struct's visibility. Per-index iterator structs and keyed methods follow their indexed field's visibility. Backing-store and index fields remain private.
+* Apply the derive to structs at module scope. The generated module cannot access function-local structs or imports.
+* The generated map, its general methods, and the mutable iterator follow the element struct's visibility. Per-index iterator structs and keyed methods follow their indexed field's visibility. Generated types live in a private module and are re-exported alongside the element. Their backing-store, index, and iterator fields are inaccessible even from the element's own module.
 * Annotations are used to specify which fields to index. Currently `hashed_unique`, `hashed_non_unique`, `ordered_unique`, and `ordered_non_unique` are supported.
 * The types of all indexed fields must implement `Clone`.
 * Optionally, `multi_index_derive` can be used to derive traits on the generated MultiIndexMap, eg. `#[multi_index_derive(Clone, Debug)]`

@@ -1,11 +1,13 @@
-use ::quote::format_ident;
+use ::quote::{format_ident, quote};
 use ::syn::parse_quote;
 use convert_case::Casing;
 use generators::{generate_iter_mut, FieldIdents, EXPECT_NAMED_FIELDS};
 use manyhow::{bail, error_message, manyhow};
+use syn::visit_mut::VisitMut;
 
 mod generators;
 mod index_attributes;
+mod private_module;
 
 #[manyhow]
 #[proc_macro_derive(
@@ -16,7 +18,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
     // Parse the input tokens into a syntax tree.
     let input = syn::parse(input)?;
 
-    let extra_attrs = index_attributes::get_extra_attributes(&input)?;
+    let mut extra_attrs = index_attributes::get_extra_attributes(&input)?;
 
     // Extract the struct fields if we are parsing a struct,
     // otherwise throw an error as we do not support Enums or Unions.
@@ -51,9 +53,13 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
     let element_name = &input.ident;
 
     let map_name = format_ident!("MultiIndex{}Map", element_name);
+    let iter_mut_name = format_ident!("{}IterMut", element_name);
+    // Keep the element's spelling to avoid collisions between names whose
+    // snake_case forms are identical.
+    let module_name = format_ident!("__multi_index_map_{}", element_name);
 
     // Massage the two partitioned Vecs into the correct types
-    let indexed_fields = indexed_fields
+    let mut indexed_fields = indexed_fields
         .into_iter()
         .map(|(field, kind)| -> syn::Result<_> {
             let (ordering, uniqueness) = kind.ok_or_else(|| {
@@ -80,10 +86,40 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let unindexed_fields = unindexed_fields
+    let mut unindexed_fields = unindexed_fields
         .into_iter()
         .map(|(field, _)| field)
         .collect::<Vec<_>>();
+
+    // Re-export each generated type with its original visibility. The internal
+    // declarations and methods retain the same accessible scope one level down.
+    let element_vis = &input.vis;
+    let iterator_exports = indexed_fields.iter().map(|(field, idents, _, _)| {
+        let vis = &field.vis;
+        let iter_name = &idents.iter_name;
+        quote! {
+            #[allow(unused_imports)]
+            #vis use self::#module_name::#iter_name;
+        }
+    });
+    let exports = quote! {
+        #[allow(unused_imports)]
+        #element_vis use self::#module_name::{#map_name, #iter_mut_name};
+        #(#iterator_exports)*
+    };
+
+    let element_vis = private_module::visibility_in_child(&input.vis);
+    let mut generics = input.generics;
+    let mut parent_scope = private_module::ParentScope::default();
+    parent_scope.visit_generics_mut(&mut generics);
+    parent_scope.visit_path_mut(&mut extra_attrs.hasher);
+    for (field, _, _, _) in &mut indexed_fields {
+        field.vis = private_module::visibility_in_child(&field.vis);
+        parent_scope.visit_type_mut(&mut field.ty);
+    }
+    for field in &mut unindexed_fields {
+        parent_scope.visit_type_mut(&mut field.ty);
+    }
 
     let lookup_table_fields = generators::generate_lookup_tables(&indexed_fields, &extra_attrs);
 
@@ -117,7 +153,7 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
         })
         .collect::<syn::Result<Vec<_>>>()?;
 
-    let mut iter_generics = input.generics.clone();
+    let mut iter_generics = generics.clone();
     iter_generics
         .params
         .push(parse_quote!('__mim_iter_lifetime));
@@ -129,33 +165,26 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
         &removes,
         &pre_modifies,
         &post_modifies,
-        &input.generics,
+        &generics,
         &iter_generics,
     );
 
-    let iterators = generators::generate_iterators(
-        &indexed_fields,
-        element_name,
-        &input.generics,
-        &iter_generics,
-    );
+    let iterators =
+        generators::generate_iterators(&indexed_fields, element_name, &generics, &iter_generics);
 
-    let element_vis = input.vis;
-
-    let iter_mut_name = format_ident!("{}IterMut", element_name);
     let iter_mut = generate_iter_mut(
         &iter_mut_name,
         element_name,
         &element_vis,
         &unindexed_types,
         &unindexed_idents,
-        &input.generics,
+        &generics,
         &iter_generics,
     );
 
     let expanded = generators::generate_expanded(
         &extra_attrs,
-        &input.generics,
+        &generics,
         &map_name,
         element_name,
         &element_vis,
@@ -175,5 +204,15 @@ pub fn multi_index_map(input: proc_macro::TokenStream) -> syn::Result<proc_macro
     );
 
     // Hand the output tokens back to the compiler.
-    Ok(proc_macro::TokenStream::from(expanded))
+    Ok(proc_macro::TokenStream::from(quote! {
+        #[allow(non_snake_case)]
+        mod #module_name {
+            #[allow(unused_imports)]
+            use super::*;
+
+            #expanded
+        }
+
+        #exports
+    }))
 }

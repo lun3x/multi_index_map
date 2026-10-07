@@ -1,0 +1,119 @@
+error[E0616]: field `_store` of struct `MultiIndexElementMap` is private
+  --> tests/ui/visibility_private_storage.rs:19:18
+   |
+19 |     let _ = &map._store;
+   |                  ^^^^^^ private field
+
+error[E0616]: field `_hashed_unique_index` of struct `MultiIndexElementMap` is private
+  --> tests/ui/visibility_private_storage.rs:20:18
+   |
+20 |     let _ = &map._hashed_unique_index;
+   |                  ^^^^^^^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `_hashed_non_unique_index` of struct `MultiIndexElementMap` is private
+  --> tests/ui/visibility_private_storage.rs:21:18
+   |
+21 |     let _ = &map._hashed_non_unique_index;
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `_ordered_unique_index` of struct `MultiIndexElementMap` is private
+  --> tests/ui/visibility_private_storage.rs:22:18
+   |
+22 |     let _ = &map._ordered_unique_index;
+   |                  ^^^^^^^^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `_ordered_non_unique_index` of struct `MultiIndexElementMap` is private
+  --> tests/ui/visibility_private_storage.rs:23:18
+   |
+23 |     let _ = &map._ordered_non_unique_index;
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^ private field
+
+error[E0616]: field `_store_ref` of struct `MultiIndexElementMapHashedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:26:19
+   |
+26 |     let _ = &iter._store_ref;
+   |                   ^^^^^^^^^^ private field
+
+error[E0616]: field `_iter` of struct `MultiIndexElementMapHashedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:27:19
+   |
+27 |     let _ = &iter._iter;
+   |                   ^^^^^ private field
+
+error[E0616]: field `_inner_iter` of struct `MultiIndexElementMapHashedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:28:19
+   |
+28 |     let _ = &iter._inner_iter;
+   |                   ^^^^^^^^^^^ private field
+
+error[E0616]: field `_store_ref` of struct `MultiIndexElementMapHashedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:31:19
+   |
+31 |     let _ = &iter._store_ref;
+   |                   ^^^^^^^^^^ private field
+
+error[E0616]: field `_iter` of struct `MultiIndexElementMapHashedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:32:19
+   |
+32 |     let _ = &iter._iter;
+   |                   ^^^^^ private field
+
+error[E0616]: field `_inner_iter` of struct `MultiIndexElementMapHashedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:33:19
+   |
+33 |     let _ = &iter._inner_iter;
+   |                   ^^^^^^^^^^^ private field
+
+error[E0616]: field `_store_ref` of struct `MultiIndexElementMapOrderedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:37:19
+   |
+37 |     let _ = &iter._store_ref;
+   |                   ^^^^^^^^^^ private field
+
+error[E0616]: field `_iter` of struct `MultiIndexElementMapOrderedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:38:19
+   |
+38 |     let _ = &iter._iter;
+   |                   ^^^^^ private field
+
+error[E0616]: field `_iter_rev` of struct `MultiIndexElementMapOrderedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:39:19
+   |
+39 |     let _ = &iter._iter_rev;
+   |                   ^^^^^^^^^ private field
+
+error[E0616]: field `_inner_iter` of struct `MultiIndexElementMapOrderedUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:40:19
+   |
+40 |     let _ = &iter._inner_iter;
+   |                   ^^^^^^^^^^^ private field
+
+error[E0616]: field `_store_ref` of struct `MultiIndexElementMapOrderedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:43:19
+   |
+43 |     let _ = &iter._store_ref;
+   |                   ^^^^^^^^^^ private field
+
+error[E0616]: field `_iter` of struct `MultiIndexElementMapOrderedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:44:19
+   |
+44 |     let _ = &iter._iter;
+   |                   ^^^^^ private field
+
+error[E0616]: field `_iter_rev` of struct `MultiIndexElementMapOrderedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:45:19
+   |
+45 |     let _ = &iter._iter_rev;
+   |                   ^^^^^^^^^ private field
+
+error[E0616]: field `_inner_iter` of struct `MultiIndexElementMapOrderedNonUniqueIter` is private
+  --> tests/ui/visibility_private_storage.rs:46:19
+   |
+46 |     let _ = &iter._inner_iter;
+   |                   ^^^^^^^^^^^ private field
+
+error[E0616]: field `0` of struct `ElementIterMut` is private
+  --> tests/ui/visibility_private_storage.rs:50:19
+   |
+50 |     let _ = &iter.0;
+   |                   ^ private field

@@ -1,12 +1,22 @@
-error[E0603]: struct `MultiIndexElementMapIdIter` is private
+error[E0603]: struct import `MultiIndexElementMapIdIter` is private
   --> tests/ui/visibility_private_iterator.rs:18:29
    |
 18 |     let _: Option<elements::MultiIndexElementMapIdIter<'_>> = None;
-   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ private struct
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ private struct import
    |
-note: the struct `MultiIndexElementMapIdIter` is defined here
+note: the struct import `MultiIndexElementMapIdIter` is defined here...
+  --> tests/ui/visibility_private_iterator.rs:10:14
+   |
+10 |     #[derive(MultiIndexMap, Debug)]
+   |              ^^^^^^^^^^^^^
+note: ...and refers to the struct `MultiIndexElementMapIdIter` which is defined here
   --> tests/ui/visibility_private_iterator.rs:10:14
    |
 10 |     #[derive(MultiIndexMap, Debug)]
    |              ^^^^^^^^^^^^^
    = note: this error originates in the derive macro `MultiIndexMap` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: import `MultiIndexElementMapIdIter` directly
+   |
+18 -     let _: Option<elements::MultiIndexElementMapIdIter<'_>> = None;
+18 +     let _: Option<self::__multi_index_map_Element::MultiIndexElementMapIdIter> = None;
+   |
