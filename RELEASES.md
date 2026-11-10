@@ -1,3 +1,14 @@
+Version 0.16.0 (2026-11-10)
+==========================
+
+- **Breaking:** Hashed indexes now use the standard library's `RandomState` by default, and the `rustc-hash` feature has been removed. To keep using `rustc-hash`, add it to your own dependencies and annotate the element with `#[multi_index_hash(rustc_hash::FxBuildHasher)]`.
+- **Breaking:** Raise MSRV to 1.86.
+- **Breaking:** Generated types now live in a private module and are re-exported alongside the element. The derive must be applied to structs at module scope, and the generated map's backing-store, index, and iterator fields are no longer accessible from the element's module.
+- `get_by_`, `get_mut_by_`, `update_by_`, `modify_by_`, and `remove_by_` methods all accept borrowed keys, eg. `&str` for a `String` index or `&[T]` for a `Vec<T>` index.
+- Implement `FromIterator` for the generated map and `IntoIterator` for references to it.
+- Replace `proc-macro-error2` with `manyhow` and update to `syn` 3, fixing a deprecation warning in downstream crates.
+- Update dependencies to their latest stable releases.
+
 Version 0.15.1 (2026-01-18)
 ==========================
 
